@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.v1 import auth, health
 from app.auth.dev_idp import DevIdp
+from app.auth.jwks import JwksCache
 from app.config import get_settings
 from app.db.engine import assert_unprivileged_role, engine
 from app.errors import install_error_handlers
@@ -31,6 +32,9 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
     app.state.dev_idp = DevIdp(settings.auth_issuer, settings.auth_audience)
+    app.state.jwks_cache = JwksCache(
+        settings.auth_jwks_url, require_https=settings.env == "production"
+    )
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)

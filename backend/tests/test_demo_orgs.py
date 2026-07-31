@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError, ProgrammingError
 from app.api.v1 import auth as auth_module
 from app.api.v1.auth import DemoLoginRequest
 from app.auth.demo import DEMO_ORG_TTL, DEMO_TOKEN_TTL_SECONDS
+from app.auth.tickets import TICKET_TTL_SECONDS
 from app.db.session import system_session, tenant_session
 from app.worker.tasks import is_deadlock, purge_expired_orgs
 
@@ -1113,6 +1114,30 @@ def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
     )
 
 
+def test_a_stream_ticket_cannot_outlive_the_organisation_it_names() -> None:
+    """Task 14 added a second credential that can reach a child table, so the
+    residual argument acquired a second half.
+
+    A stream ticket authorises the SSE endpoint, and that endpoint writes: it
+    stores the assistant's answer when generation finishes. So the question the
+    test above asks about demo tokens has to be asked about tickets too.
+
+    The worst case is a chain, not a single TTL, and it is bounded because a
+    ticket cannot mint another ticket: `create_stream_ticket` depends on
+    `CurrentPrincipal`, which verifies against the API audience, while a ticket
+    carries `stream:<message id>` and is refused there. The longest reach is
+    therefore one demo token, spent at the last instant it verifies, minting one
+    ticket that then runs its own course — and it has to stay inside the
+    organisation's lifetime, or the same unreachable rows the purge cannot
+    collect come back through a different door.
+    """
+    assert timedelta(seconds=DEMO_TOKEN_TTL_SECONDS + TICKET_TTL_SECONDS) < DEMO_ORG_TTL, (
+        "a demo token plus the stream ticket it can mint at the last moment now reaches past "
+        "the organisation's own lifetime, so a ticket holder can write an assistant message "
+        "into an organisation the purge has already destroyed"
+    )
+
+
 def _route_surface(routes: object, prefix: str = "") -> object:
     """Flatten the route tree into (path, methods), and refuse to guess.
 
@@ -1188,6 +1213,20 @@ EXPECTED_ROUTES = {
     ("/health/ready", frozenset({"GET"})),
     ("/.well-known/jwks.json", frozenset({"GET"})),
     ("/api/v1/auth/demo-login", frozenset({"POST"})),
+    # Task 14. `stream-tickets` is the one addition that issues a credential, so
+    # it is the one the residual argument had to be re-read for. It is not a
+    # refresh endpoint: it needs a live demo token to be called at all, it
+    # cannot be called with its own output, and its 60-second ticket is held to
+    # the organisation's lifetime by
+    # test_a_stream_ticket_cannot_outlive_the_organisation_it_names above. The
+    # other three take the caller's existing token and mint nothing.
+    ("/api/v1/conversations", frozenset({"POST"})),
+    ("/api/v1/conversations/{conversation_id}/messages", frozenset({"POST"})),
+    ("/api/v1/auth/stream-tickets", frozenset({"POST"})),
+    (
+        "/api/v1/conversations/{conversation_id}/messages/{message_id}/stream",
+        frozenset({"GET"}),
+    ),
 }
 
 

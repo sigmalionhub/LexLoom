@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.v1 import auth, health
+from app.api.v1 import auth, conversations, health
 from app.auth.dev_idp import DevIdp
 from app.auth.jwks import JwksCache
 from app.config import get_settings
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(conversations.router)
     return app
 
 

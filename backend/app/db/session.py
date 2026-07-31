@@ -72,4 +72,15 @@ async def get_tenant_session(principal: CurrentPrincipal) -> AsyncIterator[Async
 
 
 # The alias route handlers depend on. Never expose an unscoped session this way.
-TenantSession = Annotated[AsyncSession, Depends(get_tenant_session)]
+#
+# scope="function" is load-bearing, not tidiness. FastAPI's default closes a
+# `yield` dependency's exit stack around the whole *request* — after
+# `await response(scope, receive, send)` — so this session would commit after the
+# client already holds its 201, and the very next request could be told the row
+# does not exist. That is not theoretical: it is what made a POST-then-stream
+# sequence fail intermittently against a real uvicorn, while every in-process
+# test stayed green because that transport runs the entire application call
+# before returning a response. "function" ends the dependency after the handler
+# and before the response goes out, which is what a 2xx is normally taken to mean.
+# test_a_write_is_committed_before_its_response_is_sent holds this to it.
+TenantSession = Annotated[AsyncSession, Depends(get_tenant_session, scope="function")]

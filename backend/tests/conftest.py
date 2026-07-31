@@ -100,11 +100,33 @@ async def worker_role(monkeypatch):
     await worker_engine.dispose()
 
 
+class _OwnKeysJwks:
+    """A JwksCache that serves the key set of the very app it belongs to."""
+
+    def __init__(self, idp) -> None:
+        self._idp = idp
+
+    async def get(self) -> dict:
+        return self._idp.jwks()
+
+
 @pytest.fixture
 def app() -> FastAPI:
     """Exposed separately so tests can reach app.state (the dev IdP, the JWKS
-    cache) without poking at private attributes on the HTTP client."""
-    return create_app()
+    cache) without poking at private attributes on the HTTP client.
+
+    The JWKS cache is replaced because the real one fetches AUTH_JWKS_URL over
+    HTTP, which defaults to http://localhost:8100 — the Compose `api` container,
+    a *different* process whose dev IdP generated a *different* keypair in
+    memory at startup. Every token this app mints would be rejected with "no key
+    matches kid", and with the container stopped the cache would fail closed
+    instead. Both failures point at authentication, neither is about the code
+    under test. Serving the app's own keys is what makes an authenticated test
+    exercise this application rather than whatever is listening on port 8100.
+    """
+    app = create_app()
+    app.state.jwks_cache = _OwnKeysJwks(app.state.dev_idp)
+    return app
 
 
 @pytest.fixture
@@ -152,6 +174,17 @@ async def demo_auth(client: AsyncClient, created_orgs: list[str]) -> dict[str, s
     ).json()
     created_orgs.append(body["org_id"])
     return {"Authorization": f"Bearer {body['access_token']}"}
+
+
+@pytest.fixture
+async def demo_org_id(demo_auth: dict[str, str], created_orgs: list[str]) -> str:
+    """The organisation `demo_auth` is logged into, for tests that also read rows.
+
+    Taken from the teardown registry rather than decoded out of the token: it is
+    the same value the login returned, and depending on `demo_auth` is what
+    makes the last entry that login's.
+    """
+    return created_orgs[-1]
 
 
 @pytest.fixture

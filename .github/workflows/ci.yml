@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: lexloom_migrator
+          POSTGRES_PASSWORD: migrator
+          POSTGRES_DB: lexloom
+        options: >-
+          --health-cmd "pg_isready -U lexloom_migrator" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7-alpine
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv pip install --system -r backend/pyproject.toml --extra dev
+      - name: Create application roles
+        # Must grant exactly what deploy/postgres/init/01-roles.sh grants for the
+        # local Compose stack, or a permission drift here surfaces as a false RLS
+        # failure that is expensive to tell apart from the real thing.
+        run: |
+          PGPASSWORD=migrator psql -h localhost -U lexloom_migrator -d lexloom -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE lexloom_app LOGIN PASSWORD 'app';
+          CREATE ROLE lexloom_worker LOGIN PASSWORD 'worker';
+          GRANT CONNECT ON DATABASE lexloom TO lexloom_app, lexloom_worker;
+          GRANT USAGE ON SCHEMA public TO lexloom_app, lexloom_worker;
+          SQL
+      - run: ruff check backend/
+      - name: Run migrations
+        working-directory: backend
+        env:
+          # The migrator role, not the app role: migrations create tables and
+          # the app role deliberately cannot (see the startup guard in
+          # app/db/engine.py). alembic/env.py reads DATABASE_URL when no -x dsn
+          # is given; alembic.ini only holds a placeholder DSN.
+          DATABASE_URL: postgresql+asyncpg://lexloom_migrator:migrator@localhost:5432/lexloom
+        # Bare `alembic` fails here: the console script imports app.db.models,
+        # and the project is not installed as a package in this environment
+        # (only its dependencies are). `python -m alembic` runs with alembic.ini's
+        # `prepend_sys_path = .` in effect, which puts the current directory
+        # (backend/, via working-directory above) on sys.path and makes `app`
+        # importable.
+        run: python -m alembic upgrade head
+      - name: Tests
+        working-directory: backend
+        env:
+          # The app role, not the migrator role: the startup guard in
+          # app/db/engine.py refuses to run as a role that is a superuser, has
+          # BYPASSRLS, or owns tables in schema public. The migrator role owns
+          # every table it just created, so reusing its DSN here would trip the
+          # guard on every DB-touching test.
+          DATABASE_URL: postgresql+asyncpg://lexloom_app:app@localhost:5432/lexloom
+          REDIS_URL: redis://localhost:6379/0
+          ENV: ci
+          # Same "project not installed as a package" issue as the migration
+          # step above, but pytest does not benefit from alembic.ini's
+          # prepend_sys_path: with no __init__.py under tests/, pytest's default
+          # import mode puts tests/ itself on sys.path, not backend/, so `app`
+          # is not importable without this. Verified locally: dropping this line
+          # reproduces `ModuleNotFoundError: No module named 'app'` on collection.
+          PYTHONPATH: .
+        run: pytest -v
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stack must come up on a clean machine
+        # No .env is created here on purpose: a clean runner has none, and the
+        # Compose file's ${VAR:-default} substitutions must be what makes the
+        # stack usable without one. Targets /health/live, not /health/ready,
+        # because liveness touches no dependencies — it only proves the process
+        # started, which is what this smoke test exists to catch regressions in.
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8100/health/live && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1

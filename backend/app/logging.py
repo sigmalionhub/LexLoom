@@ -23,6 +23,10 @@ def configure_logging() -> None:
             _bind_context,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            # Without this, logger.exception() serialises as the bare boolean
+            # `"exc_info": true` and the traceback is lost — the one thing the
+            # generic 500 response tells the caller to go and look for.
+            structlog.processors.dict_tracebacks,
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),

@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.logging import request_id_var
@@ -48,6 +49,31 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=exc.status,
             content=exc.to_dict(request.url.path),
             media_type="application/problem+json",
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _handle_http(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """404 and 405 come from the router, not from our code.
+
+        Without this they leave as FastAPI's `{"detail": "Not Found"}` with no
+        `code` — and 404 is not an incidental error here: cross-organisation
+        access deliberately answers 404 rather than 403, so it is a
+        load-bearing part of the contract the frontend switches on.
+        """
+        code = {404: "not_found", 405: "method_not_allowed"}.get(
+            exc.status_code, f"http_{exc.status_code}"
+        )
+        problem = ProblemError(
+            code=code,
+            status=exc.status_code,
+            title=str(exc.detail),
+            detail=str(exc.detail),
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=problem.to_dict(request.url.path),
+            media_type="application/problem+json",
+            headers=getattr(exc, "headers", None),
         )
 
     @app.exception_handler(RequestValidationError)

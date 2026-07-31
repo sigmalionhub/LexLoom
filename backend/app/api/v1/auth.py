@@ -8,11 +8,11 @@ from app.auth.demo import DEMO_TOKEN_TTL_SECONDS, provision_demo_org
 
 router = APIRouter(tags=["auth"])
 
-# Categories that cannot carry a glyph on their own: control, format (where
-# U+200B ZERO WIDTH SPACE lives), unassigned, surrogate and private-use, the
-# three separators, and the two mark classes — a label consisting only of
-# combining marks has no base character to combine with, so it renders as
-# nothing or as a lone dotted circle.
+# Categories with no appearance this API can count on: control, format (where
+# U+200B ZERO WIDTH SPACE lives), unassigned, private use, the three separators,
+# and the two mark classes — a label consisting only of combining marks has no
+# base character to combine with, so it renders as nothing or as a lone dotted
+# circle.
 #
 # `Cn` earns its place: it is where every invisible codepoint that Unicode has
 # not assigned a character to lives, including the whole
@@ -23,9 +23,20 @@ router = APIRouter(tags=["auth"])
 # codepoint assigned in a newer standard reads as unassigned here, so a label
 # made *entirely* of brand-new characters is rejected until Python catches up.
 # For a demo tenant label that is the right way round.
-_UNRENDERABLE_CATEGORIES = frozenset(
-    {"Cc", "Cf", "Cn", "Cs", "Co", "Zs", "Zl", "Zp", "Mn", "Me"}
-)
+#
+# `Co` is the weaker member and is here for a different reason: private-use
+# codepoints have no assigned appearance at all, only whatever a private
+# agreement between a font and its author gives them. A label made entirely of
+# them is not a name any other reader can see, and most fonts draw nothing or a
+# tofu box. This is the one category in the set whose members might render for
+# somebody, and that is why the heading above says "no appearance this API can
+# count on" rather than "cannot carry a glyph".
+#
+# Surrogates (`Cs`) are deliberately *not* here. A lone surrogate cannot be
+# encoded as UTF-8, so no HTTP request body can carry one and the category could
+# never fire; listing it would be decoration, and a rule that nothing can
+# exercise is a rule nobody can trust.
+_UNRENDERABLE_CATEGORIES = frozenset({"Cc", "Cf", "Cn", "Co", "Zs", "Zl", "Zp", "Mn", "Me"})
 
 # Codepoints in otherwise ordinary categories that still render blank. `Lo`
 # holds both real letters and these fillers, and `So` holds both symbols and the
@@ -57,7 +68,8 @@ class DemoLoginRequest(BaseModel):
 
         Exactly what is tested: every character's general category is in
         `_UNRENDERABLE_CATEGORIES`, or the character is in `_BLANK_CODEPOINTS`.
-        Nothing wider is claimed.
+        Nothing wider is claimed, and every entry in both is exercised by a
+        fixture in `test_demo_login_rejects_a_label_with_nothing_visible_in_it`.
 
         **This is not a rendering oracle.** Unicode does name most of the
         deliberately invisible codepoints — the property is

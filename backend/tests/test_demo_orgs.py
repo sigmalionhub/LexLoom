@@ -6,13 +6,62 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
+# Imported as a module as well as by name: the load-bearing test below rebinds
+# the two frozensets, and rebinding them on the module is the only way the
+# validator (which reads them as globals) sees the change.
+from app.api.v1 import auth as auth_module
+from app.api.v1.auth import DemoLoginRequest
 from app.auth.demo import DEMO_ORG_TTL, DEMO_TOKEN_TTL_SECONDS
 from app.db.session import system_session, tenant_session
 from app.worker.tasks import is_deadlock, purge_expired_orgs
+
+# Every known way to name an organisation nothing can read, one list shared by
+# the HTTP test that proves each is refused and by the test that proves no
+# entry in the validator's two sets is decorative. Written as escapes on
+# purpose: a literal zero-width space in source is invisible to the next reader
+# and survives a careless reformat unnoticed.
+BLANK_LABELS = (
+    "",
+    "   ",
+    "\u0001",  # START OF HEADING (Cc) — not str.isspace(), so it reaches the validator
+    "\u200b",  # ZERO WIDTH SPACE (Cf) — not str.isspace()
+    "\u00a0",  # NO-BREAK SPACE (Zs) — Python strips it, Postgres would not
+    # Zs, Zl and Zp only ever decide anything in company: alone they are
+    # str.isspace() and `strip_whitespace` removes them before the validator
+    # runs. Flanked by a zero-width space, which is not stripped, they survive
+    # to be judged — which is what makes those three categories load-bearing
+    # rather than decorative.
+    "\u200b\u00a0\u200b",
+    "\u200b\u2028\u200b",  # LINE SEPARATOR (Zl)
+    "\u200b\u2029\u200b",  # PARAGRAPH SEPARATOR (Zp)
+    "\ue000",  # PRIVATE USE (Co) — an appearance only a private font agreement gives
+    "\uf8ff",  # PRIVATE USE (Co) — the Apple logo on Apple platforms, nothing elsewhere
+    "\u3164",  # HANGUL FILLER (Lo) — the canonical blank name
+    "\u115f",  # HANGUL CHOSEONG FILLER (Lo)
+    "\u1160",  # HANGUL JUNGSEONG FILLER (Lo)
+    "\uffa0",  # HALFWIDTH HANGUL FILLER (Lo)
+    "\u2800",  # BRAILLE PATTERN BLANK (So)
+    "\u0301",  # COMBINING ACUTE ACCENT (Mn) — no base character to sit on
+    "\u034f",  # COMBINING GRAPHEME JOINER (Mn)
+    "\u17b4",  # KHMER VOWEL INHERENT AQ (Mn)
+    "\u20dd",  # COMBINING ENCLOSING CIRCLE (Me) — nothing to enclose
+    "\u3164\u2800\u0301",
+    # Unassigned (Cn). Every one of these was accepted before `Cn` joined the
+    # rejected categories, each creating a real organisation whose name was one
+    # invisible character long: verified over HTTP, 200 with len(name) == 1.
+    "\u2065",  # reserved inside the Default_Ignorable run at U+2060
+    "\ufff0",  # reserved, Default_Ignorable
+    "\ufff8",  # reserved, Default_Ignorable
+    "\U000e0002",  # reserved in the tag block, Default_Ignorable
+    "\U000e0080",  # reserved in the variation-selector supplement
+    "\ufdd0",  # noncharacter: unassigned permanently, by design
+    "\u2065\ufdd0\U000e0002",
+)
 
 # The tables this module seeds and then proves empty. A literal on purpose —
 # `test_the_purge_covers_every_org_scoped_table` compares it against the
@@ -66,6 +115,25 @@ EXPECTED_PURGE_FUNCTION_SETTINGS = {"search_path=pg_catalog, public", "row_secur
 # Nothing is lost by the substitution — a TOAST relation exists only as an
 # attachment to a heap relation, and that parent is itself in the inventory
 # below, named.
+#
+# Relations in another session's temporary schema are the one exclusion, and it
+# is structural rather than a convenience. A temporary relation is visible only
+# to the backend that created it, is unreachable by name from any other session
+# (its schema is not on their search_path, and `pg_temp` resolves to the
+# reader's own), and is dropped when that backend disconnects — so it cannot be
+# a persistent route to anything. Without the exclusion this inventory is
+# non-hermetic: any concurrent session on a shared development database that
+# commits a temp table turns it red, which is noise, and noise is how an
+# inventory earns the reputation that gets it pasted over.
+#
+# The catalog is asked directly, via `pg_is_other_temp_schema`, rather than
+# matched against a `pg_temp_%` name pattern. Not because the pattern is known
+# to be exploitable — Postgres refuses `CREATE SCHEMA pg_temp_9` outright
+# ("unacceptable schema name … the prefix pg_ is reserved for system schemas"),
+# checked rather than assumed — but because the pattern encodes a naming
+# convention where what is meant is a property, and every guard this task
+# replaced failed in exactly that way. Our *own* temporary relations stay in
+# scope; the suite creates none.
 USER_CREATED_RELATIONS_SQL = """
 SELECT n.nspname AS schema_name,
        coalesce(toast.parent, toast_index.parent, c.relname) AS relation_name,
@@ -87,6 +155,7 @@ LEFT JOIN LATERAL (
     WHERE i.indexrelid = c.oid
 ) AS toast_index ON true
 WHERE c.oid >= 16384  -- FirstNormalObjectId: everything below shipped with initdb
+  AND NOT pg_catalog.pg_is_other_temp_schema(c.relnamespace)
 """
 
 # Every relation migrations 0001-0004 create, and nothing else. Indexes are in
@@ -126,17 +195,23 @@ EXPECTED_RELATIONS = {
 # Extension members are skipped *unless* they are SECURITY DEFINER. `vector`
 # alone contributes 118 functions; listing them would put an inventory nobody
 # can maintain in front of every extension upgrade, and an inventory people
-# routinely paste over is not a guard. The exclusion is bounded by the
-# extension inventory asserted alongside it, and `ALTER EXTENSION … ADD
-# FUNCTION` cannot be used to smuggle a definer function past it because the
-# `p.prosecdef` disjunct admits definer functions regardless of membership.
+# routinely paste over is not a guard.
+#
+# What bounds that exclusion is the `p.prosecdef` disjunct and nothing else.
+# `ALTER EXTENSION vector ADD FUNCTION public.helper()` makes an existing
+# function an extension member without touching `pg_extension`, so the
+# extension inventory below constrains it in no way — an earlier version of
+# this comment claimed otherwise and was wrong. The disjunct is what holds: a
+# definer function is listed whatever it belongs to, and a function that is
+# *not* SECURITY DEFINER executes with the caller's privileges, so the policies
+# in migrations 0002 and 0003 bind its statements exactly as they bind the
+# caller's own. The residue the exclusion lets through is therefore a function
+# that cannot see anything its caller could not already see.
 #
 # `prosecdef` is carried in the key because it is the property that decides
-# whether a function can see past row-level security at all: a function that is
-# not SECURITY DEFINER executes with the caller's privileges, so the policies in
-# migrations 0002 and 0003 bind its statements exactly as they bind the caller's
-# own. That is why the discriminator is worth recording, not a reason to filter
-# on it — every user-created non-extension function is listed either way.
+# whether a function can see past row-level security at all. That is why the
+# discriminator is worth recording, not a reason to filter on it — every
+# user-created non-extension function is listed either way.
 USER_CREATED_FUNCTIONS_SQL = """
 SELECT n.nspname AS schema_name,
        p.proname AS function_name,
@@ -163,9 +238,60 @@ WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
 # shape, not incidental: a variant taking an argument could be steered.
 EXPECTED_FUNCTIONS = {("public", "purge_expired_orgs", "", "f", True)}
 
-# What bounds the extension carve-out above. `plpgsql` is created by initdb;
-# `vector` is what the pgvector image installs and what migration 0001 needs.
+# A third inventory, of a third kind of thing that exists. `plpgsql` is created
+# by initdb; `vector` is what migration 0001 installs. This does not bound the
+# function carve-out above — see that comment — it bounds the extensions.
 EXPECTED_EXTENSIONS = {"plpgsql", "vector"}
+
+# The fourth kind of thing that exists, and the one an object inventory cannot
+# see: a role membership creates no relation and no function.
+#
+# `GRANT lexloom_migrator TO lexloom_app WITH INHERIT FALSE, SET TRUE` adds a
+# row to `pg_auth_members` and nothing else. `pg_class` and `pg_proc` are
+# untouched, `rolsuper` and `rolbypassrls` stay false, `lexloom_app` still owns
+# no table, and an unscoped `SELECT count(*) FROM organizations` still returns
+# 0 — right up until `SET ROLE lexloom_migrator`, after which it returns every
+# organisation in the database. Measured: 0 before, 847 after.
+#
+# So `pg_auth_members` is read directly, not through `pg_has_role`. Any grant,
+# with any combination of INHERIT / SET / ADMIN, puts a row in this table; no
+# combination of options hides it. That is the same property `oid >= 16384` has
+# for objects — an answer with no privilege semantics in it.
+#
+# The role attributes the design depends on ride along in the same tuple, so
+# `ALTER ROLE lexloom_app SUPERUSER` fails here too. `rolreplication` is in the
+# list because a replication connection reads the WAL and therefore every row of
+# every tenant, which is an RLS bypass that no privilege on any table describes.
+APPLICATION_ROLES_SQL = """
+SELECT r.rolname,
+       r.rolsuper,
+       r.rolbypassrls,
+       r.rolreplication,
+       r.rolcreatedb,
+       r.rolcreaterole,
+       r.rolinherit,
+       r.rolcanlogin,
+       coalesce(
+           (SELECT pg_catalog.array_agg(g.rolname ORDER BY g.rolname)
+            FROM pg_catalog.pg_auth_members m
+            JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+            WHERE m.member = r.oid),
+           '{}'::pg_catalog.name[]
+       ) AS memberships
+FROM pg_catalog.pg_roles r
+WHERE r.rolname IN ('lexloom_app', 'lexloom_worker')
+"""
+
+# (name, super, bypassrls, replication, createdb, createrole, inherit, login,
+# memberships). Both roles: no attribute that defeats RLS, and member of
+# nothing at all. `rolinherit` and `rolcanlogin` are true and are pinned as
+# observed rather than as required — they are how the roles are created, and an
+# unannounced change to either is worth a red test even though neither is a
+# bypass on its own.
+EXPECTED_APPLICATION_ROLES = {
+    ("lexloom_app", False, False, False, False, False, True, True, ()),
+    ("lexloom_worker", False, False, False, False, False, True, True, ()),
+}
 
 PURGE_FUNCTION_SQL = """
 SELECT prosecdef, proconfig, has_function_privilege('public', oid, 'EXECUTE') AS public_executes
@@ -391,53 +517,25 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
     """An organisation named "" is indistinguishable in the UI from one whose
     name failed to load, and the row is unbounded-creation fuel either way.
 
-    Five input classes, each of which defeated an earlier version of the check:
-    plain whitespace; U+200B ZERO WIDTH SPACE, which is not `str.isspace()` and
-    so survives `strip_whitespace`; the Hangul and Braille fillers, which are
-    ordinary `Lo`/`So` characters that happen to draw nothing and therefore
-    cannot be excluded by any category rule; bare combining marks, which have
-    no base character to attach to; and the unassigned (`Cn`) invisibles, which
-    passed every earlier version of this check because `Cn` was not in the
-    rejected set — reserved Default_Ignorable codepoints and noncharacters, each
-    of which created a real organisation with a one-character invisible name.
-    U+00A0 NO-BREAK SPACE is here for the opposite reason — Python strips it,
-    Postgres would have stored it — so a future switch to a hand-rolled
-    `.strip(" ")` fails loudly.
+    `BLANK_LABELS` above carries the input classes and the reason each is
+    there. The ones that defeated an earlier version of this check: U+200B ZERO
+    WIDTH SPACE, which is not `str.isspace()` and so survives
+    `strip_whitespace`; the Hangul and Braille fillers, ordinary `Lo`/`So`
+    characters that happen to draw nothing and therefore cannot be excluded by
+    any category rule; bare combining marks, which have no base character to
+    attach to; and the unassigned (`Cn`) invisibles, which passed because `Cn`
+    was not in the rejected set, each creating a real organisation with a
+    one-character invisible name. U+00A0 NO-BREAK SPACE is there for the
+    opposite reason — Python strips it, Postgres would have stored it — so a
+    future switch to a hand-rolled `.strip(" ")` fails loudly.
 
     The validator is not a rendering oracle and does not claim to be; see its
     docstring. This list is the known ways to produce a blank name, not all of
-    them.
+    them — but it does exercise every entry in both of the validator's sets,
+    which `test_every_rejected_category_and_codepoint_is_load_bearing` holds it
+    to.
     """
-    # Written as escapes on purpose: a literal zero-width space in source is
-    # invisible to the next reader and survives a careless reformat unnoticed.
-    blank_labels = (
-        "",
-        "   ",
-        "\u200b",  # ZERO WIDTH SPACE (Cf) — not str.isspace()
-        "\u00a0",  # NO-BREAK SPACE (Zs) — Python strips it, Postgres would not
-        "\u200b\u00a0\u200b",
-        "\u3164",  # HANGUL FILLER (Lo) — the canonical blank name
-        "\u115f",  # HANGUL CHOSEONG FILLER (Lo)
-        "\u1160",  # HANGUL JUNGSEONG FILLER (Lo)
-        "\uffa0",  # HALFWIDTH HANGUL FILLER (Lo)
-        "\u2800",  # BRAILLE PATTERN BLANK (So)
-        "\u0301",  # COMBINING ACUTE ACCENT (Mn) — no base character to sit on
-        "\u034f",  # COMBINING GRAPHEME JOINER (Mn)
-        "\u17b4",  # KHMER VOWEL INHERENT AQ (Mn)
-        "\u3164\u2800\u0301",
-        # Unassigned (Cn). Every one of these was accepted before `Cn` joined
-        # the rejected categories, each creating a real organisation whose name
-        # was one invisible character long: verified over HTTP, 200 with
-        # len(name) == 1.
-        "\u2065",  # reserved inside the Default_Ignorable run at U+2060
-        "\ufff0",  # reserved, Default_Ignorable
-        "\ufff8",  # reserved, Default_Ignorable
-        "\U000e0002",  # reserved in the tag block, Default_Ignorable
-        "\U000e0080",  # reserved in the variation-selector supplement
-        "\ufdd0",  # noncharacter: unassigned permanently, by design
-        "\u2065\ufdd0\U000e0002",
-    )
-    for label in blank_labels:
+    for label in BLANK_LABELS:
         response = await client.post("/api/v1/auth/demo-login", json={"label": label})
         if response.status_code == 200:
             # Registered before the assertion fires: a regression here should
@@ -445,6 +543,52 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
             # have created. Found the hard way while sabotage-testing this.
             created_orgs.append(response.json()["org_id"])
         assert response.status_code == 422, f"{label!r} was accepted"
+
+def test_every_rejected_category_and_codepoint_is_load_bearing() -> None:
+    """No decorative entries in the validator's two sets.
+
+    A rule nothing can exercise reads as protection and provides none, and it
+    leaves the next reader unable to tell which entries are doing the work.
+    `Cs` was exactly that — a lone surrogate cannot be encoded as UTF-8, so
+    no request body can ever carry one — and it is gone. This is what stops the
+    next one being added.
+
+    The check: drop one entry, and at least one label above must stop being
+    rejected. Run against the model rather than over HTTP, because the question
+    is about the validator and another 20 round trips would only slow it down.
+    """
+    original_categories = auth_module._UNRENDERABLE_CATEGORIES
+    original_codepoints = auth_module._BLANK_CODEPOINTS
+
+    def rejects(label: str) -> bool:
+        try:
+            DemoLoginRequest(label=label)
+        except ValidationError:
+            return True
+        return False
+
+    try:
+        assert all(rejects(label) for label in BLANK_LABELS), (
+            "a label in BLANK_LABELS is accepted before anything has been dropped, so the "
+            "per-entry results below would mean nothing"
+        )
+        for category in sorted(original_categories):
+            auth_module._UNRENDERABLE_CATEGORIES = original_categories - {category}
+            assert not all(rejects(label) for label in BLANK_LABELS), (
+                f"category {category!r} is in _UNRENDERABLE_CATEGORIES but no label exercises "
+                "it: dropping it changes nothing. Add a label only it rejects, or drop the "
+                "category"
+            )
+        auth_module._UNRENDERABLE_CATEGORIES = original_categories
+        for codepoint in sorted(original_codepoints):
+            auth_module._BLANK_CODEPOINTS = original_codepoints - {codepoint}
+            assert not all(rejects(label) for label in BLANK_LABELS), (
+                f"codepoint U+{ord(codepoint):04X} is in _BLANK_CODEPOINTS but no label "
+                "exercises it: dropping it changes nothing"
+            )
+    finally:
+        auth_module._UNRENDERABLE_CATEGORIES = original_categories
+        auth_module._BLANK_CODEPOINTS = original_codepoints
 
 
 async def test_the_purge_covers_every_org_scoped_table(org_scoped_tables) -> None:
@@ -777,6 +921,52 @@ async def test_the_database_holds_no_function_outside_the_inventory() -> None:
     )
 
 
+async def test_the_application_roles_hold_no_membership_and_no_extra_attribute() -> None:
+    """The inventory's blind spot, closed by inventorying the third kind of thing.
+
+    The relation and function inventories above enumerate *objects*, and a role
+    grant creates no object. `GRANT lexloom_migrator TO lexloom_app WITH INHERIT
+    FALSE, SET TRUE` leaves `pg_class` and `pg_proc` byte-identical, leaves
+    `rolsuper` and `rolbypassrls` false, leaves `lexloom_app` owning no table,
+    and leaves the unscoped `SELECT count(*) FROM organizations` above returning
+    0 — because that query never issues `SET ROLE`. One `SET ROLE
+    lexloom_migrator` later it returns every organisation in the database, which
+    is the RLS credential for every tenant. Measured on a real connection: 0
+    before, 847 after.
+
+    So the same inversion a third time, over `pg_auth_members` rather than over
+    a privilege function. Every grant writes a row there whatever combination of
+    INHERIT, SET and ADMIN it carries, and no combination hides it; the safe set
+    is empty, so this is an equality and not a search. Role attributes ride in
+    the same tuple so `ALTER ROLE … SUPERUSER` or `… REPLICATION` fails here too.
+
+    `app/db/engine.py` checks membership at startup as well, which is the line
+    that protects the deployed process rather than the test suite.
+    """
+    async with system_session() as session:
+        rows = (await session.execute(text(APPLICATION_ROLES_SQL))).all()
+    found = {
+        (
+            row.rolname,
+            row.rolsuper,
+            row.rolbypassrls,
+            row.rolreplication,
+            row.rolcreatedb,
+            row.rolcreaterole,
+            row.rolinherit,
+            row.rolcanlogin,
+            tuple(row.memberships),
+        )
+        for row in rows
+    }
+    assert found == EXPECTED_APPLICATION_ROLES, (
+        "the application roles are not the ones this design was reviewed against. "
+        "Unexpected: "
+        f"{sorted(found - EXPECTED_APPLICATION_ROLES)}. Missing: "
+        f"{sorted(EXPECTED_APPLICATION_ROLES - found)}"
+    )
+
+
 async def test_the_purge_helper_is_pinned_by_value_and_not_granted_to_public() -> None:
     """The purge's whole security rests on two function settings, so pin both.
 
@@ -923,29 +1113,66 @@ def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
     )
 
 
-def _iter_routes(routes: object) -> object:
-    """Flatten FastAPI's route tree, and refuse to guess when it changes shape.
+def _route_surface(routes: object, prefix: str = "") -> object:
+    """Flatten the route tree into (path, methods), and refuse to guess.
 
-    `app.routes` is not flat: since FastAPI 0.13x an `include_router` call
-    leaves a single `_IncludedRouter` node whose children hang off
-    `original_router.routes`. A walker that silently skipped a node it did not
-    recognise would under-report the surface, which for an inventory is the one
-    failure mode worse than being wrong — so an unrecognised node raises.
+    Three shapes have to be handled by name, because each under-reports in a
+    different way if it is not:
+
+    `_IncludedRouter` — since FastAPI 0.13x an `include_router` call leaves one
+    of these, and its children hang off `original_router.routes` rather than off
+    `routes`, so a plain `getattr(route, "routes", None)` walk finds nothing.
+
+    `Mount` and `Host` — both delegate to another ASGI app, and both define
+    `.routes` as `getattr(self._base_app, "routes", [])`. When that app is a
+    raw ASGI callable or `StaticFiles`, the result is an *empty list*, not
+    `None`. A walker that only recursed would therefore report **nothing** for
+    everything the mount serves, silently: `app.mount("/api/v2", <raw ASGI
+    app>)` then serves `POST /api/v2/refresh` while this inventory stays green
+    at eight paths. So an empty delegate is recorded as the mount itself, whose
+    contents are opaque from here by construction; a non-empty one is walked
+    with the mount's path as a prefix, because a child route's `.path` is
+    relative to it and reporting it unprefixed names an endpoint that does not
+    exist.
+
+    A websocket route has a `.path` and no `.methods`; it is reported as such,
+    rather than reaching the assertion below as an `AttributeError`.
+
+    Anything else that exposes neither a path nor children raises. For an
+    inventory, silently seeing less than there is would be the one failure mode
+    worse than being wrong.
     """
+    from starlette.routing import Host, Mount
+
     for route in routes:
+        if isinstance(route, Mount | Host):
+            # `Host` has no `.path` — it matches on the Host header, not on a
+            # path prefix — so it contributes nothing to the prefix.
+            here = prefix + getattr(route, "path", "")
+            if route.routes:
+                yield from _route_surface(route.routes, here)
+            else:
+                yield (here + "/{opaque:path}", frozenset({"MOUNT"}))
+            continue
+
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from _route_surface(included.routes, prefix)
+            continue
+
         children = getattr(route, "routes", None)
-        if children is None:
-            included = getattr(route, "original_router", None)
-            children = None if included is None else included.routes
         if children is not None:
-            yield from _iter_routes(children)
-        elif hasattr(route, "path"):
-            yield route
-        else:
+            yield from _route_surface(children, prefix)
+            continue
+
+        path = getattr(route, "path", None)
+        if path is None:
             raise AssertionError(
                 f"{type(route).__name__} exposes neither a path nor child routes, so this "
-                "inventory cannot see through it; the FastAPI route tree has changed shape"
+                "inventory cannot see through it; the route tree has changed shape"
             )
+        methods = getattr(route, "methods", None)
+        yield (prefix + path, frozenset(methods) if methods else frozenset({"WEBSOCKET"}))
 
 
 # Path and methods for every route the application serves, including the four
@@ -978,12 +1205,14 @@ def test_the_route_surface_is_the_one_the_residual_argument_was_written_for(app)
     rows nothing would ever collect.
 
     A test cannot notice a feature unless it inventories features. So the route
-    set is a literal, and any new endpoint turns this red. That is not an
-    objection to the endpoint; it is the moment its author has to read migration
-    0004's residual argument and decide whether it still holds. Extending this
-    list is a one-line change once they have.
+    set is a literal, and any new endpoint turns this red — including one
+    reached through a mounted ASGI app, which an earlier version of the walker
+    could not see at all. That is not an objection to the endpoint; it is the
+    moment its author has to read migration 0004's residual argument and decide
+    whether it still holds. Extending this list is a one-line change once they
+    have.
     """
-    found = {(route.path, frozenset(route.methods or ())) for route in _iter_routes(app.routes)}
+    found = set(_route_surface(app.routes))
     assert found == EXPECTED_ROUTES, (
         "the application's route surface changed, which is what invalidates the purge's "
         "residual safety argument (migration 0004, and "

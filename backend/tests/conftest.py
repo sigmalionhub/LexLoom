@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://lexloom_app:app@localhost:5433/lexloom"
@@ -13,14 +14,30 @@ os.environ.setdefault("ENV", "ci")
 
 # The worker connects as lexloom_worker, which holds grants lexloom_app
 # deliberately does not (EXECUTE on the purge function, migration 0004). Derived
-# from DATABASE_URL by swapping the credentials rather than hardcoded, so it
-# follows the host and port wherever the suite runs — locally against Compose on
-# 5433, in CI against the service container on 5432. The convention it relies on
-# is fixed in both places it is created: deploy/postgres/init/01-roles.sh and
-# .github/workflows/ci.yml.
-WORKER_DATABASE_URL = os.environ.get("WORKER_DATABASE_URL") or os.environ[
-    "DATABASE_URL"
-].replace("lexloom_app:app", "lexloom_worker:worker")
+# from DATABASE_URL so it follows the host, port and database wherever the suite
+# runs — locally against Compose on 5433, in CI against the service container on
+# 5432.
+#
+# Parsed and rebuilt rather than string-replaced. A `.replace("lexloom_app:app",
+# …)` matches only the default password, so the moment APP_DB_PASSWORD is
+# customised it silently returns the URL unchanged and every "the worker can do
+# this" test runs as lexloom_app. It would fail — but on the grant, pointing the
+# reader at migration 0004 instead of at this line.
+_WORKER_ROLE = "lexloom_worker"
+
+
+def worker_dsn_from(app_dsn: str, password: str) -> str:
+    """Swap the role and password out of an application DSN, keep everything else."""
+    return (
+        make_url(app_dsn)
+        .set(username=_WORKER_ROLE, password=password)
+        .render_as_string(hide_password=False)
+    )
+
+
+WORKER_DATABASE_URL = os.environ.get("WORKER_DATABASE_URL") or worker_dsn_from(
+    os.environ["DATABASE_URL"], os.environ.get("WORKER_DB_PASSWORD", "worker")
+)
 
 # Every table in `public` carrying an `org_id` column is org-scoped. Discovered
 # from the catalog rather than listed, so a table added tomorrow is covered
@@ -65,6 +82,15 @@ async def worker_role(monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     worker_engine = create_async_engine(WORKER_DATABASE_URL, pool_size=1, max_overflow=0)
+    # Assert the role here, where a mis-derived DSN is one line away, rather than
+    # letting it surface later as a permission error that reads like a missing
+    # grant in migration 0004.
+    async with worker_engine.connect() as conn:
+        connected_as = await conn.scalar(text("SELECT current_user"))
+    assert connected_as == _WORKER_ROLE, (
+        f"worker_role fixture connected as {connected_as!r}, not {_WORKER_ROLE!r} — "
+        "WORKER_DATABASE_URL was derived wrongly, the grants are fine"
+    )
     monkeypatch.setattr("app.db.engine.engine", worker_engine)
     monkeypatch.setattr(
         "app.db.session.session_factory",

@@ -1,11 +1,16 @@
+import unicodedata
 from typing import Annotated
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, StringConstraints, field_validator
 
 from app.auth.demo import DEMO_TOKEN_TTL_SECONDS, provision_demo_org
 
 router = APIRouter(tags=["auth"])
+
+# Unicode general categories that render as nothing: control, format (which is
+# where U+200B ZERO WIDTH SPACE lives) and the three separator classes.
+_INVISIBLE_CATEGORIES = frozenset({"Cc", "Cf", "Zs", "Zl", "Zp"})
 
 
 class DemoLoginRequest(BaseModel):
@@ -15,6 +20,20 @@ class DemoLoginRequest(BaseModel):
     label: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)
     ]
+
+    @field_validator("label")
+    @classmethod
+    def _must_contain_something_visible(cls, value: str) -> str:
+        """`strip_whitespace` is not enough: it strips what `str.isspace()` calls
+        whitespace, and U+200B ZERO WIDTH SPACE is not that. A label of one
+        zero-width space survives stripping, passes `min_length=1`, and produces
+        exactly the blank organisation name the constraint above exists to
+        prevent — the same defect from a different input class. Ask for a
+        character that actually renders instead of enumerating the ones that do
+        not."""
+        if all(unicodedata.category(char) in _INVISIBLE_CATEGORIES for char in value):
+            raise ValueError("label must contain at least one visible character")
+        return value
 
 
 @router.get("/.well-known/jwks.json")

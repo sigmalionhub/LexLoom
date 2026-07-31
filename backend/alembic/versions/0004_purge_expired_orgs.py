@@ -26,12 +26,31 @@ down_revision = "0003"
 # the statistics views, so guessing a v4 UUID was the barrier. A count is not a
 # credential; it unlocks nothing.
 #
+# That integer counts organisations and only organisations — reclaimed orphan
+# rows are deliberately kept out of it. One number that sometimes means "tenants
+# destroyed" and sometimes "tenants destroyed plus stray rows tidied" is a
+# number nobody can act on, and a test asserting it could not tell the two
+# apart.
+#
 # Why it does the deletes itself: the check and the deletes are then the same
-# statement in the same snapshot, so nothing can expire, be extended, or be
-# created in between. `FOR UPDATE` takes the row locks up front, and under READ
-# COMMITTED Postgres re-evaluates the predicate after acquiring each lock — a
-# tenant that extends its TTL while the purge is waiting is dropped from the
-# set rather than destroyed with a stale verdict.
+# statement in the same snapshot, so no organisation can expire or have its TTL
+# extended between the verdict and the deletion. `FOR UPDATE` takes the row
+# locks up front, and under READ COMMITTED Postgres re-evaluates the predicate
+# after acquiring each lock — a tenant that extends its TTL while the purge is
+# waiting is dropped from the set rather than destroyed on a stale verdict.
+#
+# What that does NOT cover, and why the orphan sweep exists: only the
+# `organizations` rows are locked. A tenant transaction that commits a new
+# conversation, message or chunk while the purge waits on that lock lands
+# outside the purge's statement snapshot, so the child DELETEs never see it. The
+# organisation goes, the rows stay — and they are then unreachable forever,
+# because RLS keys on an org id nobody holds any more and the next run only
+# scans `organizations`. Silent permanent retention of a purged tenant's
+# content is the exact opposite of what this feature promises, so each child
+# DELETE also takes rows whose org_id has no `organizations` row at all. Safe by
+# construction: a child is only ever created after its organisation, and a
+# snapshot that can see the child can therefore see the organisation. The sweep
+# makes the purge self-healing instead of dependent on winning a race.
 #
 # Why every operator and function call is schema-qualified: SECURITY DEFINER
 # runs as the owner, and the owner here is the Compose bootstrap superuser. The
@@ -75,16 +94,22 @@ AS $fn$
          FOR UPDATE
     ),
     purged_messages AS (
-        DELETE FROM public.messages
-         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+        DELETE FROM public.messages m
+         WHERE m.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+            OR NOT EXISTS (SELECT 1 FROM public.organizations o
+                            WHERE o.id OPERATOR(pg_catalog.=) m.org_id)
     ),
     purged_document_chunks AS (
-        DELETE FROM public.document_chunks
-         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+        DELETE FROM public.document_chunks d
+         WHERE d.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+            OR NOT EXISTS (SELECT 1 FROM public.organizations o
+                            WHERE o.id OPERATOR(pg_catalog.=) d.org_id)
     ),
     purged_conversations AS (
-        DELETE FROM public.conversations
-         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+        DELETE FROM public.conversations c
+         WHERE c.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+            OR NOT EXISTS (SELECT 1 FROM public.organizations o
+                            WHERE o.id OPERATOR(pg_catalog.=) c.org_id)
     ),
     purged_organizations AS (
         DELETE FROM public.organizations

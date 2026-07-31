@@ -6,11 +6,12 @@ import jwt
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from app.auth.demo import DEMO_ORG_TTL
 from app.db.session import system_session, tenant_session
-from app.worker.tasks import purge_expired_orgs
+from app.worker.tasks import is_deadlock, purge_expired_orgs
 
 # The tables this module seeds and then proves empty. A literal on purpose —
 # `test_the_purge_covers_every_org_scoped_table` compares it against the
@@ -27,22 +28,29 @@ CHILD_COUNT_SQL = {
 # which tenants are expired and the purge deletes live ones.
 EXPECTED_PURGE_FUNCTION_SETTINGS = {"search_path=pg_catalog, public", "row_security=off"}
 
-# Catalog-driven: no SECURITY DEFINER function in `public` may expose a uuid,
-# by return type or by OUT parameter. Written against the whole schema rather
-# than one function name, because the mistake this guards is a shape, not a
-# spelling.
-SECURITY_DEFINER_EXPOSURE_SQL = """
-SELECT p.proname,
+# Every SECURITY DEFINER function in the database, in every schema, with the
+# effective rights of both application roles. `has_function_privilege` rather
+# than parsing `proacl`: the question is what a role can actually do, which is
+# not the same as what the ACL string literally says once role membership,
+# PUBLIC grants and ownership are folded in.
+SECURITY_DEFINER_REACH_SQL = """
+SELECT n.nspname AS schema_name,
+       p.proname AS function_name,
+       pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments,
        pg_catalog.format_type(p.prorettype, NULL) AS return_type,
-       coalesce(
-         (SELECT string_agg(pg_catalog.format_type(t, NULL), ', ')
-            FROM unnest(coalesce(p.proallargtypes, ARRAY[]::oid[])) AS t),
-         ''
-       ) AS declared_types
+       p.proretset AS returns_set,
+       pg_catalog.has_function_privilege('lexloom_app', p.oid, 'EXECUTE') AS app_executes,
+       pg_catalog.has_function_privilege('lexloom_worker', p.oid, 'EXECUTE') AS worker_executes
 FROM pg_proc p
-WHERE p.pronamespace = 'public'::regnamespace
-  AND p.prosecdef
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.prosecdef
 """
+
+# The allowlist: (schema, name, identity arguments, return type, returns a set).
+# Argument-less and returning one integer are part of the vetted shape, not
+# incidental — a variant of this function taking an argument could be steered,
+# and one returning rows could be made to return ids.
+VETTED_SECURITY_DEFINER_FOR_WORKER = {("public", "purge_expired_orgs", "", "integer", False)}
 
 PURGE_FUNCTION_SQL = """
 SELECT prosecdef, proconfig, has_function_privilege('public', oid, 'EXECUTE') AS public_executes
@@ -166,12 +174,21 @@ async def test_demo_login_reports_the_lifetime_of_the_token_it_actually_issued(
     assert claims["org_id"] == body["org_id"]
 
 
-async def test_demo_login_rejects_a_label_that_is_only_whitespace(
+async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
     client: AsyncClient, created_orgs: list[str]
 ) -> None:
     """An organisation named "" is indistinguishable in the UI from one whose
-    name failed to load, and the row is unbounded-creation fuel either way."""
-    for label in ("", "   "):
+    name failed to load, and the row is unbounded-creation fuel either way.
+
+    U+200B ZERO WIDTH SPACE is in the list because it is not `str.isspace()`, so
+    it survives `strip_whitespace` and produces exactly the same blank name from
+    an input class a whitespace check never sees. U+00A0 NO-BREAK SPACE goes the
+    other way — Python strips it, Postgres would have stored it — and is here so
+    a future switch to a hand-rolled `.strip(" ")` fails loudly.
+    """
+    # Written as escapes on purpose: a literal zero-width space in source is
+    # invisible to the next reader and survives a careless reformat unnoticed.
+    for label in ("", "   ", "\u200b", "\u00a0", "\u200b\u00a0\u200b"):
         response = await client.post("/api/v1/auth/demo-login", json={"label": label})
         if response.status_code == 200:
             # Registered before the assertion fires: a regression here should
@@ -239,6 +256,54 @@ async def test_purge_removes_expired_orgs_only(worker_role, created_orgs: list[s
             )
 
 
+async def test_the_purge_reclaims_rows_whose_organisation_is_already_gone(
+    worker_role, created_orgs: list[str]
+) -> None:
+    """Rows outliving their organisation are unreachable, not merely untidy.
+
+    The purge locks `organizations` rows, not their children. A tenant that
+    commits a new conversation while the purge waits on that lock lands outside
+    the purge's statement snapshot: the organisation goes, the row stays, and
+    nothing can ever reach it again — every RLS policy on it keys on an org id
+    nobody holds, and later runs only scan `organizations`. Silent permanent
+    retention of a purged tenant's content is precisely what this feature exists
+    to rule out.
+
+    Reproduced deterministically rather than by racing: deleting only the
+    organisation row leaves exactly the state that race produces.
+
+    The count is asserted separately and must be **zero** — reclaiming stray
+    rows may never be folded into "organisations destroyed", or a purge that
+    tidied a thousand orphans and expired nothing would report a thousand dead
+    tenants.
+    """
+    await _run_purge()
+
+    org = await _seed_org(created_orgs, expires_at=None)
+    async with tenant_session(org) as session:
+        await session.execute(
+            text("DELETE FROM organizations WHERE id = :org"), {"org": org}
+        )
+    async with tenant_session(org) as session:
+        for table, sql in CHILD_COUNT_SQL.items():
+            assert await session.scalar(text(sql), {"org": org}) == 1, (
+                f"{table} row vanished before the purge ran — this test is not testing "
+                "what it thinks it is"
+            )
+
+    removed = await _run_purge()
+    assert removed == 0, (
+        f"reclaimed orphan rows were counted as destroyed organisations (got {removed})"
+    )
+
+    async with tenant_session(org) as session:
+        for table, sql in CHILD_COUNT_SQL.items():
+            assert await session.scalar(text(sql), {"org": org}) == 0, (
+                f"{table} still holds rows for an organisation that no longer exists; "
+                "nothing else in the system can ever reach them"
+            )
+
+
 async def test_an_expired_organisation_stays_invisible_to_other_tenants(
     created_orgs: list[str],
 ) -> None:
@@ -279,7 +344,7 @@ async def test_an_expired_organisation_stays_invisible_to_other_tenants(
     assert count == 0, "an unscoped session can enumerate organisations"
 
 
-async def test_no_security_definer_function_hands_out_an_organisation_id() -> None:
+async def test_the_application_roles_can_reach_no_unvetted_security_definer_function() -> None:
     """An organisation id is the RLS credential, not an identifier.
 
     Every policy in migrations 0002 and 0003 keys off
@@ -291,18 +356,41 @@ async def test_no_security_definer_function_hands_out_an_organisation_id() -> No
     `SELECT count(*) FROM organizations` returns 0 and RLS suppresses the
     statistics views, so a v4 UUID has to be guessed.
 
-    SECURITY DEFINER functions are where that leak can appear without touching a
-    single policy, which is why this asks the catalog about the shape rather
-    than about one function's name.
+    An earlier version of this test asked whether any definer function in
+    `public` mentioned `uuid` in its signature. That guarded a type spelling,
+    not a property: `RETURNS SETOF text` over `id::text` walks the same
+    escalation past it, and so do `jsonb`, `json`, `varchar`, and anything at
+    all in another schema. Enumerating the leaky shapes is a losing game.
+
+    So the invariant is stated the other way round, as an allowlist over the
+    whole catalog: an unprivileged role may execute no SECURITY DEFINER function
+    at all, except the single vetted one, in the vetted shape. Then what the
+    function returns stops mattering — an attacker's helper fails the assertion
+    because it is executable, not because of how it spells its return type.
     """
     async with system_session() as session:
-        rows = (await session.execute(text(SECURITY_DEFINER_EXPOSURE_SQL))).all()
+        rows = (await session.execute(text(SECURITY_DEFINER_REACH_SQL))).all()
     assert rows, "no SECURITY DEFINER functions found — the discovery query itself is broken"
-    for name, return_type, declared_types in rows:
-        assert "uuid" not in f"{return_type} {declared_types}", (
-            f"SECURITY DEFINER function {name} exposes a uuid ({return_type}; "
-            f"{declared_types}) — an organisation id is a credential, return a count"
-        )
+
+    reachable_by_api = [
+        f"{row.schema_name}.{row.function_name}({row.arguments})"
+        for row in rows
+        if row.app_executes
+    ]
+    assert not reachable_by_api, (
+        "lexloom_app can execute SECURITY DEFINER functions, which run with the owner's "
+        f"rights and therefore outside row-level security: {reachable_by_api}"
+    )
+
+    reachable_by_worker = {
+        (row.schema_name, row.function_name, row.arguments, row.return_type, row.returns_set)
+        for row in rows
+        if row.worker_executes
+    }
+    assert reachable_by_worker == VETTED_SECURITY_DEFINER_FOR_WORKER, (
+        "the set of SECURITY DEFINER functions lexloom_worker can execute changed: "
+        f"{sorted(reachable_by_worker ^ VETTED_SECURITY_DEFINER_FOR_WORKER)}"
+    )
 
 
 async def test_the_purge_helper_is_pinned_by_value_and_not_granted_to_public() -> None:
@@ -341,3 +429,91 @@ async def test_the_purge_helper_is_not_executable_by_the_api_role() -> None:
     with pytest.raises(ProgrammingError, match="permission denied for function"):
         async with system_session() as session:
             await session.execute(text("SELECT public.purge_expired_orgs()"))
+
+def _deadlock_error(sqlstate: str) -> DBAPIError:
+    """A DBAPIError shaped the way SQLAlchemy actually delivers a Postgres error.
+
+    Shaped from an observed one: a real deadlock through asyncpg arrives as a
+    bare `DBAPIError` — not `OperationalError`, not a deadlock subclass — with
+    the SQLSTATE only reachable on `.orig`.
+    """
+
+    class _Orig(Exception):
+        def __init__(self) -> None:
+            self.sqlstate = sqlstate
+
+    return DBAPIError("SELECT public.purge_expired_orgs()", {}, _Orig())
+
+def test_only_a_deadlock_counts_as_a_deadlock() -> None:
+    """Retrying on `DBAPIError` itself would silently retry a permission denial
+    or a syntax error three times before reporting it."""
+    assert is_deadlock(_deadlock_error("40P01"))
+    assert not is_deadlock(_deadlock_error("42501"))  # permission denied
+    assert not is_deadlock(RuntimeError("something else entirely"))
+
+async def test_the_purge_task_retries_a_deadlock_and_propagates_anything_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The purge is one statement, so losing it to a deadlock loses the whole run.
+
+    Postgres picks a victim when it breaks a lock cycle, and the purge — which
+    takes organisations before children, the opposite order from a handler
+    updating a message and then its own organisation row — can be the one
+    killed. Without a retry the next attempt is a whole beat interval away.
+
+    `retry` is replaced rather than exercised. Celery's retry machinery is
+    Celery's to get right; what belongs here is which of the two branches this
+    task chooses, and `.apply()` cannot show that — it runs with
+    `called_directly=True`, under which `retry` re-raises the original error and
+    a retried deadlock becomes indistinguishable from an unretried one.
+    """
+    recorded: list[tuple[BaseException | None, int | None]] = []
+
+    def _fake_retry(exc: BaseException | None = None, countdown: int | None = None, **_: object):
+        recorded.append((exc, countdown))
+        raise RuntimeError("retry() was called")
+
+    monkeypatch.setattr(purge_expired_orgs, "retry", _fake_retry)
+
+    def _always_raising(error: BaseException):
+        async def _boom() -> int:
+            raise error
+
+        return _boom
+
+    # `.apply()` without `.get()`: Celery makes the stored exception picklable
+    # for the result backend, and DBAPIError is not — its __init__ takes three
+    # positional arguments — so `.get()` re-raises it downgraded to a base class
+    # and `pytest.raises(DBAPIError)` would never match. Which branch the task
+    # took is the question anyway, and `recorded` answers it exactly.
+    deadlock = _deadlock_error("40P01")
+    monkeypatch.setattr("app.auth.demo.purge_expired_orgs", _always_raising(deadlock))
+    await asyncio.to_thread(purge_expired_orgs.apply)
+    assert recorded == [(deadlock, 5)], "the deadlock was not handed to retry with a countdown"
+
+    denied = _deadlock_error("42501")
+    monkeypatch.setattr("app.auth.demo.purge_expired_orgs", _always_raising(denied))
+    result = await asyncio.to_thread(purge_expired_orgs.apply)
+    assert len(recorded) == 1, "a non-deadlock failure was retried instead of raised"
+    assert result.state == "FAILURE", "a non-deadlock failure did not surface as a failure"
+
+def test_the_worker_dsn_is_derived_rather_than_string_replaced() -> None:
+    """The worker DSN must follow a customised application password.
+
+    A `DATABASE_URL.replace("lexloom_app:app", "lexloom_worker:worker")` matches
+    only the default credentials. Set APP_DB_PASSWORD to anything and it returns
+    the URL untouched, so every test that claims to run as the worker runs as
+    lexloom_app instead — failing on the missing grant, which sends the reader
+    to migration 0004 rather than to the one line that is actually wrong.
+    """
+    # Imported here rather than at module scope: `conftest` is not an installed
+    # package, and hoisting it puts a local helper in the third-party import
+    # block where the next reader will assume it comes from a dependency.
+    from conftest import worker_dsn_from
+
+    app_dsn = "postgresql+asyncpg://lexloom_app:s3cret@db.internal:6000/lexloom"
+    worker_password = "w0rker"  # noqa: S105  (a literal in a pure-function test)
+    derived = make_url(worker_dsn_from(app_dsn, worker_password))
+    assert derived.username == "lexloom_worker"
+    assert derived.password == worker_password
+    assert (derived.host, derived.port, derived.database) == ("db.internal", 6000, "lexloom")

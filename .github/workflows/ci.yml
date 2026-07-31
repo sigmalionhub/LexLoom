@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  push: {branches: [main]}
+  # Both names on purpose. The default branch here is `master`; listing only
+  # `main` means the workflow never fires on a push and the badge in the README
+  # is decorative — worse than having no CI, because it looks like coverage.
+  push: {branches: [main, master]}
   pull_request:
 
 jobs:
@@ -25,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv pip install --system -r backend/pyproject.toml --extra dev
+      - run: uv pip install --system -e "backend[dev]"
       - name: Create application roles
         # Must grant exactly what deploy/postgres/init/01-roles.sh grants for the
         # local Compose stack, or a permission drift here surfaces as a false RLS
@@ -46,12 +49,9 @@ jobs:
           # app/db/engine.py). alembic/env.py reads DATABASE_URL when no -x dsn
           # is given; alembic.ini only holds a placeholder DSN.
           DATABASE_URL: postgresql+asyncpg://lexloom_migrator:migrator@localhost:5432/lexloom
-        # Bare `alembic` fails here: the console script imports app.db.models,
-        # and the project is not installed as a package in this environment
-        # (only its dependencies are). `python -m alembic` runs with alembic.ini's
-        # `prepend_sys_path = .` in effect, which puts the current directory
-        # (backend/, via working-directory above) on sys.path and makes `app`
-        # importable.
+        # `python -m alembic`, not bare `alembic`: `-m` prepends the working
+        # directory to sys.path, which is what makes `app` importable. The bare
+        # console script does not, and the image does not install the project.
         run: python -m alembic upgrade head
       - name: Tests
         working-directory: backend
@@ -64,13 +64,6 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://lexloom_app:app@localhost:5432/lexloom
           REDIS_URL: redis://localhost:6379/0
           ENV: ci
-          # Same "project not installed as a package" issue as the migration
-          # step above, but pytest does not benefit from alembic.ini's
-          # prepend_sys_path: with no __init__.py under tests/, pytest's default
-          # import mode puts tests/ itself on sys.path, not backend/, so `app`
-          # is not importable without this. Verified locally: dropping this line
-          # reproduces `ModuleNotFoundError: No module named 'app'` on collection.
-          PYTHONPATH: .
         run: pytest -v
 
   compose-smoke:

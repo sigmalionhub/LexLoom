@@ -25,6 +25,19 @@ dev = [
     "ruff>=0.8",
 ]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Declare the package explicitly. Once `alembic/` exists next to `app/`,
+# setuptools' flat-layout auto-discovery sees two candidate top-level packages
+# and refuses to build — so `pip install -e .` fails on a clean clone while
+# continuing to work in any venv created before the migrations existed. That is
+# the worst shape of bug for a portfolio repository: it breaks for every reader
+# and for nobody who built it.
+[tool.setuptools]
+packages = ["app"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

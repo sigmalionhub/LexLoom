@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
-from app.auth.demo import DEMO_ORG_TTL
+from app.auth.demo import DEMO_ORG_TTL, DEMO_TOKEN_TTL_SECONDS
 from app.db.session import system_session, tenant_session
 from app.worker.tasks import is_deadlock, purge_expired_orgs
 
@@ -28,29 +28,96 @@ CHILD_COUNT_SQL = {
 # which tenants are expired and the purge deletes live ones.
 EXPECTED_PURGE_FUNCTION_SETTINGS = {"search_path=pg_catalog, public", "row_security=off"}
 
+# Every role an application role can *act as*, not merely the login role itself.
+# `has_function_privilege('lexloom_app', …)` follows inherited membership only,
+# and `GRANT r TO lexloom_app WITH INHERIT FALSE, SET TRUE` — the normal shape
+# for a privileged role you step into deliberately — is invisible to it: the
+# check says false, and `SET ROLE r` then does whatever r can do. `pg_has_role`
+# with USAGE *or* SET covers both routes.
+REACHABLE_ROLES_CTE = """
+WITH login_role AS (
+    SELECT unnest(ARRAY['lexloom_app', 'lexloom_worker']) AS name
+),
+reachable AS (
+    SELECT l.name, r.oid AS role_oid
+    FROM login_role l
+    JOIN pg_roles r
+      ON pg_catalog.pg_has_role(l.name, r.oid, 'USAGE')
+      OR pg_catalog.pg_has_role(l.name, r.oid, 'SET')
+)
+"""
+
+def _with_reachable_roles(query: str) -> str:
+    """Both allowlists share one reachability rule, so they cannot drift apart."""
+    return REACHABLE_ROLES_CTE + query
+
+
 # Every SECURITY DEFINER function in the database, in every schema, with the
-# effective rights of both application roles. `has_function_privilege` rather
-# than parsing `proacl`: the question is what a role can actually do, which is
-# not the same as what the ACL string literally says once role membership,
-# PUBLIC grants and ownership are folded in.
-SECURITY_DEFINER_REACH_SQL = """
+# effective reach of both application roles. `has_function_privilege` rather than
+# parsing `proacl`: the question is what a role can actually do, which is not the
+# same as what the ACL string literally says once PUBLIC grants and ownership are
+# folded in.
+SECURITY_DEFINER_REACH_SQL = _with_reachable_roles("""
 SELECT n.nspname AS schema_name,
        p.proname AS function_name,
        pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments,
        pg_catalog.format_type(p.prorettype, NULL) AS return_type,
        p.proretset AS returns_set,
-       pg_catalog.has_function_privilege('lexloom_app', p.oid, 'EXECUTE') AS app_executes,
-       pg_catalog.has_function_privilege('lexloom_worker', p.oid, 'EXECUTE') AS worker_executes
+       EXISTS (SELECT 1 FROM reachable x
+                WHERE x.name = 'lexloom_app'
+                  AND pg_catalog.has_function_privilege(x.role_oid, p.oid, 'EXECUTE')
+              ) AS app_reaches,
+       EXISTS (SELECT 1 FROM reachable x
+                WHERE x.name = 'lexloom_worker'
+                  AND pg_catalog.has_function_privilege(x.role_oid, p.oid, 'EXECUTE')
+              ) AS worker_reaches
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.prosecdef
-"""
+""")
 
 # The allowlist: (schema, name, identity arguments, return type, returns a set).
 # Argument-less and returning one integer are part of the vetted shape, not
 # incidental — a variant of this function taking an argument could be steered,
 # and one returning rows could be made to return ids.
 VETTED_SECURITY_DEFINER_FOR_WORKER = {("public", "purge_expired_orgs", "", "integer", False)}
+
+# The same allowlist shape for relations. `prosecdef` says nothing about views,
+# and a view owned by the table owner evaluates RLS *as the owner* unless it
+# carries `security_invoker` — so a view over `organizations` is the C1
+# escalation on a route the function guard cannot see.
+READABLE_RELATIONS_SQL = _with_reachable_roles("""
+SELECT n.nspname AS schema_name,
+       c.relname AS relation_name,
+       c.relkind::pg_catalog.text AS relation_kind,
+       coalesce(
+         (SELECT opt FROM unnest(c.reloptions) AS opt WHERE opt LIKE 'security_invoker=%'),
+         ''
+       ) AS security_invoker,
+       EXISTS (SELECT 1 FROM reachable x
+                WHERE x.name = 'lexloom_app'
+                  AND pg_catalog.has_table_privilege(x.role_oid, c.oid, 'SELECT')
+              ) AS app_reaches,
+       EXISTS (SELECT 1 FROM reachable x
+                WHERE x.name = 'lexloom_worker'
+                  AND pg_catalog.has_table_privilege(x.role_oid, c.oid, 'SELECT')
+              ) AS worker_reaches
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+""")
+
+VETTED_READABLE_RELATIONS = {
+    ("public", "organizations", "r"),
+    ("public", "conversations", "r"),
+    ("public", "messages", "r"),
+    ("public", "document_chunks", "r"),
+}
+
+SECURITY_INVOKER_ON = frozenset(
+    {"security_invoker=true", "security_invoker=on", "security_invoker=1", "security_invoker=yes"}
+)
 
 PURGE_FUNCTION_SQL = """
 SELECT prosecdef, proconfig, has_function_privilege('public', oid, 'EXECUTE') AS public_executes
@@ -76,6 +143,29 @@ async def _run_purge() -> int:
     await engine.dispose()
     return await asyncio.to_thread(lambda: purge_expired_orgs.apply().get())
 
+
+def _purge_in_a_new_loop() -> int:
+    """Call the SQL function on its own connection, from a thread with no loop.
+
+    Used only by the concurrency test, which has to hold one transaction open on
+    the test's loop while another blocks inside the database. A separate engine
+    keeps the two off the same pooled connection, which would otherwise
+    deadlock the test rather than the purge.
+    """
+    import asyncio as _asyncio
+
+    from conftest import WORKER_DATABASE_URL
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    async def _run() -> int:
+        engine = create_async_engine(WORKER_DATABASE_URL, pool_size=1, max_overflow=0)
+        try:
+            async with engine.begin() as conn:
+                return await conn.scalar(text("SELECT public.purge_expired_orgs()"))
+        finally:
+            await engine.dispose()
+
+    return _asyncio.run(_run())
 
 async def _seed_org(created_orgs: list[str], *, expires_at: datetime | None) -> str:
     """Create one organisation owning one row in every org-scoped table.
@@ -180,15 +270,38 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
     """An organisation named "" is indistinguishable in the UI from one whose
     name failed to load, and the row is unbounded-creation fuel either way.
 
-    U+200B ZERO WIDTH SPACE is in the list because it is not `str.isspace()`, so
-    it survives `strip_whitespace` and produces exactly the same blank name from
-    an input class a whitespace check never sees. U+00A0 NO-BREAK SPACE goes the
-    other way — Python strips it, Postgres would have stored it — and is here so
-    a future switch to a hand-rolled `.strip(" ")` fails loudly.
+    Four input classes, each of which defeated an earlier version of the check:
+    plain whitespace; U+200B ZERO WIDTH SPACE, which is not `str.isspace()` and
+    so survives `strip_whitespace`; the Hangul and Braille fillers, which are
+    ordinary `Lo`/`So` characters that happen to draw nothing and therefore
+    cannot be excluded by any category rule; and bare combining marks, which have
+    no base character to attach to. U+00A0 NO-BREAK SPACE is here for the
+    opposite reason — Python strips it, Postgres would have stored it — so a
+    future switch to a hand-rolled `.strip(" ")` fails loudly.
+
+    The validator is not a rendering oracle and does not claim to be; see its
+    docstring. This list is the known ways to produce a blank name, not all of
+    them.
     """
     # Written as escapes on purpose: a literal zero-width space in source is
     # invisible to the next reader and survives a careless reformat unnoticed.
-    for label in ("", "   ", "\u200b", "\u00a0", "\u200b\u00a0\u200b"):
+    blank_labels = (
+        "",
+        "   ",
+        "\u200b",  # ZERO WIDTH SPACE (Cf) — not str.isspace()
+        "\u00a0",  # NO-BREAK SPACE (Zs) — Python strips it, Postgres would not
+        "\u200b\u00a0\u200b",
+        "\u3164",  # HANGUL FILLER (Lo) — the canonical blank name
+        "\u115f",  # HANGUL CHOSEONG FILLER (Lo)
+        "\u1160",  # HANGUL JUNGSEONG FILLER (Lo)
+        "\uffa0",  # HALFWIDTH HANGUL FILLER (Lo)
+        "\u2800",  # BRAILLE PATTERN BLANK (So)
+        "\u0301",  # COMBINING ACUTE ACCENT (Mn) — no base character to sit on
+        "\u034f",  # COMBINING GRAPHEME JOINER (Mn)
+        "\u17b4",  # KHMER VOWEL INHERENT AQ (Mn)
+        "\u3164\u2800\u0301",
+    )
+    for label in blank_labels:
         response = await client.post("/api/v1/auth/demo-login", json={"label": label})
         if response.status_code == 200:
             # Registered before the assertion fires: a regression here should
@@ -256,53 +369,113 @@ async def test_purge_removes_expired_orgs_only(worker_role, created_orgs: list[s
             )
 
 
-async def test_the_purge_reclaims_rows_whose_organisation_is_already_gone(
+async def test_the_purge_never_touches_rows_it_did_not_just_destroy(
     worker_role, created_orgs: list[str]
 ) -> None:
-    """Rows outliving their organisation are unreachable, not merely untidy.
+    """The sweep is keyed on the organisations this run destroyed, and must stay so.
 
-    The purge locks `organizations` rows, not their children. A tenant that
-    commits a new conversation while the purge waits on that lock lands outside
-    the purge's statement snapshot: the organisation goes, the row stays, and
-    nothing can ever reach it again — every RLS policy on it keys on an org id
-    nobody holds, and later runs only scan `organizations`. Silent permanent
-    retention of a purged tenant's content is precisely what this feature exists
-    to rule out.
+    An earlier version deleted every child row whose org_id had no
+    `organizations` row, justified as "safe by construction: a child is only ever
+    created after its organisation". This schema has no foreign keys at all, so
+    nothing enforces that ordering — a transaction that inserts an organisation
+    while another session commits a child row for it, and only then commits,
+    loses that child to an unfiltered cross-tenant DELETE. A live tenant's data,
+    destroyed on a convention.
 
-    Reproduced deterministically rather than by racing: deleting only the
-    organisation row leaves exactly the state that race produces.
-
-    The count is asserted separately and must be **zero** — reclaiming stray
-    rows may never be folded into "organisations destroyed", or a purge that
-    tidied a thousand orphans and expired nothing would report a thousand dead
-    tenants.
+    A row with no organisation is therefore left strictly alone. This is the
+    inverse of what this test used to assert, and deliberately so: the purge's
+    reach is now bounded by identity rather than by an ordering claim, and this
+    is what fails if anyone reinstates the anti-join.
     """
     await _run_purge()
 
-    org = await _seed_org(created_orgs, expires_at=None)
-    async with tenant_session(org) as session:
+    stranger = str(uuid.uuid4())
+    conversation_id = str(uuid.uuid4())
+    async with tenant_session(stranger) as session:
         await session.execute(
-            text("DELETE FROM organizations WHERE id = :org"), {"org": org}
+            text("INSERT INTO conversations (id, org_id, title) VALUES (:i, :o, 'no org yet')"),
+            {"i": conversation_id, "o": stranger},
         )
-    async with tenant_session(org) as session:
-        for table, sql in CHILD_COUNT_SQL.items():
-            assert await session.scalar(text(sql), {"org": org}) == 1, (
-                f"{table} row vanished before the purge ran — this test is not testing "
-                "what it thinks it is"
-            )
+    created_orgs.append(stranger)
 
+    expired = await _seed_org(created_orgs, expires_at=datetime.now(UTC) - timedelta(hours=1))
     removed = await _run_purge()
-    assert removed == 0, (
-        f"reclaimed orphan rows were counted as destroyed organisations (got {removed})"
-    )
+    assert removed == 1, f"expected exactly the one expired organisation, purged {removed}"
 
-    async with tenant_session(org) as session:
-        for table, sql in CHILD_COUNT_SQL.items():
-            assert await session.scalar(text(sql), {"org": org}) == 0, (
-                f"{table} still holds rows for an organisation that no longer exists; "
-                "nothing else in the system can ever reach them"
+    async with tenant_session(stranger) as session:
+        survived = await session.scalar(
+            text("SELECT count(*) FROM conversations WHERE org_id = :org"), {"org": stranger}
+        )
+    assert survived == 1, (
+        "the purge deleted a row belonging to an organisation it never destroyed — that is "
+        "the blind anti-join, and it takes live tenants' data with it"
+    )
+    async with tenant_session(expired) as session:
+        assert (
+            await session.scalar(
+                text("SELECT count(*) FROM conversations WHERE org_id = :org"), {"org": expired}
+            )
+            == 0
+        )
+
+async def test_a_row_committed_while_the_purge_waits_is_still_collected(
+    worker_role, created_orgs: list[str]
+) -> None:
+    """The race the two-statement shape exists to close.
+
+    Statement 1 blocks on the expiring organisation's row lock. A tenant that
+    commits a conversation while it waits is invisible to that statement's
+    snapshot. If the child deletes rode along in the same statement, the
+    organisation would go and the row would stay — unreachable forever, since RLS
+    keys on an org id nobody holds and later runs only scan `organizations`.
+    Statement 2 runs on a fresh snapshot, which is the whole point of splitting.
+
+    Deliberately not routed through the Celery task: this is about the SQL's
+    behaviour under concurrency, and holding a transaction open across the task's
+    own event loop would test the harness instead.
+    """
+    await _run_purge()
+    org = await _seed_org(created_orgs, expires_at=datetime.now(UTC) - timedelta(hours=1))
+
+    from app.db.engine import engine
+    from app.db.session import session_factory
+
+    holder = session_factory(info={"org_id": org, "tenant_scoped": True})
+    try:
+        async with holder.begin():
+            await holder.execute(
+                text("SELECT set_config('app.current_org_id', :org, true)"), {"org": org}
+            )
+            # Take the row lock the purge will block on.
+            await holder.execute(
+                text("SELECT id FROM organizations WHERE id = :org FOR UPDATE"), {"org": org}
             )
 
+            purge = asyncio.create_task(asyncio.to_thread(_purge_in_a_new_loop))
+            await asyncio.sleep(0.4)  # long enough for statement 1 to be waiting
+
+            await holder.execute(
+                text(
+                    "INSERT INTO conversations (id, org_id, title) "
+                    "VALUES (:i, :o, 'committed mid-purge')"
+                ),
+                {"i": str(uuid.uuid4()), "o": org},
+            )
+        # holder commits here; the purge unblocks
+        removed = await purge
+    finally:
+        await holder.close()
+        await engine.dispose()
+
+    assert removed == 1, f"the expired organisation was not purged (got {removed})"
+    async with tenant_session(org) as session:
+        left = await session.scalar(
+            text("SELECT count(*) FROM conversations WHERE org_id = :org"), {"org": org}
+        )
+    assert left == 0, (
+        "a row committed while the purge was blocked outlived its organisation; nothing in "
+        "the system can reach it again"
+    )
 
 async def test_an_expired_organisation_stays_invisible_to_other_tenants(
     created_orgs: list[str],
@@ -367,6 +540,11 @@ async def test_the_application_roles_can_reach_no_unvetted_security_definer_func
     at all, except the single vetted one, in the vetted shape. Then what the
     function returns stops mattering — an attacker's helper fails the assertion
     because it is executable, not because of how it spells its return type.
+
+    "Executable" means by any role the login role can act as, inherited or
+    stepped into with SET ROLE. `has_function_privilege('lexloom_app', …)` alone
+    follows inheritance only, so `GRANT r TO lexloom_app WITH INHERIT FALSE, SET
+    TRUE` reads as no access right up until the moment someone types SET ROLE.
     """
     async with system_session() as session:
         rows = (await session.execute(text(SECURITY_DEFINER_REACH_SQL))).all()
@@ -375,7 +553,7 @@ async def test_the_application_roles_can_reach_no_unvetted_security_definer_func
     reachable_by_api = [
         f"{row.schema_name}.{row.function_name}({row.arguments})"
         for row in rows
-        if row.app_executes
+        if row.app_reaches
     ]
     assert not reachable_by_api, (
         "lexloom_app can execute SECURITY DEFINER functions, which run with the owner's "
@@ -385,7 +563,7 @@ async def test_the_application_roles_can_reach_no_unvetted_security_definer_func
     reachable_by_worker = {
         (row.schema_name, row.function_name, row.arguments, row.return_type, row.returns_set)
         for row in rows
-        if row.worker_executes
+        if row.worker_reaches
     }
     assert reachable_by_worker == VETTED_SECURITY_DEFINER_FOR_WORKER, (
         "the set of SECURITY DEFINER functions lexloom_worker can execute changed: "
@@ -517,3 +695,75 @@ def test_the_worker_dsn_is_derived_rather_than_string_replaced() -> None:
     assert derived.username == "lexloom_worker"
     assert derived.password == worker_password
     assert (derived.host, derived.port, derived.database) == ("db.internal", 6000, "lexloom")
+
+async def test_the_application_roles_can_read_no_unvetted_relation() -> None:
+    """`prosecdef` cannot see a view, and a view need not respect RLS.
+
+    A view owned by the table owner evaluates its query with the *owner's*
+    rights unless it is created `WITH (security_invoker = on)`. So a plain
+    `CREATE VIEW org_directory AS SELECT id FROM organizations` hands every
+    tenant every organisation id — the same escalation the SECURITY DEFINER
+    allowlist exists to stop, arriving on a route that allowlist never looks at.
+    Migration 0004's claim that there is no enumeration path is only true while
+    no such relation exists, so state it as an invariant rather than an
+    observation.
+
+    Same shape as the function allowlist, and the same reachability rule: every
+    relation either application role can SELECT from, in any schema, must be one
+    of four tables. `pg_catalog` and `information_schema` are excluded because
+    they are the platform's own catalogs, readable by every role in every
+    PostgreSQL installation — and, checked here rather than assumed, neither
+    application role can create anything in them.
+    """
+    async with system_session() as session:
+        for role in ("lexloom_app", "lexloom_worker"):
+            for schema in ("pg_catalog", "information_schema"):
+                can_create = await session.scalar(
+                    text("SELECT has_schema_privilege(:r, :s, 'CREATE')"),
+                    {"r": role, "s": schema},
+                )
+                assert not can_create, (
+                    f"{role} can create objects in {schema}, so excluding it from this "
+                    "check is no longer safe"
+                )
+        rows = (await session.execute(text(READABLE_RELATIONS_SQL))).all()
+
+    for name, expected in (("lexloom_app", "app_reaches"), ("lexloom_worker", "worker_reaches")):
+        reachable = {
+            (row.schema_name, row.relation_name, row.relation_kind)
+            for row in rows
+            if getattr(row, expected)
+        }
+        assert reachable == VETTED_READABLE_RELATIONS, (
+            f"the set of relations {name} can read changed: "
+            f"{sorted(reachable ^ VETTED_READABLE_RELATIONS)}"
+        )
+
+    # Belt and braces for the day a view is added deliberately and the allowlist
+    # above is updated to match: it must still evaluate RLS as its caller.
+    for row in rows:
+        if row.relation_kind in ("v", "m") and (row.app_reaches or row.worker_reaches):
+            assert row.security_invoker in SECURITY_INVOKER_ON, (
+                f"{row.schema_name}.{row.relation_name} is readable by an application role "
+                "but does not carry security_invoker, so it evaluates row-level security as "
+                "its owner rather than as the caller"
+            )
+
+def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
+    """The purge's residual window is closed by these two constants, nothing else.
+
+    The sweep only reaches organisations the run itself destroyed, so a child row
+    committed after it would never be collected. Nothing can produce one today:
+    writing to a child table requires `app.current_org_id` to be that
+    organisation, which requires a valid token for it, and a demo token expires
+    long before the organisation does.
+
+    That is an argument about two numbers, so it is asserted as one. Add a
+    token-refresh endpoint, or lengthen the token, and this fails — which is the
+    moment the purge would need a time-bounded sweep instead, and the moment
+    `document_chunks` would need the `created_at` it does not have.
+    """
+    assert timedelta(seconds=DEMO_TOKEN_TTL_SECONDS) < DEMO_ORG_TTL, (
+        "a demo token can now outlive its organisation, so a token holder can write rows "
+        "into an organisation the purge has already destroyed and nothing will collect them"
+    )

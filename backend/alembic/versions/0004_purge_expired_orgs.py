@@ -32,25 +32,44 @@ down_revision = "0003"
 # number nobody can act on, and a test asserting it could not tell the two
 # apart.
 #
-# Why it does the deletes itself: the check and the deletes are then the same
-# statement in the same snapshot, so no organisation can expire or have its TTL
-# extended between the verdict and the deletion. `FOR UPDATE` takes the row
-# locks up front, and under READ COMMITTED Postgres re-evaluates the predicate
-# after acquiring each lock — a tenant that extends its TTL while the purge is
-# waiting is dropped from the set rather than destroyed on a stale verdict.
+# Why it deletes the organisations first and their content second, in two
+# statements rather than one: the second statement is keyed on the ids the first
+# one actually destroyed.
 #
-# What that does NOT cover, and why the orphan sweep exists: only the
-# `organizations` rows are locked. A tenant transaction that commits a new
-# conversation, message or chunk while the purge waits on that lock lands
-# outside the purge's statement snapshot, so the child DELETEs never see it. The
-# organisation goes, the rows stay — and they are then unreachable forever,
-# because RLS keys on an org id nobody holds any more and the next run only
-# scans `organizations`. Silent permanent retention of a purged tenant's
-# content is the exact opposite of what this feature promises, so each child
-# DELETE also takes rows whose org_id has no `organizations` row at all. Safe by
-# construction: a child is only ever created after its organisation, and a
-# snapshot that can see the child can therefore see the organisation. The sweep
-# makes the purge self-healing instead of dependent on winning a race.
+# Statement 1 both decides and destroys, so no organisation can expire or have
+# its TTL extended between the verdict and the deletion — a DELETE takes the row
+# locks itself, and under READ COMMITTED Postgres re-evaluates the predicate
+# after acquiring each one, so a tenant that renews while the purge waits is
+# dropped from the set rather than destroyed on a stale verdict.
+#
+# Statement 2 then takes a fresh snapshot (a VOLATILE function's statements do,
+# unlike a STABLE one's), which is the point: a tenant that committed a
+# conversation while statement 1 was blocked on its organisation's row lock is
+# invisible to statement 1 and visible to statement 2. Without it the
+# organisation would go and the row would stay, unreachable forever — RLS keys
+# on an org id nobody holds any more, and later runs only scan `organizations`.
+#
+# An earlier version swept every child row whose org_id had no `organizations`
+# row, justified as "safe by construction: a child is only ever created after
+# its organisation". That was false. This schema has no foreign keys at all
+# (deliberately — FK checks bypass RLS), so nothing enforces that ordering: a
+# transaction that inserts an organisation, has a child row committed by another
+# session, and only then commits, loses that child to the sweep. A live tenant's
+# data, destroyed by an unfiltered cross-tenant DELETE resting on a convention.
+# Keying on the purged ids makes the statement safe by identity instead — it can
+# only reach tenants this run has already destroyed, whatever anyone else is
+# doing.
+#
+# The residual, stated plainly: a child committed after statement 2 is never
+# collected. Nothing can produce one today, because inserting into a child table
+# requires `app.current_org_id` to be set to that organisation, which requires a
+# valid token for it — and the demo token TTL (1 h) is a twenty-fourth of the
+# organisation TTL (24 h), so no live token for an organisation exists by the
+# time it expires. That is an argument about two constants, not about ordering,
+# and test_the_demo_token_cannot_outlive_the_organisation_it_names holds them to
+# it. Add a token-refresh endpoint and the argument fails; closing the window
+# properly would then need a time-bounded sweep, which means `document_chunks`
+# growing a `created_at` it does not have.
 #
 # Why every operator and function call is schema-qualified: SECURITY DEFINER
 # runs as the owner, and the owner here is the Compose bootstrap superuser. The
@@ -81,45 +100,35 @@ down_revision = "0003"
 # only moment anyone can act on it.
 PURGE_FUNCTION = """
 CREATE FUNCTION public.purge_expired_orgs() RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 SET row_security = off
 AS $fn$
-    WITH expired AS (
-        SELECT id FROM public.organizations
+DECLARE
+    purged uuid[];
+BEGIN
+    WITH destroyed AS (
+        DELETE FROM public.organizations
          WHERE expires_at IS NOT NULL
            AND expires_at OPERATOR(pg_catalog.<) pg_catalog.now()
-         FOR UPDATE
-    ),
-    purged_messages AS (
-        DELETE FROM public.messages m
-         WHERE m.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
-            OR NOT EXISTS (SELECT 1 FROM public.organizations o
-                            WHERE o.id OPERATOR(pg_catalog.=) m.org_id)
-    ),
-    purged_document_chunks AS (
-        DELETE FROM public.document_chunks d
-         WHERE d.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
-            OR NOT EXISTS (SELECT 1 FROM public.organizations o
-                            WHERE o.id OPERATOR(pg_catalog.=) d.org_id)
-    ),
-    purged_conversations AS (
-        DELETE FROM public.conversations c
-         WHERE c.org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
-            OR NOT EXISTS (SELECT 1 FROM public.organizations o
-                            WHERE o.id OPERATOR(pg_catalog.=) c.org_id)
-    ),
-    purged_organizations AS (
-        DELETE FROM public.organizations
-         WHERE id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
-        RETURNING 1 AS purged
+        RETURNING id
     )
-    SELECT pg_catalog.count(*)::pg_catalog.int4 FROM purged_organizations
+    SELECT pg_catalog.array_agg(id) INTO purged FROM destroyed;
+
+    IF purged IS NULL THEN
+        RETURN 0;
+    END IF;
+
+    DELETE FROM public.messages        WHERE org_id OPERATOR(pg_catalog.=) ANY (purged);
+    DELETE FROM public.document_chunks WHERE org_id OPERATOR(pg_catalog.=) ANY (purged);
+    DELETE FROM public.conversations   WHERE org_id OPERATOR(pg_catalog.=) ANY (purged);
+
+    RETURN pg_catalog.array_length(purged, 1);
+END
 $fn$
 """
-
 
 def upgrade() -> None:
     op.execute(PURGE_FUNCTION)

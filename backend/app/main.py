@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.v1 import health
+from app.api.v1 import auth, health
+from app.auth.dev_idp import DevIdp
 from app.config import get_settings
 from app.db.engine import assert_unprivileged_role, engine
 from app.errors import install_error_handlers
@@ -29,9 +30,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.dev_idp = DevIdp(settings.auth_issuer, settings.auth_audience)
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app
 
 

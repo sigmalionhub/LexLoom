@@ -31,10 +31,29 @@ def test_wrong_audience_is_rejected(idp: DevIdp) -> None:
         verify_token(token, idp.jwks(), ISSUER, AUDIENCE)
 
 
-def test_token_signed_by_another_issuer_is_rejected(idp: DevIdp) -> None:
-    other = DevIdp(issuer=ISSUER, audience=AUDIENCE)
+def test_token_from_a_different_issuer_is_rejected(idp: DevIdp) -> None:
+    """Same key, same kid — only `iss` differs.
+
+    Minting from a second DevIdp would not test this: that instance has its own
+    kid, so the token is rejected as an unknown key and the assertion passes
+    whether or not the issuer is checked at all.
+    """
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "iss": "https://evil-idp",
+            "aud": AUDIENCE,
+            "sub": "u",
+            "org_id": "o",
+            "iat": now,
+            "exp": now + 60,
+        },
+        idp._private,
+        algorithm="RS256",
+        headers={"kid": idp.jwks()["keys"][0]["kid"]},
+    )
     with pytest.raises(InvalidTokenError):
-        verify_token(other.mint("u", "o"), idp.jwks(), ISSUER, AUDIENCE)
+        verify_token(token, idp.jwks(), ISSUER, AUDIENCE)
 
 
 @pytest.mark.filterwarnings("ignore::jwt.warnings.InsecureKeyLengthWarning")
@@ -75,3 +94,24 @@ def test_token_without_org_id_is_rejected(idp: DevIdp) -> None:
     )
     with pytest.raises(InvalidTokenError, match="org_id"):
         verify_token(token, idp.jwks(), ISSUER, AUDIENCE)
+
+
+@pytest.mark.parametrize(
+    "malformed_jwks",
+    [
+        pytest.param("not-a-dict", id="non_dict_body"),
+        pytest.param({"keys": "oops"}, id="keys_not_a_list"),
+        pytest.param({}, id="no_keys_at_all"),
+    ],
+)
+def test_malformed_jwks_is_rejected_rather_than_raising_internally(
+    idp: DevIdp, malformed_jwks: object
+) -> None:
+    """An upstream provider serving a broken key set is a verification
+    failure (401), not an internal error (500): letting PyJWKSet's parse
+    exception escape uncaught would turn every request into an opaque 500
+    instead of a clean, loggable rejection.
+    """
+    token = idp.mint("u", "o")
+    with pytest.raises(InvalidTokenError, match="key set"):
+        verify_token(token, malformed_jwks, ISSUER, AUDIENCE)

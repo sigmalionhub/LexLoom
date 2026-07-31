@@ -4,13 +4,10 @@ import jwt
 from jwt import PyJWKSet
 
 ALLOWED_ALGORITHMS = ["RS256"]
-# Clock-skew tolerance for exp/nbf/iat checks. Kept small and deliberately:
-# PyJWT applies `leeway` uniformly to exp, so a large value does not just
-# smooth over clock drift between hosts, it extends how long an expired
-# token keeps working. 45s was tried first and rejected empirically: a token
-# that expired 10s ago must fail (see test_expired_token_is_rejected), and
-# leeway=45 let it through — accepting tokens for up to 45s past their exp
-# is the fail-open bug this whole module exists to prevent.
+# PyJWT applies `leeway` to `exp` as well as to `nbf` and `iat`, so this is not
+# only a tolerance for a slow clock — it is also how long an expired token keeps
+# working. NTP-synchronised hosts drift by low single-digit seconds, so five
+# covers real skew while keeping the window an attacker gains to a minimum.
 CLOCK_SKEW_SECONDS = 5
 
 
@@ -40,7 +37,15 @@ def verify_token(token: str, jwks: dict, issuer: str, audience: str) -> Principa
     if not kid:
         raise InvalidTokenError("token header carries no key id")
 
-    key_set = PyJWKSet.from_dict(jwks)
+    try:
+        key_set = PyJWKSet.from_dict(jwks)
+    except Exception as exc:
+        # A fetched-but-malformed key set is still a failure to verify, not an
+        # internal error. Letting it escape turns an upstream provider
+        # misconfiguration into an opaque 500 on every request instead of a
+        # clean, loggable 401.
+        raise InvalidTokenError("key set is malformed") from exc
+
     # Select by kid. Never iterate over every key: that turns a rotation
     # window into an oracle and hides which key actually verified.
     signing_key = next((k for k in key_set.keys if k.key_id == kid), None)

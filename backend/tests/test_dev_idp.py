@@ -28,9 +28,17 @@ def test_minted_token_carries_the_expected_claims() -> None:
 
 
 def test_two_instances_do_not_share_keys() -> None:
-    """Keys are ephemeral. Nothing is committed, and a restart invalidates tokens."""
+    """Keys are ephemeral. Nothing is committed, and a restart invalidates tokens.
+
+    Compare the modulus, not just the kid. `kid` is a uuid4 generated
+    independently of the RSA key, so a regression that memoised one keypair
+    across instances would still produce distinct kids and leave a kid-only
+    assertion green — while destroying the property this test exists to protect.
+    """
     first, second = DevIdp("https://i", "a"), DevIdp("https://i", "a")
-    assert first.jwks()["keys"][0]["kid"] != second.jwks()["keys"][0]["kid"]
+    first_key, second_key = first.jwks()["keys"][0], second.jwks()["keys"][0]
+    assert first_key["n"] != second_key["n"], "RSA modulus must differ per instance"
+    assert first_key["kid"] != second_key["kid"]
 
 
 def test_refuses_to_construct_in_production_without_override(monkeypatch) -> None:

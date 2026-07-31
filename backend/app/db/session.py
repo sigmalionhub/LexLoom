@@ -21,6 +21,12 @@ def _require_tenant_context(session: SyncSession, *_: object) -> None:
 
     System paths opt out explicitly and are greppable; everything else must
     carry an org_id, so forgetting the context is a crash, not a data leak.
+
+    Caveat worth knowing: `after_begin` fires when a connection is acquired —
+    on the first statement, not on a bare `session.begin()`. A session that
+    opens and closes without querying never trips the guard. Harmless, because
+    no query means no exposure, but it means the guard is enforced at the point
+    of use rather than at the point of construction.
     """
     if session.info.get("tenant_scoped", True) and not session.info.get("org_id"):
         raise MissingTenantContextError("session began without an organisation context")

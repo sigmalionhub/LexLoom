@@ -13,7 +13,11 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "127.0.0.1:5432:5432"
+      # Published on 5433, not 5432: the development host runs a native
+      # PostgreSQL service that already owns 127.0.0.1:5432, and Docker then
+      # fails to bind silently — host-side psql reaches the wrong server.
+      # The container's internal port stays 5432, so nothing else changes.
+      - "127.0.0.1:5433:5432"
     mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lexloom_migrator -d lexloom"]

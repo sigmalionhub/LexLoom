@@ -1,9 +1,11 @@
+import structlog
 from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
 from app.db.engine import engine
 
 router = APIRouter(tags=["health"])
+logger = structlog.get_logger(__name__)
 
 
 async def _database_ok() -> bool:
@@ -12,6 +14,10 @@ async def _database_ok() -> bool:
             await conn.execute(text("SELECT 1"))
         return True
     except Exception:
+        # Log it. Without this, bad credentials, a network partition and
+        # "still warming up" are indistinguishable from the outside — the
+        # probe says 503 and leaves nobody anything to act on.
+        logger.warning("readiness_database_check_failed", exc_info=True)
         return False
 
 

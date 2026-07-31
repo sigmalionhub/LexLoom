@@ -55,9 +55,10 @@ def upgrade() -> None:
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO lexloom_app, lexloom_worker"
         )
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
-        # FORCE is the load-bearing half: without it the table owner — which is
-        # the migration role — reads every tenant's rows and the policy is
-        # decorative.
+        # FORCE binds a non-superuser table owner. In this stack the migration
+        # role is the Compose bootstrap superuser and bypasses RLS regardless
+        # of FORCE — superuser bypass is unconditional and outranks it. FORCE
+        # is what keeps the policy binding once that is fixed.
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
         op.execute(
             f"""

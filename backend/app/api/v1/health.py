@@ -1,7 +1,9 @@
+import redis.asyncio as aioredis
 import structlog
 from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
+from app.config import get_settings
 from app.db.engine import engine
 
 router = APIRouter(tags=["health"])
@@ -21,6 +23,17 @@ async def _database_ok() -> bool:
         return False
 
 
+async def _redis_ok() -> bool:
+    try:
+        client = aioredis.from_url(get_settings().redis_url)
+        await client.ping()
+        await client.aclose()
+        return True
+    except Exception:
+        logger.warning("readiness_redis_check_failed", exc_info=True)
+        return False
+
+
 @router.get("/health/live")
 async def liveness() -> dict[str, str]:
     """Process is running. Never touches dependencies.
@@ -33,8 +46,8 @@ async def liveness() -> dict[str, str]:
 
 @router.get("/health/ready")
 async def readiness(response: Response) -> dict[str, object]:
-    """Dependencies are reachable. Redis check is wired in Task 4."""
-    checks: dict[str, bool] = {"database": await _database_ok(), "redis": False}
+    """Dependencies are reachable."""
+    checks: dict[str, bool] = {"database": await _database_ok(), "redis": await _redis_ok()}
     response.status_code = (
         status.HTTP_200_OK if all(checks.values()) else status.HTTP_503_SERVICE_UNAVAILABLE
     )

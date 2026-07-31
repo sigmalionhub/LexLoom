@@ -27,6 +27,13 @@ jobs:
         ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
+      # Pin an interpreter from the runner's tool cache. `uv pip install --system`
+      # otherwise resolves Debian's /usr Python, which is externally managed
+      # (PEP 668) and refuses the install. Invisible locally, where --system is
+      # never used.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: astral-sh/setup-uv@v4
       - run: uv pip install --system -e "backend[dev]"
       - name: Create application roles

@@ -26,7 +26,12 @@ def configure_logging() -> None:
             # Without this, logger.exception() serialises as the bare boolean
             # `"exc_info": true` and the traceback is lost — the one thing the
             # generic 500 response tells the caller to go and look for.
-            structlog.processors.dict_tracebacks,
+            #
+            # format_exc_info, not dict_tracebacks: the latter records the
+            # local variables of every frame. In a service whose frames hold
+            # tenant document text, that turns any parser exception into a
+            # cross-tenant content leak in the log.
+            structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),

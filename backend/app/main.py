@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from app.api.v1 import health
 from app.config import get_settings
 from app.db.engine import assert_unprivileged_role, engine
+from app.errors import install_error_handlers
+from app.logging import configure_logging
+from app.middleware import RequestContextMiddleware
 
 
 @asynccontextmanager
@@ -16,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     settings = get_settings()
     app = FastAPI(
         title="LexLoom API",
@@ -25,6 +29,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.add_middleware(RequestContextMiddleware)
+    install_error_handlers(app)
     app.include_router(health.router)
     return app
 

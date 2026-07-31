@@ -9,10 +9,23 @@ from app.auth.demo import DEMO_TOKEN_TTL_SECONDS, provision_demo_org
 router = APIRouter(tags=["auth"])
 
 # Categories that cannot carry a glyph on their own: control, format (where
-# U+200B ZERO WIDTH SPACE lives), the three separators, and the two mark classes
-# — a label consisting only of combining marks has no base character to combine
-# with, so it renders as nothing or as a lone dotted circle.
-_UNRENDERABLE_CATEGORIES = frozenset({"Cc", "Cf", "Zs", "Zl", "Zp", "Mn", "Me"})
+# U+200B ZERO WIDTH SPACE lives), unassigned, surrogate and private-use, the
+# three separators, and the two mark classes — a label consisting only of
+# combining marks has no base character to combine with, so it renders as
+# nothing or as a lone dotted circle.
+#
+# `Cn` earns its place: it is where every invisible codepoint that Unicode has
+# not assigned a character to lives, including the whole
+# Default_Ignorable_Code_Point reserve — U+2065, U+FFF0..U+FFF8, U+E0002,
+# U+E0080 — and the noncharacters U+FDD0..U+FDEF. Each of those was accepted
+# before, producing an organisation whose name is one invisible character long.
+# The cost is that `Cn` follows the Unicode version this interpreter ships: a
+# codepoint assigned in a newer standard reads as unassigned here, so a label
+# made *entirely* of brand-new characters is rejected until Python catches up.
+# For a demo tenant label that is the right way round.
+_UNRENDERABLE_CATEGORIES = frozenset(
+    {"Cc", "Cf", "Cn", "Cs", "Co", "Zs", "Zl", "Zp", "Mn", "Me"}
+)
 
 # Codepoints in otherwise ordinary categories that still render blank. `Lo`
 # holds both real letters and these fillers, and `So` holds both symbols and the
@@ -42,20 +55,26 @@ class DemoLoginRequest(BaseModel):
     def _must_not_be_entirely_blank(cls, value: str) -> str:
         """Reject labels made only of characters that cannot show anything.
 
-        Precisely: characters in the control, format, separator and mark
-        categories, plus a named list of codepoints that sit in ordinary
-        categories and still render blank. **This is not a rendering oracle**, and
-        cannot be one — Unicode has no "does this show up" property, and `Lo` and
-        `So` each contain both real characters and blanks, so no positive
-        category set decides it either. Codepoints outside the list can still
-        produce an empty-looking name; what this rules out is the known ways.
+        Exactly what is tested: every character's general category is in
+        `_UNRENDERABLE_CATEGORIES`, or the character is in `_BLANK_CODEPOINTS`.
+        Nothing wider is claimed.
 
-        The list exists because the category test alone is not enough, twice
-        over. `strip_whitespace` strips what `str.isspace()` calls whitespace and
-        U+200B ZERO WIDTH SPACE is not that, so it survives stripping and passes
-        `min_length=1`; and U+3164 HANGUL FILLER is a perfectly ordinary `Lo`
-        letter that happens to draw nothing, which is why it is the character
-        people use for blank usernames.
+        **This is not a rendering oracle.** Unicode does name most of the
+        deliberately invisible codepoints — the property is
+        `Default_Ignorable_Code_Point` — but `unicodedata` does not expose it,
+        and it would not settle the question on its own in either direction:
+        U+3164 HANGUL FILLER carries the property, U+2800 BRAILLE PATTERN BLANK
+        does not, and both draw nothing. Whether a codepoint shows up is finally
+        a question about a font, and the API has no font.
+
+        The named list exists because the category test alone is not enough,
+        twice over. `strip_whitespace` strips what `str.isspace()` calls
+        whitespace and U+200B ZERO WIDTH SPACE is not that, so it survives
+        stripping and passes `min_length=1`; and U+3164 HANGUL FILLER is a
+        perfectly ordinary `Lo` letter that happens to draw nothing, which is
+        why it is the character people use for blank usernames. `Lo` and `So`
+        hold both real characters and blanks, so no category rule separates
+        them and the residue has to be named.
         """
         if all(
             unicodedata.category(char) in _UNRENDERABLE_CATEGORIES

@@ -22,6 +22,11 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    # The suite makes a database transaction block on purpose (the purge-race
+    # test). Everything inside it is bounded, but a lock is exactly the failure
+    # that outlives its own guards, and an unbounded pytest on GitHub Actions
+    # runs to the six-hour job default before anyone learns anything.
+    "pytest-timeout>=2.3",
     "ruff>=0.8",
 ]
 
@@ -55,3 +60,8 @@ ignore = ["S101"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Per test, not per run. The slowest test here waits for a Postgres backend to
+# reach a row lock and gives that 30s of its own; 120 leaves room for a loaded
+# CI runner while still turning a genuine hang into a reported failure with a
+# traceback pointing at the line that hung.
+timeout = 120

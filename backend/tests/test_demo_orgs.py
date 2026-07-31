@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -28,96 +29,143 @@ CHILD_COUNT_SQL = {
 # which tenants are expired and the purge deletes live ones.
 EXPECTED_PURGE_FUNCTION_SETTINGS = {"search_path=pg_catalog, public", "row_security=off"}
 
-# Every role an application role can *act as*, not merely the login role itself.
-# `has_function_privilege('lexloom_app', …)` follows inherited membership only,
-# and `GRANT r TO lexloom_app WITH INHERIT FALSE, SET TRUE` — the normal shape
-# for a privileged role you step into deliberately — is invisible to it: the
-# check says false, and `SET ROLE r` then does whatever r can do. `pg_has_role`
-# with USAGE *or* SET covers both routes.
-REACHABLE_ROLES_CTE = """
-WITH login_role AS (
-    SELECT unnest(ARRAY['lexloom_app', 'lexloom_worker']) AS name
-),
-reachable AS (
-    SELECT l.name, r.oid AS role_oid
-    FROM login_role l
-    JOIN pg_roles r
-      ON pg_catalog.pg_has_role(l.name, r.oid, 'USAGE')
-      OR pg_catalog.pg_has_role(l.name, r.oid, 'SET')
-)
+# --- The catalog inventory ---------------------------------------------------
+#
+# Four rounds of review broke a guard that asked "is there a reachable object
+# that could leak an organisation id?". Answering that means enumerating
+# privilege routes, and the enumeration was wrong five times, each time in a
+# different corner of Postgres privilege semantics: `has_function_privilege`
+# folds in inherited membership only, so `GRANT r TO app WITH INHERIT FALSE, SET
+# TRUE` was invisible; it also misses MEMBER-only grants; EXECUTE on a trigger
+# function is checked at CREATE TRIGGER time rather than at fire time, so a
+# SECURITY DEFINER trigger function with no grant at all fires on an ordinary
+# INSERT; `has_table_privilege(…, 'SELECT')` is false when the grant is
+# `GRANT SELECT (id)` on one column, which is the *more* idiomatic way to expose
+# just an id; and the pg_catalog/information_schema carve-out was defended by
+# asserting the application roles cannot CREATE there, while the objects it
+# existed to catch are created by the owner, who can.
+#
+# The threat model those probes shared is not an attacker — an attacker holding
+# owner rights already has everything. It is a careless future migration, run as
+# `lexloom_migrator`. The space of ways a migration can accidentally expose data
+# is unbounded, so enumerating reachability cannot converge.
+#
+# So the question is inverted. Not "what is reachable" but "what exists".
+# Postgres gives an exact discriminator: `FirstNormalObjectId` is 16384, and
+# every OID below it was handed out during initdb. `oid >= 16384` therefore
+# splits what shipped with the database from what a migration put there, with no
+# privilege semantics involved at all, in any Postgres version. An inventory
+# assertion over that set catches the trigger function, the column-granted view,
+# the materialised view, the object hidden in `information_schema` and the
+# shapes nobody has thought of yet, in one assertion — and it gets *smaller* as
+# it gets stronger rather than larger.
+#
+# TOAST relations are reported by their parent rather than their own name: a
+# TOAST table is called `pg_toast_18084`, and that number is an OID, so it
+# differs between this workstation and CI and cannot be written as a literal.
+# Nothing is lost by the substitution — a TOAST relation exists only as an
+# attachment to a heap relation, and that parent is itself in the inventory
+# below, named.
+USER_CREATED_RELATIONS_SQL = """
+SELECT n.nspname AS schema_name,
+       coalesce(toast.parent, toast_index.parent, c.relname) AS relation_name,
+       c.relkind::pg_catalog.text AS relation_kind
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN LATERAL (
+    SELECT 'TOAST of ' || pn.nspname || '.' || p.relname AS parent
+    FROM pg_catalog.pg_class p
+    JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace
+    WHERE p.reltoastrelid = c.oid
+) AS toast ON true
+LEFT JOIN LATERAL (
+    SELECT 'TOAST index of ' || pn.nspname || '.' || p.relname AS parent
+    FROM pg_catalog.pg_index i
+    JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
+    JOIN pg_catalog.pg_class p ON p.reltoastrelid = t.oid
+    JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace
+    WHERE i.indexrelid = c.oid
+) AS toast_index ON true
+WHERE c.oid >= 16384  -- FirstNormalObjectId: everything below shipped with initdb
 """
 
-def _with_reachable_roles(query: str) -> str:
-    """Both allowlists share one reachability rule, so they cannot drift apart."""
-    return REACHABLE_ROLES_CTE + query
-
-
-# Every SECURITY DEFINER function in the database, in every schema, with the
-# effective reach of both application roles. `has_function_privilege` rather than
-# parsing `proacl`: the question is what a role can actually do, which is not the
-# same as what the ACL string literally says once PUBLIC grants and ownership are
-# folded in.
-SECURITY_DEFINER_REACH_SQL = _with_reachable_roles("""
-SELECT n.nspname AS schema_name,
-       p.proname AS function_name,
-       pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments,
-       pg_catalog.format_type(p.prorettype, NULL) AS return_type,
-       p.proretset AS returns_set,
-       EXISTS (SELECT 1 FROM reachable x
-                WHERE x.name = 'lexloom_app'
-                  AND pg_catalog.has_function_privilege(x.role_oid, p.oid, 'EXECUTE')
-              ) AS app_reaches,
-       EXISTS (SELECT 1 FROM reachable x
-                WHERE x.name = 'lexloom_worker'
-                  AND pg_catalog.has_function_privilege(x.role_oid, p.oid, 'EXECUTE')
-              ) AS worker_reaches
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE p.prosecdef
-""")
-
-# The allowlist: (schema, name, identity arguments, return type, returns a set).
-# Argument-less and returning one integer are part of the vetted shape, not
-# incidental — a variant of this function taking an argument could be steered,
-# and one returning rows could be made to return ids.
-VETTED_SECURITY_DEFINER_FOR_WORKER = {("public", "purge_expired_orgs", "", "integer", False)}
-
-# The same allowlist shape for relations. `prosecdef` says nothing about views,
-# and a view owned by the table owner evaluates RLS *as the owner* unless it
-# carries `security_invoker` — so a view over `organizations` is the C1
-# escalation on a route the function guard cannot see.
-READABLE_RELATIONS_SQL = _with_reachable_roles("""
-SELECT n.nspname AS schema_name,
-       c.relname AS relation_name,
-       c.relkind::pg_catalog.text AS relation_kind,
-       coalesce(
-         (SELECT opt FROM unnest(c.reloptions) AS opt WHERE opt LIKE 'security_invoker=%'),
-         ''
-       ) AS security_invoker,
-       EXISTS (SELECT 1 FROM reachable x
-                WHERE x.name = 'lexloom_app'
-                  AND pg_catalog.has_table_privilege(x.role_oid, c.oid, 'SELECT')
-              ) AS app_reaches,
-       EXISTS (SELECT 1 FROM reachable x
-                WHERE x.name = 'lexloom_worker'
-                  AND pg_catalog.has_table_privilege(x.role_oid, c.oid, 'SELECT')
-              ) AS worker_reaches
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
-  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-""")
-
-VETTED_READABLE_RELATIONS = {
+# Every relation migrations 0001-0004 create, and nothing else. Indexes are in
+# here as well as tables: an index cannot leak a row by itself, but leaving a
+# relkind out would reintroduce exactly the carve-out this inventory exists to
+# remove, and the cost of keeping it is one line per index.
+EXPECTED_RELATIONS = {
     ("public", "organizations", "r"),
     ("public", "conversations", "r"),
     ("public", "messages", "r"),
     ("public", "document_chunks", "r"),
+    ("public", "alembic_version", "r"),
+    ("public", "organizations_pkey", "i"),
+    ("public", "organizations_external_id_key", "i"),
+    ("public", "ix_organizations_expires_at", "i"),
+    ("public", "conversations_pkey", "i"),
+    ("public", "ix_conversations_org_created", "i"),
+    ("public", "messages_pkey", "i"),
+    ("public", "ix_messages_org_conversation", "i"),
+    ("public", "document_chunks_pkey", "i"),
+    ("public", "ix_document_chunks_org", "i"),
+    ("public", "alembic_version_pkc", "i"),
+    ("pg_toast", "TOAST of public.organizations", "t"),
+    ("pg_toast", "TOAST of public.messages", "t"),
+    ("pg_toast", "TOAST of public.document_chunks", "t"),
+    ("pg_toast", "TOAST index of public.organizations", "i"),
+    ("pg_toast", "TOAST index of public.messages", "i"),
+    ("pg_toast", "TOAST index of public.document_chunks", "i"),
 }
 
-SECURITY_INVOKER_ON = frozenset(
-    {"security_invoker=true", "security_invoker=on", "security_invoker=1", "security_invoker=yes"}
-)
+# The same inventory for `pg_proc`, which holds functions, procedures,
+# aggregates and window functions alike.
+#
+# Two things are deliberately narrower here than in the relation inventory, and
+# both are stated so the check is as wide as the claim.
+#
+# Extension members are skipped *unless* they are SECURITY DEFINER. `vector`
+# alone contributes 118 functions; listing them would put an inventory nobody
+# can maintain in front of every extension upgrade, and an inventory people
+# routinely paste over is not a guard. The exclusion is bounded by the
+# extension inventory asserted alongside it, and `ALTER EXTENSION … ADD
+# FUNCTION` cannot be used to smuggle a definer function past it because the
+# `p.prosecdef` disjunct admits definer functions regardless of membership.
+#
+# `prosecdef` is carried in the key because it is the property that decides
+# whether a function can see past row-level security at all: a function that is
+# not SECURITY DEFINER executes with the caller's privileges, so the policies in
+# migrations 0002 and 0003 bind its statements exactly as they bind the caller's
+# own. That is why the discriminator is worth recording, not a reason to filter
+# on it — every user-created non-extension function is listed either way.
+USER_CREATED_FUNCTIONS_SQL = """
+SELECT n.nspname AS schema_name,
+       p.proname AS function_name,
+       pg_catalog.pg_get_function_identity_arguments(p.oid) AS arguments,
+       p.prokind::pg_catalog.text AS kind,
+       p.prosecdef AS security_definer
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
+  AND (
+        p.prosecdef
+     OR NOT EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_depend d
+            WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+              AND d.objid = p.oid
+              AND d.deptype = 'e'
+        )
+      )
+"""
+
+# (schema, name, identity arguments, prokind, prosecdef). Argument-less and
+# `f` (a plain function, not an aggregate or a procedure) are part of the vetted
+# shape, not incidental: a variant taking an argument could be steered.
+EXPECTED_FUNCTIONS = {("public", "purge_expired_orgs", "", "f", True)}
+
+# What bounds the extension carve-out above. `plpgsql` is created by initdb;
+# `vector` is what the pgvector image installs and what migration 0001 needs.
+EXPECTED_EXTENSIONS = {"plpgsql", "vector"}
 
 PURGE_FUNCTION_SQL = """
 SELECT prosecdef, proconfig, has_function_privilege('public', oid, 'EXECUTE') AS public_executes
@@ -144,6 +192,52 @@ async def _run_purge() -> int:
     return await asyncio.to_thread(lambda: purge_expired_orgs.apply().get())
 
 
+# Bounds for the connections the concurrency test opens. That test deliberately
+# makes the purge block, so these are generous rather than tight — what they rule
+# out is the case where it never unblocks. Without them a genuine block is a hang,
+# and a hung pytest on GitHub Actions runs to the six-hour job default.
+# `lock_timeout` is the one that matters (the purge is waiting on a row lock);
+# `statement_timeout` catches a wait that is not a lock wait.
+CONCURRENCY_TEST_TIMEOUTS = {"lock_timeout": "60s", "statement_timeout": "90s"}
+
+# How long to wait for the purge backend to actually reach the row lock before
+# declaring the race unreproduced. Generous on purpose: it is a bound, not a
+# budget — the poll returns as soon as the block is visible, so a fast machine
+# pays none of it and a loaded 2-vCPU CI runner is not punished for being slow.
+BLOCK_OBSERVATION_TIMEOUT = 30.0
+
+# The purge backend, seen from another connection, while it waits. `Lock` is the
+# wait_event_type Postgres reports for a row lock held by another transaction.
+# `pg_stat_activity` shows `query` and `wait_event_type` for another backend only
+# to a superuser, a member of pg_read_all_stats, or the same role — which is why
+# the observer connects as lexloom_worker, exactly as the purge does.
+BLOCKED_PURGE_BACKEND_SQL = """
+SELECT count(*)
+FROM pg_catalog.pg_stat_activity
+WHERE pid <> pg_catalog.pg_backend_pid()
+  AND wait_event_type = 'Lock'
+  AND query LIKE '%purge_expired_orgs%'
+"""
+
+
+def _worker_engine():
+    """A single-connection engine as lexloom_worker, with the timeouts above.
+
+    asyncpg sends `server_settings` in the startup packet, so the bounds are in
+    force from the connection's first statement rather than from whenever a
+    `SET` would have run.
+    """
+    from conftest import WORKER_DATABASE_URL
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    return create_async_engine(
+        WORKER_DATABASE_URL,
+        pool_size=1,
+        max_overflow=0,
+        connect_args={"server_settings": dict(CONCURRENCY_TEST_TIMEOUTS)},
+    )
+
+
 def _purge_in_a_new_loop() -> int:
     """Call the SQL function on its own connection, from a thread with no loop.
 
@@ -154,11 +248,8 @@ def _purge_in_a_new_loop() -> int:
     """
     import asyncio as _asyncio
 
-    from conftest import WORKER_DATABASE_URL
-    from sqlalchemy.ext.asyncio import create_async_engine
-
     async def _run() -> int:
-        engine = create_async_engine(WORKER_DATABASE_URL, pool_size=1, max_overflow=0)
+        engine = _worker_engine()
         try:
             async with engine.begin() as conn:
                 return await conn.scalar(text("SELECT public.purge_expired_orgs()"))
@@ -166,6 +257,36 @@ def _purge_in_a_new_loop() -> int:
             await engine.dispose()
 
     return _asyncio.run(_run())
+
+
+async def _wait_until_the_purge_blocks_on_a_lock(observer) -> None:
+    """Return once the purge backend is provably waiting on a lock; fail if it never is.
+
+    This replaced `await asyncio.sleep(0.4)`. That sleep was the only thing
+    making the race happen, and nothing in the run distinguished "raced and
+    passed" from "never raced": with `sleep(0)` the single-statement purge body
+    this test exists to reject passed three times out of three. The 400 ms had
+    to cover a thread start, a fresh async engine, a TCP connect, a SCRAM
+    handshake and the row lock — 64-96 ms measured on an idle workstation, which
+    is comfortable there and is not a margin anyone should rely on for a 2-vCPU
+    CI runner talking to a service container.
+
+    So the wait is now an observation. A test that cannot confirm it reproduced
+    the race must fail rather than pass quietly.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + BLOCK_OBSERVATION_TIMEOUT
+    while loop.time() < deadline:
+        async with observer.connect() as conn:
+            if await conn.scalar(text(BLOCKED_PURGE_BACKEND_SQL)):
+                return
+        await asyncio.sleep(0.02)
+    raise AssertionError(
+        "the purge never reached the row lock within "
+        f"{BLOCK_OBSERVATION_TIMEOUT:.0f}s, so the race this test exists to reproduce did "
+        "not happen and a green result would mean nothing. Either the purge failed before "
+        "reaching the DELETE, or it is no longer taking the organisations row lock first"
+    )
 
 async def _seed_org(created_orgs: list[str], *, expires_at: datetime | None) -> str:
     """Create one organisation owning one row in every org-scoped table.
@@ -270,14 +391,18 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
     """An organisation named "" is indistinguishable in the UI from one whose
     name failed to load, and the row is unbounded-creation fuel either way.
 
-    Four input classes, each of which defeated an earlier version of the check:
+    Five input classes, each of which defeated an earlier version of the check:
     plain whitespace; U+200B ZERO WIDTH SPACE, which is not `str.isspace()` and
     so survives `strip_whitespace`; the Hangul and Braille fillers, which are
     ordinary `Lo`/`So` characters that happen to draw nothing and therefore
-    cannot be excluded by any category rule; and bare combining marks, which have
-    no base character to attach to. U+00A0 NO-BREAK SPACE is here for the
-    opposite reason — Python strips it, Postgres would have stored it — so a
-    future switch to a hand-rolled `.strip(" ")` fails loudly.
+    cannot be excluded by any category rule; bare combining marks, which have
+    no base character to attach to; and the unassigned (`Cn`) invisibles, which
+    passed every earlier version of this check because `Cn` was not in the
+    rejected set — reserved Default_Ignorable codepoints and noncharacters, each
+    of which created a real organisation with a one-character invisible name.
+    U+00A0 NO-BREAK SPACE is here for the opposite reason — Python strips it,
+    Postgres would have stored it — so a future switch to a hand-rolled
+    `.strip(" ")` fails loudly.
 
     The validator is not a rendering oracle and does not claim to be; see its
     docstring. This list is the known ways to produce a blank name, not all of
@@ -300,6 +425,17 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
         "\u034f",  # COMBINING GRAPHEME JOINER (Mn)
         "\u17b4",  # KHMER VOWEL INHERENT AQ (Mn)
         "\u3164\u2800\u0301",
+        # Unassigned (Cn). Every one of these was accepted before `Cn` joined
+        # the rejected categories, each creating a real organisation whose name
+        # was one invisible character long: verified over HTTP, 200 with
+        # len(name) == 1.
+        "\u2065",  # reserved inside the Default_Ignorable run at U+2060
+        "\ufff0",  # reserved, Default_Ignorable
+        "\ufff8",  # reserved, Default_Ignorable
+        "\U000e0002",  # reserved in the tag block, Default_Ignorable
+        "\U000e0080",  # reserved in the variation-selector supplement
+        "\ufdd0",  # noncharacter: unassigned permanently, by design
+        "\u2065\ufdd0\U000e0002",
     )
     for label in blank_labels:
         response = await client.post("/api/v1/auth/demo-login", json={"label": label})
@@ -433,6 +569,9 @@ async def test_a_row_committed_while_the_purge_waits_is_still_collected(
     Deliberately not routed through the Celery task: this is about the SQL's
     behaviour under concurrency, and holding a transaction open across the task's
     own event loop would test the harness instead.
+
+    The race is *observed*, not slept through — see
+    `_wait_until_the_purge_blocks_on_a_lock`.
     """
     await _run_purge()
     org = await _seed_org(created_orgs, expires_at=datetime.now(UTC) - timedelta(hours=1))
@@ -440,9 +579,17 @@ async def test_a_row_committed_while_the_purge_waits_is_still_collected(
     from app.db.engine import engine
     from app.db.session import session_factory
 
+    # A third connection, because the worker_role fixture's engine allows exactly
+    # one and the holder below is sitting on it.
+    observer = _worker_engine()
     holder = session_factory(info={"org_id": org, "tenant_scoped": True})
+    purge: asyncio.Task[int] | None = None
     try:
         async with holder.begin():
+            # The holder is not expected to wait for anything, so a wait here is
+            # a leftover lock from an earlier run rather than this test's race.
+            # Bounding it turns that into a failure instead of a hang.
+            await holder.execute(text("SET LOCAL lock_timeout = '60s'"))
             await holder.execute(
                 text("SELECT set_config('app.current_org_id', :org, true)"), {"org": org}
             )
@@ -452,7 +599,7 @@ async def test_a_row_committed_while_the_purge_waits_is_still_collected(
             )
 
             purge = asyncio.create_task(asyncio.to_thread(_purge_in_a_new_loop))
-            await asyncio.sleep(0.4)  # long enough for statement 1 to be waiting
+            await _wait_until_the_purge_blocks_on_a_lock(observer)
 
             await holder.execute(
                 text(
@@ -464,7 +611,14 @@ async def test_a_row_committed_while_the_purge_waits_is_still_collected(
         # holder commits here; the purge unblocks
         removed = await purge
     finally:
+        # However this exits, the holder's transaction is over by now and the
+        # purge is unblocked. Drain it rather than leave a thread writing into a
+        # database the next test is about to measure.
+        if purge is not None and not purge.done():
+            with contextlib.suppress(Exception):
+                await purge
         await holder.close()
+        await observer.dispose()
         await engine.dispose()
 
     assert removed == 1, f"the expired organisation was not purged (got {removed})"
@@ -517,57 +671,109 @@ async def test_an_expired_organisation_stays_invisible_to_other_tenants(
     assert count == 0, "an unscoped session can enumerate organisations"
 
 
-async def test_the_application_roles_can_reach_no_unvetted_security_definer_function() -> None:
-    """An organisation id is the RLS credential, not an identifier.
+async def test_an_unscoped_application_session_can_see_no_organisation(
+    created_orgs: list[str],
+) -> None:
+    """The property. Everything else in this file exists to keep it true.
 
-    Every policy in migrations 0002 and 0003 keys off
-    `current_setting('app.current_org_id')`. Anything that tells an application
-    role which organisation ids exist lets that role set the GUC to one and then
-    read and write that tenant's organizations, conversations, messages and
-    document_chunks — the whole isolation claim defeated by a lookup. Without
-    such a helper there is no enumeration path at all: an unscoped
-    `SELECT count(*) FROM organizations` returns 0 and RLS suppresses the
-    statistics views, so a v4 UUID has to be guessed.
+    An organisation id is the RLS credential, not an identifier. Every policy in
+    migrations 0002 and 0003 keys off `current_setting('app.current_org_id')`,
+    so anything that tells an application role which ids exist lets that role
+    set the GUC to one and then read and write that tenant's organizations,
+    conversations, messages and document_chunks — the whole isolation claim
+    defeated by a lookup. With no such route, an id has to be guessed, and it is
+    a v4 UUID.
 
-    An earlier version of this test asked whether any definer function in
-    `public` mentioned `uuid` in its signature. That guarded a type spelling,
-    not a property: `RETURNS SETOF text` over `id::text` walks the same
-    escalation past it, and so do `jsonb`, `json`, `varchar`, and anything at
-    all in another schema. Enumerating the leaky shapes is a losing game.
-
-    So the invariant is stated the other way round, as an allowlist over the
-    whole catalog: an unprivileged role may execute no SECURITY DEFINER function
-    at all, except the single vetted one, in the vetted shape. Then what the
-    function returns stops mattering — an attacker's helper fails the assertion
-    because it is executable, not because of how it spells its return type.
-
-    "Executable" means by any role the login role can act as, inherited or
-    stepped into with SET ROLE. `has_function_privilege('lexloom_app', …)` alone
-    follows inheritance only, so `GRANT r TO lexloom_app WITH INHERIT FALSE, SET
-    TRUE` reads as no access right up until the moment someone types SET ROLE.
+    An organisation is seeded first on purpose. `count(*) == 0` against an empty
+    table is true for the wrong reason, and this test would then pass in a
+    database where the property had been broken.
     """
-    async with system_session() as session:
-        rows = (await session.execute(text(SECURITY_DEFINER_REACH_SQL))).all()
-    assert rows, "no SECURITY DEFINER functions found — the discovery query itself is broken"
+    seeded = await _seed_org(created_orgs, expires_at=datetime.now(UTC) + DEMO_ORG_TTL)
 
-    reachable_by_api = [
-        f"{row.schema_name}.{row.function_name}({row.arguments})"
-        for row in rows
-        if row.app_reaches
-    ]
-    assert not reachable_by_api, (
-        "lexloom_app can execute SECURITY DEFINER functions, which run with the owner's "
-        f"rights and therefore outside row-level security: {reachable_by_api}"
+    async with tenant_session(seeded) as session:
+        assert await session.scalar(text("SELECT count(*) FROM organizations")) == 1, (
+            "the seed did not land, so the unscoped count below would prove nothing"
+        )
+
+    async with system_session() as session:
+        connected_as = await session.scalar(text("SELECT current_user"))
+        assert connected_as == "lexloom_app", (
+            f"this test only means something as an unprivileged role; it ran as {connected_as!r}"
+        )
+        visible = await session.scalar(text("SELECT count(*) FROM organizations"))
+    assert visible == 0, (
+        "a session with no tenant context can enumerate organisations, which hands it the "
+        "RLS credential for every tenant in the database"
     )
 
-    reachable_by_worker = {
-        (row.schema_name, row.function_name, row.arguments, row.return_type, row.returns_set)
+
+async def test_the_database_holds_no_relation_outside_the_inventory() -> None:
+    """Every user-created relation, in every schema, named in advance.
+
+    This replaced a guard that asked which relations an application role could
+    SELECT from. That question was answered wrongly twice — `GRANT SELECT (id)`
+    on one column makes `has_table_privilege(…, 'SELECT')` false while the id is
+    perfectly readable, and the `information_schema` carve-out was justified by
+    checking that the application roles cannot CREATE there, when the objects it
+    existed to catch are created by the owner, who can. Both bypasses are
+    reachability questions. This assertion asks none.
+
+    What it catches, in one comparison and with no privilege semantics: a view
+    over `organizations`, whether or not it carries `security_invoker`, whether
+    or not it is granted to anyone, in `public` or in `information_schema` or in
+    a schema created for the purpose; a materialised view holding a snapshot of
+    the ids; a foreign table; a table nobody policied. Anything a migration adds
+    turns this red and names it, which is the moment to decide whether it needs
+    RLS — and the moment to extend the inventory deliberately rather than to
+    discover a year later that it was never covered.
+    """
+    async with system_session() as session:
+        rows = (await session.execute(text(USER_CREATED_RELATIONS_SQL))).all()
+    found = {(row.schema_name, row.relation_name, row.relation_kind) for row in rows}
+    assert found == EXPECTED_RELATIONS, (
+        "the set of user-created relations is not the one migrations 0001-0004 create. "
+        "Unexpected (present but not in the inventory): "
+        f"{sorted(found - EXPECTED_RELATIONS)}. Missing (in the inventory but not present): "
+        f"{sorted(EXPECTED_RELATIONS - found)}"
+    )
+
+
+async def test_the_database_holds_no_function_outside_the_inventory() -> None:
+    """Every user-created function, in every schema, named in advance.
+
+    This replaced a guard that asked which SECURITY DEFINER functions an
+    application role could EXECUTE. `pg_has_role(…, 'MEMBER')` can be true while
+    both USAGE and SET are false, so a MEMBER-only grant walked past it; and
+    Postgres checks EXECUTE on a trigger function at `CREATE TRIGGER` time
+    rather than at fire time, so a SECURITY DEFINER trigger function with no
+    EXECUTE grant *at all* ran on an ordinary INSERT while the guard read its
+    ACL as empty and stayed green. Both are reachability questions. This
+    assertion asks none: the function is either in the catalog or it is not.
+
+    The extension list is asserted first because it is what bounds the one
+    exclusion this inventory makes — see USER_CREATED_FUNCTIONS_SQL.
+    """
+    async with system_session() as session:
+        extensions = set(
+            (await session.execute(text("SELECT extname FROM pg_catalog.pg_extension"))).scalars()
+        )
+        rows = (await session.execute(text(USER_CREATED_FUNCTIONS_SQL))).all()
+
+    assert extensions == EXPECTED_EXTENSIONS, (
+        "the set of installed extensions changed, so the extension exclusion in the function "
+        "inventory no longer covers what it was written for: "
+        f"{sorted(extensions ^ EXPECTED_EXTENSIONS)}"
+    )
+
+    found = {
+        (row.schema_name, row.function_name, row.arguments, row.kind, row.security_definer)
         for row in rows
-        if row.worker_reaches
     }
-    assert reachable_by_worker == VETTED_SECURITY_DEFINER_FOR_WORKER, (
-        "the set of SECURITY DEFINER functions lexloom_worker can execute changed: "
-        f"{sorted(reachable_by_worker ^ VETTED_SECURITY_DEFINER_FOR_WORKER)}"
+    assert found == EXPECTED_FUNCTIONS, (
+        "the set of user-created functions is not the one migration 0004 creates. "
+        "Unexpected (present but not in the inventory): "
+        f"{sorted(found - EXPECTED_FUNCTIONS)}. Missing (in the inventory but not present): "
+        f"{sorted(EXPECTED_FUNCTIONS - found)}"
     )
 
 
@@ -696,59 +902,6 @@ def test_the_worker_dsn_is_derived_rather_than_string_replaced() -> None:
     assert derived.password == worker_password
     assert (derived.host, derived.port, derived.database) == ("db.internal", 6000, "lexloom")
 
-async def test_the_application_roles_can_read_no_unvetted_relation() -> None:
-    """`prosecdef` cannot see a view, and a view need not respect RLS.
-
-    A view owned by the table owner evaluates its query with the *owner's*
-    rights unless it is created `WITH (security_invoker = on)`. So a plain
-    `CREATE VIEW org_directory AS SELECT id FROM organizations` hands every
-    tenant every organisation id — the same escalation the SECURITY DEFINER
-    allowlist exists to stop, arriving on a route that allowlist never looks at.
-    Migration 0004's claim that there is no enumeration path is only true while
-    no such relation exists, so state it as an invariant rather than an
-    observation.
-
-    Same shape as the function allowlist, and the same reachability rule: every
-    relation either application role can SELECT from, in any schema, must be one
-    of four tables. `pg_catalog` and `information_schema` are excluded because
-    they are the platform's own catalogs, readable by every role in every
-    PostgreSQL installation — and, checked here rather than assumed, neither
-    application role can create anything in them.
-    """
-    async with system_session() as session:
-        for role in ("lexloom_app", "lexloom_worker"):
-            for schema in ("pg_catalog", "information_schema"):
-                can_create = await session.scalar(
-                    text("SELECT has_schema_privilege(:r, :s, 'CREATE')"),
-                    {"r": role, "s": schema},
-                )
-                assert not can_create, (
-                    f"{role} can create objects in {schema}, so excluding it from this "
-                    "check is no longer safe"
-                )
-        rows = (await session.execute(text(READABLE_RELATIONS_SQL))).all()
-
-    for name, expected in (("lexloom_app", "app_reaches"), ("lexloom_worker", "worker_reaches")):
-        reachable = {
-            (row.schema_name, row.relation_name, row.relation_kind)
-            for row in rows
-            if getattr(row, expected)
-        }
-        assert reachable == VETTED_READABLE_RELATIONS, (
-            f"the set of relations {name} can read changed: "
-            f"{sorted(reachable ^ VETTED_READABLE_RELATIONS)}"
-        )
-
-    # Belt and braces for the day a view is added deliberately and the allowlist
-    # above is updated to match: it must still evaluate RLS as its caller.
-    for row in rows:
-        if row.relation_kind in ("v", "m") and (row.app_reaches or row.worker_reaches):
-            assert row.security_invoker in SECURITY_INVOKER_ON, (
-                f"{row.schema_name}.{row.relation_name} is readable by an application role "
-                "but does not carry security_invoker, so it evaluates row-level security as "
-                "its owner rather than as the caller"
-            )
-
 def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
     """The purge's residual window is closed by these two constants, nothing else.
 
@@ -758,12 +911,82 @@ def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
     organisation, which requires a valid token for it, and a demo token expires
     long before the organisation does.
 
-    That is an argument about two numbers, so it is asserted as one. Add a
-    token-refresh endpoint, or lengthen the token, and this fails — which is the
-    moment the purge would need a time-bounded sweep instead, and the moment
-    `document_chunks` would need the `created_at` it does not have.
+    That is an argument about two numbers, so this half of it is asserted as
+    one: lengthen the token past the organisation and it fails. The *other* half
+    — "and no endpoint hands out a fresh one" — is not a statement about
+    constants and cannot be checked here; it is checked by
+    `test_the_route_surface_is_the_one_the_residual_argument_was_written_for`.
     """
     assert timedelta(seconds=DEMO_TOKEN_TTL_SECONDS) < DEMO_ORG_TTL, (
         "a demo token can now outlive its organisation, so a token holder can write rows "
         "into an organisation the purge has already destroyed and nothing will collect them"
+    )
+
+
+def _iter_routes(routes: object) -> object:
+    """Flatten FastAPI's route tree, and refuse to guess when it changes shape.
+
+    `app.routes` is not flat: since FastAPI 0.13x an `include_router` call
+    leaves a single `_IncludedRouter` node whose children hang off
+    `original_router.routes`. A walker that silently skipped a node it did not
+    recognise would under-report the surface, which for an inventory is the one
+    failure mode worse than being wrong — so an unrecognised node raises.
+    """
+    for route in routes:
+        children = getattr(route, "routes", None)
+        if children is None:
+            included = getattr(route, "original_router", None)
+            children = None if included is None else included.routes
+        if children is not None:
+            yield from _iter_routes(children)
+        elif hasattr(route, "path"):
+            yield route
+        else:
+            raise AssertionError(
+                f"{type(route).__name__} exposes neither a path nor child routes, so this "
+                "inventory cannot see through it; the FastAPI route tree has changed shape"
+            )
+
+
+# Path and methods for every route the application serves, including the four
+# FastAPI mounts by default. `HEAD` appears on those four because Starlette's
+# plain `Route` adds it and FastAPI's `APIRoute` does not — recorded as observed
+# rather than tidied, so the literal keeps matching what the framework does.
+EXPECTED_ROUTES = {
+    ("/openapi.json", frozenset({"GET", "HEAD"})),
+    ("/docs", frozenset({"GET", "HEAD"})),
+    ("/docs/oauth2-redirect", frozenset({"GET", "HEAD"})),
+    ("/redoc", frozenset({"GET", "HEAD"})),
+    ("/health/live", frozenset({"GET"})),
+    ("/health/ready", frozenset({"GET"})),
+    ("/.well-known/jwks.json", frozenset({"GET"})),
+    ("/api/v1/auth/demo-login", frozenset({"POST"})),
+}
+
+
+def test_the_route_surface_is_the_one_the_residual_argument_was_written_for(app) -> None:
+    """The purge's residual argument rests on a claim about *features*, so
+    inventory the features.
+
+    Migration 0004 and the test above say the argument fails "the moment a
+    refresh endpoint or a longer token appears". The longer-token half is two
+    constants and is asserted directly. The refresh-endpoint half was not
+    asserted at all: adding a real `POST /api/v1/auth/refresh` that mints a
+    fresh token for a caller-supplied org_id left the whole suite green, while
+    making the residual window arbitrarily wide — a visitor could hold a live
+    token for an organisation the purge had already destroyed and write child
+    rows nothing would ever collect.
+
+    A test cannot notice a feature unless it inventories features. So the route
+    set is a literal, and any new endpoint turns this red. That is not an
+    objection to the endpoint; it is the moment its author has to read migration
+    0004's residual argument and decide whether it still holds. Extending this
+    list is a one-line change once they have.
+    """
+    found = {(route.path, frozenset(route.methods or ())) for route in _iter_routes(app.routes)}
+    assert found == EXPECTED_ROUTES, (
+        "the application's route surface changed, which is what invalidates the purge's "
+        "residual safety argument (migration 0004, and "
+        "test_the_demo_token_cannot_outlive_the_organisation_it_names above). Added: "
+        f"{sorted(found - EXPECTED_ROUTES)}. Removed: {sorted(EXPECTED_ROUTES - found)}"
     )

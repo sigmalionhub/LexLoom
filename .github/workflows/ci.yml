@@ -10,6 +10,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # GitHub's default is six hours. The suite runs in under a minute, so this
+    # is only ever reached by something stuck — a database lock that never
+    # clears, a service container that never becomes healthy — and six hours of
+    # a stuck runner buys no more information than fifteen minutes of it.
+    # pytest-timeout bounds each test; this bounds everything outside pytest.
+    timeout-minutes: 15
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -77,6 +83,9 @@ jobs:
 
   compose-smoke:
     runs-on: ubuntu-latest
+    # The polling loop below gives up after 60s, but `docker compose up --build`
+    # ahead of it is unbounded.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Stack must come up on a clean machine

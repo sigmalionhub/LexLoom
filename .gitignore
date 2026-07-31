@@ -7,3 +7,7 @@ node_modules/
 .next/
 .idea/
 .DS_Store
+
+# Local working notes — never published
+Prompts/
+scratch/

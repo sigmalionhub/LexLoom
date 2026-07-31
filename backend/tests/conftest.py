@@ -11,9 +11,67 @@ os.environ.setdefault(
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("ENV", "ci")
 
-from app.db.session import tenant_session  # noqa: E402
+# The worker connects as lexloom_worker, which holds grants lexloom_app
+# deliberately does not (EXECUTE on the purge function, migration 0004). Derived
+# from DATABASE_URL by swapping the credentials rather than hardcoded, so it
+# follows the host and port wherever the suite runs — locally against Compose on
+# 5433, in CI against the service container on 5432. The convention it relies on
+# is fixed in both places it is created: deploy/postgres/init/01-roles.sh and
+# .github/workflows/ci.yml.
+WORKER_DATABASE_URL = os.environ.get("WORKER_DATABASE_URL") or os.environ[
+    "DATABASE_URL"
+].replace("lexloom_app:app", "lexloom_worker:worker")
+
+# Every table in `public` carrying an `org_id` column is org-scoped. Discovered
+# from the catalog rather than listed, so a table added tomorrow is covered
+# without editing a literal — and lives here rather than in either test module,
+# because two modules assert different things about the same set and a second
+# copy of this query would let them disagree silently.
+ORG_ID_TABLES_SQL = """
+SELECT DISTINCT c.relname
+FROM pg_attribute a
+JOIN pg_class c ON c.oid = a.attrelid
+WHERE a.attname = 'org_id'
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND c.relkind = 'r'
+  AND c.relnamespace = 'public'::regnamespace
+"""
+
+from app.db.session import system_session, tenant_session  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.worker.celery_app import celery_app  # noqa: E402
+
+
+@pytest.fixture
+async def org_scoped_tables() -> list[str]:
+    async with system_session() as session:
+        tables = (await session.execute(text(ORG_ID_TABLES_SQL))).scalars().all()
+    assert tables, "no org_id-scoped tables found — the discovery query itself is broken"
+    return list(tables)
+
+
+@pytest.fixture
+async def worker_role(monkeypatch):
+    """Run the code under test as lexloom_worker instead of lexloom_app.
+
+    Not a convenience. Migration 0004 grants EXECUTE on the purge function to
+    the worker only, so a purge test running under the API role would fail —
+    and the fix a hurried reader reaches for is widening the grant, which hands
+    an attacker who reaches SQL through the API exactly the destructive
+    capability it was narrowed to withhold. Patching the engine keeps the
+    production grant shape and makes the test exercise it.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    worker_engine = create_async_engine(WORKER_DATABASE_URL, pool_size=1, max_overflow=0)
+    monkeypatch.setattr("app.db.engine.engine", worker_engine)
+    monkeypatch.setattr(
+        "app.db.session.session_factory",
+        async_sessionmaker(worker_engine, expire_on_commit=False),
+    )
+    yield
+    await worker_engine.dispose()
 
 
 @pytest.fixture

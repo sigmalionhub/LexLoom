@@ -1,5 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, StringConstraints
 
 from app.auth.demo import DEMO_TOKEN_TTL_SECONDS, provision_demo_org
 
@@ -7,7 +9,12 @@ router = APIRouter(tags=["auth"])
 
 
 class DemoLoginRequest(BaseModel):
-    label: str = Field(max_length=64)
+    # Stripped before the length check, not after: `max_length` alone accepts
+    # "" and "   ", and an organisation whose name is blank is indistinguishable
+    # in the UI from one whose name failed to load.
+    label: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)
+    ]
 
 
 @router.get("/.well-known/jwks.json")

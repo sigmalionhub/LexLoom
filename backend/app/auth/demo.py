@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 
-from app.db.session import system_session, tenant_session
+from app.db.session import system_session
 
 # How long a visitor's throwaway tenant keeps its data.
 DEMO_ORG_TTL = timedelta(hours=24)
@@ -15,24 +15,6 @@ DEMO_ORG_TTL = timedelta(hours=24)
 # Both numbers live here so the endpoint that reports one and the purge that
 # enforces the other cannot drift apart.
 DEMO_TOKEN_TTL_SECONDS = 3600
-
-# Every table in `public` carrying an `org_id` column belongs to some tenant.
-# Discovered from the catalog rather than listed, because this schema has no
-# foreign keys — deliberately, since FK referential-integrity checks bypass RLS
-# — so nothing cascades and a table added tomorrow would otherwise keep a
-# purged tenant's rows forever, which is precisely the promise the demo makes.
-# This is the same discovery the isolation invariants test runs, so the two
-# agree by construction rather than by review.
-ORG_SCOPED_TABLES_SQL = """
-SELECT DISTINCT c.oid::regclass::text AS relation
-FROM pg_attribute a
-JOIN pg_class c ON c.oid = a.attrelid
-WHERE a.attname = 'org_id'
-  AND a.attnum > 0
-  AND NOT a.attisdropped
-  AND c.relkind = 'r'
-  AND c.relnamespace = 'public'::regnamespace
-"""
 
 
 @dataclass(frozen=True)
@@ -80,45 +62,23 @@ async def purge_expired_orgs() -> int:
     """Delete every organisation past its TTL, with all of its data. Returns
     the number of organisations removed.
 
-    Two things about this that are not obvious from the SQL:
+    Deliberately one line: the entire purge is migration 0004's
+    `public.purge_expired_orgs()`, and none of it belongs on this side.
 
-    The expired ids come from `expired_org_ids()` (migration 0004) rather than
-    from a SELECT, because an unscoped SELECT on `organizations` returns zero
-    rows under 0003's policies — the naive purge is not slow or partial, it is
-    a silent no-op that reports 0 and looks like "nothing to do".
+    Two reasons it lives in the database. First, "which organisations have
+    expired?" cannot be answered from any tenant context, and every Python-side
+    shape that can answer it either hands an application role a list of
+    organisation ids — which are the RLS credential, so that is an escalation
+    primitive rather than a lookup — or needs a role that bypasses RLS, which
+    the startup guard refuses to run as. Second, deciding here and deleting
+    there splits one verdict across two transactions: an organisation could be
+    renewed in between and be destroyed anyway on a verdict already stale. In
+    the database it is one statement over one snapshot, with the expiring rows
+    locked.
 
-    The deletes then run inside each expiring organisation's *own* tenant
-    context. That is not a formality: it is the reason no new cross-tenant
-    grant exists anywhere in this path. Each statement is permitted by the
-    same policy that would permit the tenant itself, so a bug here can only
-    ever damage the tenant that was already being destroyed.
+    Unscoped by definition — there is no tenant to scope to when the subject of
+    the statement is every tenant that should no longer exist. `lexloom_app` is
+    not granted EXECUTE, so in production only the worker reaches this.
     """
     async with system_session() as session:
-        expired = [
-            str(value)
-            for value in (
-                await session.execute(text("SELECT * FROM public.expired_org_ids()"))
-            ).scalars()
-        ]
-        if not expired:
-            return 0
-        child_tables = (await session.execute(text(ORG_SCOPED_TABLES_SQL))).scalars().all()
-
-    removed = 0
-    for org_id in expired:
-        async with tenant_session(org_id) as session:
-            for table in child_tables:
-                # Table names come from pg_catalog already quoted by
-                # `regclass::text`, never from a caller. The org_id filter is
-                # redundant under RLS and kept anyway: if the tenant context
-                # ever failed to apply, an unfiltered DELETE would empty the
-                # table for every tenant at once.
-                await session.execute(
-                    text(f"DELETE FROM {table} WHERE org_id = :org"),  # noqa: S608
-                    {"org": org_id},
-                )
-            result = await session.execute(
-                text("DELETE FROM organizations WHERE id = :org"), {"org": org_id}
-            )
-            removed += result.rowcount or 0
-    return removed
+        return await session.scalar(text("SELECT public.purge_expired_orgs()")) or 0

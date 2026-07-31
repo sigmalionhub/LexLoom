@@ -6,25 +6,16 @@ from sqlalchemy import text
 from app.db.session import system_session, tenant_session
 
 # Every table in `public` carrying an `org_id` column is expected to carry
-# forced RLS with an explicit `USING`/`WITH CHECK` policy. Driven from the
-# catalog rather than a literal list, so a table added tomorrow — Task 12's
-# work included — is covered automatically without editing this module.
+# forced RLS with an explicit `USING`/`WITH CHECK` policy. The set comes from
+# the `org_scoped_tables` fixture in conftest, which discovers it from the
+# catalog — so a table added tomorrow is covered automatically, and the purge
+# tests in test_demo_orgs.py measure their coverage against the same set rather
+# than a second copy of it that could drift.
 #
 # `organizations` is deliberately outside this set: its tenant column is its
 # own primary key (`id`), not `org_id`, and its policy shape is four
 # single-command policies rather than one `FOR ALL`. It gets its own tests
 # below.
-ORG_ID_TABLES_SQL = """
-SELECT DISTINCT c.relname
-FROM pg_attribute a
-JOIN pg_class c ON c.oid = a.attrelid
-WHERE a.attname = 'org_id'
-  AND a.attnum > 0
-  AND NOT a.attisdropped
-  AND c.relkind = 'r'
-  AND c.relnamespace = 'public'::regnamespace
-"""
-
 FORCE_MESSAGE = (
     "lacks FORCE ROW LEVEL SECURITY — FORCE binds a non-superuser table owner; "
     "in this stack the migration role is the bootstrap superuser and bypasses "
@@ -66,13 +57,11 @@ async def two_orgs() -> tuple[str, str]:
     return a, b
 
 
-async def test_every_org_scoped_table_has_rls_forced() -> None:
+async def test_every_org_scoped_table_has_rls_forced(org_scoped_tables) -> None:
     """Catalog-driven: finds every table with an org_id column rather than
     naming them, so a table added tomorrow is covered automatically."""
     async with system_session() as s:
-        tables = (await s.execute(text(ORG_ID_TABLES_SQL))).scalars().all()
-        assert tables, "no org_id-scoped tables found — the discovery query itself is broken"
-        for table in tables:
+        for table in org_scoped_tables:
             row = (
                 await s.execute(
                     text(
@@ -145,7 +134,7 @@ async def test_organizations_policies_cover_every_command_without_an_is_null_byp
             )
 
 
-async def test_org_scoped_policies_have_no_gaps_and_no_is_null_bypass() -> None:
+async def test_org_scoped_policies_have_no_gaps_and_no_is_null_bypass(org_scoped_tables) -> None:
     """Inspect pg_policies directly rather than only the two RLS flags.
 
     A deleted policy leaves relrowsecurity/relforcerowsecurity untouched (RLS
@@ -157,9 +146,7 @@ async def test_org_scoped_policies_have_no_gaps_and_no_is_null_bypass() -> None:
     policy expression itself reveals it.
     """
     async with system_session() as s:
-        tables = (await s.execute(text(ORG_ID_TABLES_SQL))).scalars().all()
-        assert tables
-        for table in tables:
+        for table in org_scoped_tables:
             rows = (
                 await s.execute(
                     text(

@@ -1,0 +1,111 @@
+"""the demo-org purge, as one bounded SECURITY DEFINER statement
+
+Revision ID: 0004
+"""
+
+from alembic import op
+
+revision = "0004"
+down_revision = "0003"
+
+# One statement, deliberately. Everything about this function is arranged so a
+# reviewer can decide whether it is safe by reading it once, top to bottom.
+#
+# Why it exists at all: 0003 scoped every read of `organizations` to
+# `id = current_setting('app.current_org_id')`, so no tenant context can answer
+# "which organisations have expired?" and an unscoped DELETE matches zero rows.
+# The purge needs a capability no tenant has.
+#
+# Why it returns an integer and never an id: an organisation id *is* the RLS
+# credential. A helper that handed out expired ids would let anyone able to run
+# SQL as an application role take one, `set_config('app.current_org_id', …)`,
+# and then read and write that tenant's organizations, conversations, messages
+# and document_chunks — every policy in 0002 and 0003 keys off exactly that
+# value. Before this migration there was no enumeration path at all: an
+# unscoped `SELECT count(*) FROM organizations` returns 0 and RLS suppresses
+# the statistics views, so guessing a v4 UUID was the barrier. A count is not a
+# credential; it unlocks nothing.
+#
+# Why it does the deletes itself: the check and the deletes are then the same
+# statement in the same snapshot, so nothing can expire, be extended, or be
+# created in between. `FOR UPDATE` takes the row locks up front, and under READ
+# COMMITTED Postgres re-evaluates the predicate after acquiring each lock — a
+# tenant that extends its TTL while the purge is waiting is dropped from the
+# set rather than destroyed with a stale verdict.
+#
+# Why every operator and function call is schema-qualified: SECURITY DEFINER
+# runs as the owner, and the owner here is the Compose bootstrap superuser. The
+# pinned search_path is the primary defence, but it is one `ALTER FUNCTION`
+# away from being reordered, and a reordered path is not a subtle failure — a
+# `public.now()` returning 'infinity' makes every live tenant look expired and
+# this function then deletes all of them. Verified, not assumed: with
+# `search_path = public, pg_catalog` and hostile `public.now()` and `public.<`
+# installed, an unqualified body returns live tenants and this qualified form
+# returns only the genuinely expired one.
+#
+# Why `SET row_security = off`: the FORCE comments in 0002 and 0003 promise a
+# deployment where the migration role is the table owner but *not* a superuser.
+# On that shape RLS applies to the owner too, no policy grants the owner
+# anything, and this function would silently delete nothing forever — a purge
+# that stops working the day someone follows this repo's own security advice,
+# with no signal. `row_security = off` has no effect for a superuser, and on
+# that future shape it turns the silent no-op into
+# `ERROR: query would be affected by row-level security policy for table …`,
+# with a HINT naming the fix. Loud beats quiet.
+#
+# The child tables are named rather than discovered. Discovery would keep a
+# table added tomorrow covered automatically, but it costs dynamic SQL inside a
+# superuser-owned definer function, and this is the one object in the schema
+# where a reviewer must be able to see the whole blast radius in the text.
+# tests/test_demo_orgs.py drives the org_id-bearing table list from the catalog
+# and fails the moment this list stops matching it, so the rot is loud at the
+# only moment anyone can act on it.
+PURGE_FUNCTION = """
+CREATE FUNCTION public.purge_expired_orgs() RETURNS integer
+LANGUAGE sql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+SET row_security = off
+AS $fn$
+    WITH expired AS (
+        SELECT id FROM public.organizations
+         WHERE expires_at IS NOT NULL
+           AND expires_at OPERATOR(pg_catalog.<) pg_catalog.now()
+         FOR UPDATE
+    ),
+    purged_messages AS (
+        DELETE FROM public.messages
+         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+    ),
+    purged_document_chunks AS (
+        DELETE FROM public.document_chunks
+         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+    ),
+    purged_conversations AS (
+        DELETE FROM public.conversations
+         WHERE org_id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+    ),
+    purged_organizations AS (
+        DELETE FROM public.organizations
+         WHERE id OPERATOR(pg_catalog.=) ANY (SELECT id FROM expired)
+        RETURNING 1 AS purged
+    )
+    SELECT pg_catalog.count(*)::pg_catalog.int4 FROM purged_organizations
+$fn$
+"""
+
+
+def upgrade() -> None:
+    op.execute(PURGE_FUNCTION)
+    # New functions are executable by PUBLIC by default. Revoke before
+    # granting, or the explicit grant below is decoration.
+    op.execute("REVOKE ALL ON FUNCTION public.purge_expired_orgs() FROM PUBLIC")
+    # The worker, and only the worker. lexloom_app serves requests and has no
+    # business destroying tenants; withholding EXECUTE means an attacker who
+    # reaches arbitrary SQL through the API role cannot trigger this at all.
+    op.execute("GRANT EXECUTE ON FUNCTION public.purge_expired_orgs() TO lexloom_worker")
+
+
+def downgrade() -> None:
+    op.execute("DROP FUNCTION IF EXISTS public.purge_expired_orgs()")

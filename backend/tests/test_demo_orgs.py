@@ -3,18 +3,51 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from app.auth.demo import DEMO_ORG_TTL
 from app.db.session import system_session, tenant_session
 from app.worker.tasks import purge_expired_orgs
 
+# The tables this module seeds and then proves empty. A literal on purpose —
+# `test_the_purge_covers_every_org_scoped_table` compares it against the
+# catalog, so it cannot quietly fall behind the schema.
 CHILD_COUNT_SQL = {
     "conversations": "SELECT count(*) FROM conversations WHERE org_id = :org",
     "messages": "SELECT count(*) FROM messages WHERE org_id = :org",
     "document_chunks": "SELECT count(*) FROM document_chunks WHERE org_id = :org",
 }
+
+# Both settings pinned by value, not by presence. `SET search_path = public,
+# pg_catalog` is a valid pin and a catastrophic one: listing pg_catalog last
+# suppresses its implicit-first placement, so a hostile `public.now()` decides
+# which tenants are expired and the purge deletes live ones.
+EXPECTED_PURGE_FUNCTION_SETTINGS = {"search_path=pg_catalog, public", "row_security=off"}
+
+# Catalog-driven: no SECURITY DEFINER function in `public` may expose a uuid,
+# by return type or by OUT parameter. Written against the whole schema rather
+# than one function name, because the mistake this guards is a shape, not a
+# spelling.
+SECURITY_DEFINER_EXPOSURE_SQL = """
+SELECT p.proname,
+       pg_catalog.format_type(p.prorettype, NULL) AS return_type,
+       coalesce(
+         (SELECT string_agg(pg_catalog.format_type(t, NULL), ', ')
+            FROM unnest(coalesce(p.proallargtypes, ARRAY[]::oid[])) AS t),
+         ''
+       ) AS declared_types
+FROM pg_proc p
+WHERE p.pronamespace = 'public'::regnamespace
+  AND p.prosecdef
+"""
+
+PURGE_FUNCTION_SQL = """
+SELECT prosecdef, proconfig, has_function_privilege('public', oid, 'EXECUTE') AS public_executes
+FROM pg_proc WHERE oid = 'public.purge_expired_orgs()'::regprocedure
+"""
 
 
 async def _run_purge() -> int:
@@ -113,23 +146,58 @@ async def test_demo_org_carries_an_expiry(
 
 
 async def test_demo_login_reports_the_lifetime_of_the_token_it_actually_issued(
-    client: AsyncClient, created_orgs: list[str]
+    client: AsyncClient, created_orgs: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`expires_in` is a promise about the token, so derive it from the token.
 
-    A literal in the response body agrees with the signed `exp` only by
-    coincidence, and stops agreeing the moment either side is tuned.
+    Patched to a value `DevIdp.mint` does not default to. With the constant left
+    at its real 3600 — identical to mint()'s default — deleting `ttl=` from the
+    call site would leave both assertions below green while the response stopped
+    describing the token at all.
     """
+    monkeypatch.setattr("app.api.v1.auth.DEMO_TOKEN_TTL_SECONDS", 1234)
     body = (await client.post("/api/v1/auth/demo-login", json={"label": "Initech"})).json()
     created_orgs.append(body["org_id"])
     claims = jwt.decode(
         body["access_token"], options={"verify_signature": False}, audience="lexloom-api"
     )
-    assert body["expires_in"] == claims["exp"] - claims["iat"]
+    assert body["expires_in"] == 1234
+    assert claims["exp"] - claims["iat"] == 1234
     assert claims["org_id"] == body["org_id"]
 
 
-async def test_purge_removes_expired_orgs_only(created_orgs: list[str]) -> None:
+async def test_demo_login_rejects_a_label_that_is_only_whitespace(
+    client: AsyncClient, created_orgs: list[str]
+) -> None:
+    """An organisation named "" is indistinguishable in the UI from one whose
+    name failed to load, and the row is unbounded-creation fuel either way."""
+    for label in ("", "   "):
+        response = await client.post("/api/v1/auth/demo-login", json={"label": label})
+        if response.status_code == 200:
+            # Registered before the assertion fires: a regression here should
+            # fail loudly without also leaving behind the row it should never
+            # have created. Found the hard way while sabotage-testing this.
+            created_orgs.append(response.json()["org_id"])
+        assert response.status_code == 422, f"{label!r} was accepted"
+
+
+async def test_the_purge_covers_every_org_scoped_table(org_scoped_tables) -> None:
+    """Tripwire for the day the schema grows.
+
+    Migration 0004 names the child tables it clears rather than discovering
+    them, which buys a purge a reviewer can audit in one read at the cost of a
+    list that can fall behind. This is what makes falling behind loud: add a
+    table with an `org_id` column and this fails immediately, naming it, before
+    anyone can ship a purge that silently retains it.
+    """
+    assert set(org_scoped_tables) == set(CHILD_COUNT_SQL), (
+        "the org-scoped tables in the schema no longer match the ones the purge tests "
+        "cover; extend migration 0004's statement and CHILD_COUNT_SQL together: "
+        f"{sorted(set(org_scoped_tables) ^ set(CHILD_COUNT_SQL))}"
+    )
+
+
+async def test_purge_removes_expired_orgs_only(worker_role, created_orgs: list[str]) -> None:
     """Drain first, then measure.
 
     The development database outlives any single run, so an unconditional
@@ -176,12 +244,15 @@ async def test_an_expired_organisation_stays_invisible_to_other_tenants(
 ) -> None:
     """Expiry is a reason to delete a tenant, never a reason to publish it.
 
-    The obvious way to give the purge reach across organisations is a second,
-    permissive SELECT policy on organizations guarded by `expires_at < now()`.
-    Permissive policies OR together, so that would hand every tenant read
-    access to every expired tenant's label — a standing cross-organisation leak
-    in the one table that names the tenants, bought to solve a problem that
-    only the purge has. This test is what makes that trade visible.
+    Both routes an expired organisation can leak through are checked, because
+    they fail independently. The *policy* route is another tenant's session: a
+    second, permissive SELECT policy guarded by `expires_at < now()` is the
+    obvious way to give a purge cross-organisation reach, and permissive
+    policies OR together, so it would hand every tenant read access to every
+    expired tenant's label. The *unscoped* route is a session with no tenant
+    context at all, which is what a helper function or a system-role grant
+    opens — and it is invisible from inside a tenant session, so checking only
+    the first would leave this docstring claiming more than the test knows.
     """
     expired = await _seed_org(created_orgs, expires_at=datetime.now(UTC) - timedelta(hours=1))
     other = await _seed_org(created_orgs, expires_at=datetime.now(UTC) + DEMO_ORG_TTL)
@@ -203,29 +274,70 @@ async def test_an_expired_organisation_stays_invisible_to_other_tenants(
         )
         assert result.rowcount == 0, "a tenant deleted an expired organisation that is not its own"
 
+    async with system_session() as session:
+        count = await session.scalar(text("SELECT count(*) FROM organizations"))
+    assert count == 0, "an unscoped session can enumerate organisations"
 
-async def test_the_expired_org_lookup_is_pinned_and_not_granted_to_public() -> None:
-    """The purge's only cross-organisation capability, held to its bounds.
 
-    `expired_org_ids()` runs as its owner, and the owner in this stack is the
-    bootstrap superuser — so an unpinned search_path would let anyone able to
-    create an object in a schema ahead of pg_catalog decide what `now()` means
-    inside a superuser context. Neither application role can create in `public`
-    today, which is a property of the current grants rather than of this
-    function; the pin is what makes the function safe on its own terms.
+async def test_no_security_definer_function_hands_out_an_organisation_id() -> None:
+    """An organisation id is the RLS credential, not an identifier.
+
+    Every policy in migrations 0002 and 0003 keys off
+    `current_setting('app.current_org_id')`. Anything that tells an application
+    role which organisation ids exist lets that role set the GUC to one and then
+    read and write that tenant's organizations, conversations, messages and
+    document_chunks — the whole isolation claim defeated by a lookup. Without
+    such a helper there is no enumeration path at all: an unscoped
+    `SELECT count(*) FROM organizations` returns 0 and RLS suppresses the
+    statistics views, so a v4 UUID has to be guessed.
+
+    SECURITY DEFINER functions are where that leak can appear without touching a
+    single policy, which is why this asks the catalog about the shape rather
+    than about one function's name.
     """
     async with system_session() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT prosecdef, proconfig, "
-                    "       has_function_privilege('public', oid, 'EXECUTE') AS public_executes "
-                    "FROM pg_proc WHERE oid = 'public.expired_org_ids()'::regprocedure"
-                )
-            )
-        ).one()
-    assert row.prosecdef, "expired_org_ids is not SECURITY DEFINER, so the purge cannot read"
-    assert row.proconfig is not None and any(
-        setting.startswith("search_path=") for setting in row.proconfig
-    ), "expired_org_ids has no pinned search_path"
-    assert not row.public_executes, "expired_org_ids is executable by PUBLIC"
+        rows = (await session.execute(text(SECURITY_DEFINER_EXPOSURE_SQL))).all()
+    assert rows, "no SECURITY DEFINER functions found — the discovery query itself is broken"
+    for name, return_type, declared_types in rows:
+        assert "uuid" not in f"{return_type} {declared_types}", (
+            f"SECURITY DEFINER function {name} exposes a uuid ({return_type}; "
+            f"{declared_types}) — an organisation id is a credential, return a count"
+        )
+
+
+async def test_the_purge_helper_is_pinned_by_value_and_not_granted_to_public() -> None:
+    """The purge's whole security rests on two function settings, so pin both.
+
+    `search_path` is asserted by value, not by presence. `SET search_path =
+    public, pg_catalog` is a pin, and it is the dangerous one: pg_catalog listed
+    last loses its implicit-first placement, so `now()` in the body resolves
+    through `public` and a hostile `public.now()` returning 'infinity' makes
+    every live tenant look expired. The body schema-qualifies its calls so this
+    is a second line rather than the only one, but a reordered pin must still
+    fail here.
+
+    `row_security = off` is what stops the purge going silently dead on the
+    deployment the FORCE comments in 0002/0003 promise — an owner that is not a
+    superuser, where RLS applies to the owner and no policy grants it anything.
+    """
+    async with system_session() as session:
+        row = (await session.execute(text(PURGE_FUNCTION_SQL))).one()
+    assert row.prosecdef, "purge_expired_orgs is not SECURITY DEFINER, so it cannot see"
+    assert EXPECTED_PURGE_FUNCTION_SETTINGS.issubset(set(row.proconfig or ())), (
+        f"purge_expired_orgs settings are {row.proconfig}, expected to include "
+        f"{sorted(EXPECTED_PURGE_FUNCTION_SETTINGS)}"
+    )
+    assert not row.public_executes, "purge_expired_orgs is executable by PUBLIC"
+
+
+async def test_the_purge_helper_is_not_executable_by_the_api_role() -> None:
+    """Only the worker may destroy tenants.
+
+    The suite connects as lexloom_app, so this runs on the default engine and
+    the denial is the assertion. Widening the grant to make a purge test pass is
+    the natural mistake; it hands anyone who reaches SQL through the API the
+    ability to delete every expired tenant on demand, so it fails here loudly.
+    """
+    with pytest.raises(ProgrammingError, match="permission denied for function"):
+        async with system_session() as session:
+            await session.execute(text("SELECT public.purge_expired_orgs()"))

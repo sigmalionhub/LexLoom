@@ -35,8 +35,14 @@ build-backend = "setuptools.build_meta"
 # continuing to work in any venv created before the migrations existed. That is
 # the worst shape of bug for a portfolio repository: it breaks for every reader
 # and for nobody who built it.
-[tool.setuptools]
-packages = ["app"]
+#
+# find/include (not a literal `packages = ["app"]` list): a literal list is
+# not recursive, so it would ship only app/__init__.py and silently drop every
+# subpackage (app.api, app.api.v1, app.db, app.worker) from a non-editable
+# build. Nothing exercises that path today (CI and local dev both install
+# editable), which is exactly why it would have broken confusingly later.
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.ruff]
 line-length = 100

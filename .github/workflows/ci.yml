@@ -49,9 +49,11 @@ jobs:
           # app/db/engine.py). alembic/env.py reads DATABASE_URL when no -x dsn
           # is given; alembic.ini only holds a placeholder DSN.
           DATABASE_URL: postgresql+asyncpg://lexloom_migrator:migrator@localhost:5432/lexloom
-        # `python -m alembic`, not bare `alembic`: `-m` prepends the working
-        # directory to sys.path, which is what makes `app` importable. The bare
-        # console script does not, and the image does not install the project.
+        # `python -m alembic`, not bare `alembic`: -m prepends the working
+        # directory to sys.path. CI installs the project, so bare alembic would
+        # work here too — but the deployed image installs dependencies only and
+        # runs from the source tree, where it would not. Keeping -m means this
+        # command is identical everywhere it runs.
         run: python -m alembic upgrade head
       - name: Tests
         working-directory: backend

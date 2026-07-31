@@ -25,9 +25,12 @@ async def _database_ok() -> bool:
 
 async def _redis_ok() -> bool:
     try:
-        client = aioredis.from_url(get_settings().redis_url)
-        await client.ping()
-        await client.aclose()
+        # `async with` closes the client on both paths. Closing it only after a
+        # successful ping leaks a connection pool every time Redis is down —
+        # and a readiness probe is polled continuously, so the leak compounds
+        # exactly when the box is already unhealthy.
+        async with aioredis.from_url(get_settings().redis_url) as client:
+            await client.ping()
         return True
     except Exception:
         logger.warning("readiness_redis_check_failed", exc_info=True)

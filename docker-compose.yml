@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: lexloom_migrator
+      POSTGRES_PASSWORD: ${MIGRATOR_DB_PASSWORD:-migrator}
+      POSTGRES_DB: lexloom
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-app}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:-worker}
+    command: >
+      postgres -c shared_buffers=128MB -c work_mem=8MB -c maintenance_work_mem=256MB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lexloom_migrator -d lexloom"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lexloom_app:${APP_DB_PASSWORD:-app}@postgres:5432/lexloom
+      REDIS_URL: redis://redis:6379/0
+      ENV: ${ENV:-local}
+    ports:
+      - "127.0.0.1:8100:8100"
+    mem_limit: 450m
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  worker:
+    build: ./backend
+    command: >
+      celery -A app.worker.celery_app worker
+      --loglevel=info --concurrency=1 --prefetch-multiplier=1 --max-tasks-per-child=50
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lexloom_worker:${WORKER_DB_PASSWORD:-worker}@postgres:5432/lexloom
+      REDIS_URL: redis://redis:6379/0
+      ENV: ${ENV:-local}
+    mem_limit: 650m
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+volumes:
+  pgdata:

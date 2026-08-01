@@ -166,8 +166,13 @@ async def stream_message(
     async with tenant_session(principal.org_id) as session:
         # `conversation_id` takes part in the query rather than decorating the
         # path. Without it a ticket would open the stream under any conversation
-        # id the URL happened to carry, and the id in the URL would be a claim
-        # nothing checked.
+        # id the URL happened to carry, and `store_answer` — which reuses that
+        # path parameter — would file the answer under a conversation that never
+        # asked. `role` takes part too: it is what keeps a stored assistant row
+        # from being addressable at all, rather than being found and refused by
+        # the replay guard below with a 409 that confirms it exists.
+        # test_a_ticket_does_not_open_its_message_under_a_different_conversation
+        # and test_the_assistant_row_cannot_itself_be_streamed hold both clauses.
         message = (
             await session.execute(
                 text(

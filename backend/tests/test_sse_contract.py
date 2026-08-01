@@ -95,16 +95,19 @@ async def test_stream_response_is_not_compressed(client, demo_auth) -> None:
         assert "content-encoding" not in response.headers
 
 
-async def test_the_connection_header_is_the_librarys_and_not_ours(client, demo_auth) -> None:
-    """`SSE_HEADERS` leaves `Connection` out, and the wire carries it anyway.
+async def test_sse_headers_carries_only_what_the_library_does_not_set(client, demo_auth) -> None:
+    """`SSE_HEADERS` omits both headers sse-starlette assigns for itself, and
+    the wire carries them anyway.
 
-    Both halves are asserted because the comment in `SSE_HEADERS` explains the
-    omission by claiming the second one: sse-starlette assigns the header
-    unconditionally, so an entry there could never have changed a byte. If a
-    future version stops doing that, this test says so rather than leaving the
-    comment quietly wrong.
+    Both halves are asserted for each, because the comment in `SSE_HEADERS`
+    justifies the omissions by claiming the second half: the library assigns
+    them unconditionally after merging ours, so an entry there could never have
+    changed a byte. If a future version stops doing that, the stream silently
+    loses the nginx-buffering fix — so this test, not the comment, is what keeps
+    that from happening quietly.
     """
     assert "Connection" not in SSE_HEADERS
+    assert "X-Accel-Buffering" not in SSE_HEADERS
 
     conversation_id = await _create_conversation(client, demo_auth)
     message_id = await _ask(client, demo_auth, conversation_id, "q")
@@ -113,6 +116,7 @@ async def test_the_connection_header_is_the_librarys_and_not_ours(client, demo_a
     url = _stream_url(conversation_id, message_id, ticket)
     async with client.stream("GET", url) as response:
         assert response.headers["connection"] == "keep-alive"
+        assert response.headers["x-accel-buffering"] == "no"
 
 
 class _WatchSend:
@@ -259,15 +263,123 @@ async def test_another_tenants_conversation_is_indistinguishable_from_a_missing_
     assert response.json()["code"] == "conversation_not_found"
 
 
+async def test_a_ticket_does_not_open_its_message_under_a_different_conversation(
+    client, demo_auth
+) -> None:
+    """The conversation id in the stream URL is checked, not decoration.
+
+    A ticket is bound to a message, not to a path, so without the
+    `AND conversation_id = :c` clause any conversation id in the URL would open
+    the stream — and `store_answer` reuses that path parameter, so the assistant
+    row would be written under a conversation that never asked the question.
+    That is the unreachable-row class the existence check on `create_message`
+    exists to prevent, arriving through the write path instead.
+    """
+    asked_in = await _create_conversation(client, demo_auth)
+    other = await _create_conversation(client, demo_auth)
+    message_id = await _ask(client, demo_auth, asked_in, "q")
+    ticket = await _ticket(client, demo_auth, message_id)
+
+    response = await client.get(_stream_url(other, message_id, ticket))
+    assert response.status_code == 404
+    assert response.json()["code"] == "message_not_found"
+
+
+async def test_another_tenants_conversation_id_does_not_open_a_stream(
+    client, created_orgs
+) -> None:
+    """The same clause, crossed with the tenant boundary: a valid ticket for
+    one's own message, presented under a conversation id belonging to somebody
+    else, is refused — and refused with the same 404 as a missing one, so it
+    does not report whether that conversation exists."""
+    mine = await _demo_login(client, created_orgs)
+    theirs = await _demo_login(client, created_orgs)
+    my_conversation = await _create_conversation(client, mine)
+    their_conversation = await _create_conversation(client, theirs)
+    message_id = await _ask(client, mine, my_conversation, "q")
+    ticket = await _ticket(client, mine, message_id)
+
+    response = await client.get(_stream_url(their_conversation, message_id, ticket))
+    assert response.status_code == 404
+    assert response.json()["code"] == "message_not_found"
+
+
+async def test_a_ticket_minted_by_another_tenant_finds_nothing_to_stream(
+    client, created_orgs
+) -> None:
+    """Nothing stops a tenant minting a ticket for a message id it does not own
+    — `create_stream_ticket` checks nothing, deliberately — so the boundary has
+    to hold at the stream itself. It does: the ticket carries the minter's
+    org_id, the lookup runs in that tenant's context, and another
+    organisation's message is not there to be found."""
+    mine = await _demo_login(client, created_orgs)
+    theirs = await _demo_login(client, created_orgs)
+    my_conversation = await _create_conversation(client, mine)
+    my_message = await _ask(client, mine, my_conversation, "confidential question")
+
+    their_ticket = await _ticket(client, theirs, my_message)
+
+    response = await client.get(_stream_url(my_conversation, my_message, their_ticket))
+    assert response.status_code == 404
+    assert response.json()["code"] == "message_not_found"
+
+
+async def test_the_assistant_row_cannot_itself_be_streamed(
+    client, demo_auth, demo_org_id
+) -> None:
+    """`AND role = 'user'` keeps the stored answer from being addressable.
+
+    Without it the assistant row is found and refused by the replay guard
+    instead — a 409 where a 404 belongs, which tells the caller that the id it
+    guessed is a real message in this conversation. Same tenant, so nothing
+    crosses a boundary; it is still a distinction the endpoint has no reason to
+    draw.
+    """
+    conversation_id = await _create_conversation(client, demo_auth)
+    message_id = await _ask(client, demo_auth, conversation_id, "q")
+    ticket = await _ticket(client, demo_auth, message_id)
+    async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:
+        await _events(response)
+
+    async with tenant_session(demo_org_id) as session:
+        assistant_id = await session.scalar(
+            text("SELECT id FROM messages WHERE conversation_id = :c AND role = 'assistant'"),
+            {"c": conversation_id},
+        )
+
+    assistant_ticket = await _ticket(client, demo_auth, str(assistant_id))
+    response = await client.get(_stream_url(conversation_id, assistant_id, assistant_ticket))
+    assert response.status_code == 404
+    assert response.json()["code"] == "message_not_found"
+
+
 async def test_the_answer_is_stored_when_the_stream_finishes(
     client, demo_auth, demo_org_id
 ) -> None:
     """A reload has to show the answer, so the stream is not the only copy of it.
 
     Written after generation, in its own short transaction, and asserted here
-    against the tokens the client actually received rather than against the
-    canned text — the two are the same answer or the feature is broken.
+    against what the client actually received rather than against the canned
+    text — the two are the same answer or the feature is broken.
+
+    The question is seeded to match a chunk on purpose. An empty `citations`
+    column round-trips through JSONB whether or not the payload is built
+    correctly; a real one is what proves the sources a reader saw are the
+    sources a reload will show.
     """
+    async with tenant_session(demo_org_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO document_chunks (id, org_id, content, page_from, page_to) "
+                "VALUES (:i, :o, :c, 3, 4)"
+            ),
+            {
+                "i": str(uuid.uuid4()),
+                "o": demo_org_id,
+                "c": "The obligations of the processor survive termination.",
+            },
+        )
+
     conversation_id = await _create_conversation(client, demo_auth)
     message_id = await _ask(client, demo_auth, conversation_id, "obligations")
     ticket = await _ticket(client, demo_auth, message_id)
@@ -275,6 +387,7 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:
         events = await _events(response)
     spoken = "".join(data["text"] for name, data in events if name == "token")
+    streamed_chunks = next(data["chunks"] for name, data in events if name == "citations")
 
     async with tenant_session(demo_org_id) as session:
         rows = (
@@ -292,7 +405,19 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     assert answer["content"] == spoken
     assert answer["status"] == "complete"
     assert answer["finish_reason"] == "stop"
-    assert answer["citations"] == []
+    # The stored sources are the streamed sources, field for field, after a
+    # round trip through JSONB — not merely a list of the right length.
+    assert answer["citations"] == streamed_chunks
+    assert len(streamed_chunks) == 1
+    assert streamed_chunks[0].keys() == {
+        "chunk_id", "org_id", "content", "page_from", "page_to", "score"
+    }
+    assert streamed_chunks[0]["org_id"] == demo_org_id
+    assert streamed_chunks[0]["page_from"] == 3
+    assert streamed_chunks[0]["page_to"] == 4
+    assert streamed_chunks[0]["score"] == 1.0
+    assert "survive termination" in streamed_chunks[0]["content"]
+    uuid.UUID(streamed_chunks[0]["chunk_id"])  # a real id, not a repr
     # 'pending' is what a question keeps when nobody stayed for the answer, so
     # it has to move once one exists — otherwise the column says nothing.
     assert question["status"] == "answered"

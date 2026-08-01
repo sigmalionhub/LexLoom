@@ -12,21 +12,28 @@ logger = structlog.get_logger(__name__)
 
 MODEL_NAME = "fake-1"
 
+# Only what sse-starlette does not already decide for us, which is one header.
+#
+# `Cache-Control` is here because the library applies it with `setdefault`, so
+# ours wins: `no-cache` rather than its `no-store`. An SSE body is a live
+# connection, not a document — revalidation is the meaningful instruction and it
+# is the value the contract test pins.
+#
+# `Connection: keep-alive` and `X-Accel-Buffering: no` are deliberately absent.
+# The library assigns both unconditionally, *after* merging these, so an entry
+# here could never change a byte on the wire — it would only look like a
+# decision this application makes. On top of that `Connection` is hop-by-hop
+# (RFC 9110 §7.6.1): a proxy strips it and writes its own, and HTTP/1.1 keeps
+# connections alive by default. Measured rather than assumed for that one:
+# uvicorn 0.52 neither rejects nor rewrites it under either HTTP implementation,
+# it copies whatever the application sends straight onto the wire — so the
+# reason to drop it was never that the stack complains.
+#
+# The nginx-buffering fix is still shipped and still load-bearing; it is just
+# the library's header, not ours, and
+# test_sse_headers_carries_only_what_the_library_does_not_set holds that to it.
 SSE_HEADERS = {
     "Cache-Control": "no-cache",
-    # nginx buffers proxied responses by default. Without this header the
-    # client receives one flush at the end, which is the bug this endpoint
-    # exists to fix.
-    "X-Accel-Buffering": "no",
-    # `Connection: keep-alive` is deliberately absent. It is hop-by-hop
-    # (RFC 9110 §7.6.1): it describes one leg of the path, so a proxy strips it
-    # and writes its own, and on HTTP/1.1 persistent connections are the default
-    # anyway. Measured rather than assumed: uvicorn 0.52 neither rejects nor
-    # rewrites it under either HTTP implementation — it copies whatever the
-    # application sends straight onto the wire — so the reason to drop it is
-    # that it claims a decision the application does not get to make, not that
-    # the stack complains. sse-starlette sets the header itself regardless, so
-    # listing it here could never have changed a byte.
 }
 
 

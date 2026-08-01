@@ -80,6 +80,25 @@ async def test_a_trailing_backslash_does_not_escape_the_wildcards_this_query_add
         assert len(await search_chunks(session, "C:\\")) == 1
 
 
+async def test_a_question_longer_than_the_limit_is_truncated_before_it_is_escaped(
+    created_orgs: list[str],
+) -> None:
+    """Truncating after escaping would cut a `\\%` pair in half.
+
+    The severed backslash then escapes the `%` this function appends, so the
+    pattern stops ending in a wildcard and starts demanding that the chunk end
+    exactly where the question was cut. The chunk below continues past that
+    point, so it is found in the right order and missed in the wrong one.
+    """
+    org = await _new_org(created_orgs)
+    # 199 characters and then a per-cent sign: exactly the 200-character limit,
+    # so the escape pair straddles it once escaping runs first.
+    question = "a" * 199 + "% and the clause continues well past the cut."
+    await _seed_chunk(org, f"{question} It really does.")
+    async with tenant_session(org) as session:
+        assert len(await search_chunks(session, question)) == 1
+
+
 async def test_a_literal_percent_in_the_question_finds_the_chunk_that_has_one(
     created_orgs: list[str],
 ) -> None:

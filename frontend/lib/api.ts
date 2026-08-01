@@ -14,46 +14,32 @@ import type { components } from './api-types';
 export const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN ?? '';
 
 /* -------------------------------------------------------------------------- */
-/* Request bodies: generated. Response bodies: written out here.               */
+/* Request and response bodies: both generated.                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * The request shapes below come straight from the committed OpenAPI snapshot,
- * so a backend rename breaks this file at compile time.
+ * Every shape below comes from the committed OpenAPI snapshot, so a backend
+ * rename breaks this file at compile time rather than at runtime.
  *
- * The response shapes do not, and cannot: the handlers return plain dicts
- * without `response_model=`, so every 2xx in `openapi.json` is declared as
- * `{[key: string]: unknown}`. Generating from a running server would not help —
- * the schema says the same thing there. These four interfaces are therefore
- * transcribed from `docs/api-contract.md` §3, which was captured against the
- * live service, and they are the one place in this client where a backend
- * change would go unnoticed until runtime.
+ * The response types were once transcribed by hand from `docs/api-contract.md`,
+ * because the handlers returned plain dicts and every 2xx in `openapi.json` was
+ * declared as `{[key: string]: unknown}` — regenerating changed nothing,
+ * because the schema said the same thing at the source. The handlers now carry
+ * response models, so the schema describes them and this file no longer holds
+ * a second, drifting account of the contract.
+ *
+ * Refresh both with the stack up:
+ *   npm run snapshot:openapi && npm run gen:types
  */
 export type DemoLoginRequest = components['schemas']['DemoLoginRequest'];
 export type CreateConversationRequest = components['schemas']['CreateConversationRequest'];
 export type CreateMessageRequest = components['schemas']['CreateMessageRequest'];
 export type StreamTicketRequest = components['schemas']['StreamTicketRequest'];
 
-export interface DemoLoginResponse {
-  access_token: string;
-  org_id: string;
-  org_name: string;
-  expires_in: number;
-}
-
-export interface CreateConversationResponse {
-  id: string;
-}
-
-export interface CreateMessageResponse {
-  message_id: string;
-}
-
-export interface StreamTicketResponse {
-  ticket: string;
-  /** The ticket's real lifetime in seconds. Time out on this, not on a literal 60. */
-  expires_in: number;
-}
+export type DemoLoginResponse = components['schemas']['DemoLoginResponse'];
+export type CreateConversationResponse = components['schemas']['CreateConversationResponse'];
+export type CreateMessageResponse = components['schemas']['CreateMessageResponse'];
+export type StreamTicketResponse = components['schemas']['StreamTicketResponse'];
 
 /** One retrieved chunk, exactly as it arrives in the `citations` frame. */
 export interface Citation {

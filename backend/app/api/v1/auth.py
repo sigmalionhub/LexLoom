@@ -1,4 +1,5 @@
 import unicodedata
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -98,9 +99,45 @@ class DemoLoginRequest(BaseModel):
         return value
 
 
+# Response models exist for one reason: without them FastAPI has nothing to put
+# in the OpenAPI schema but `{}`, and `/docs` answers "an untyped object" to the
+# first question a frontend developer asks. They are declared as return
+# annotations rather than `response_model=`; FastAPI reads either, and an
+# annotation is the one a type checker reads too.
+class JwksKey(BaseModel):
+    """One RSA public key, in the six members RFC 7517 needs to verify with.
+
+    Named rather than left as `dict[str, str]` so the *absence* of the private
+    members is visible in the schema. `d`, `p` and `q` are not here, and a
+    response model drops anything not declared — so if a future key source ever
+    handed them over, this endpoint would not pass them on.
+    """
+
+    kty: str
+    use: str
+    alg: str
+    kid: str
+    n: str
+    e: str
+
+
+class Jwks(BaseModel):
+    keys: list[JwksKey]
+
+
+class DemoLoginResponse(BaseModel):
+    access_token: str
+    org_id: uuid.UUID
+    org_name: str
+    # Describes the token, not the organisation. The organisation outlives it —
+    # see DEMO_ORG_TTL — and a client that treats this as the tenant's lifetime
+    # will stop using a tenant that is still there.
+    expires_in: int
+
+
 @router.get("/.well-known/jwks.json")
-async def jwks(request: Request) -> dict:
-    return request.app.state.dev_idp.jwks()
+async def jwks(request: Request) -> Jwks:
+    return Jwks.model_validate(request.app.state.dev_idp.jwks())
 
 
 @router.post(
@@ -111,7 +148,7 @@ async def jwks(request: Request) -> dict:
     # parsing, so a refused caller never reaches the label rules below.
     dependencies=[Depends(enforce_demo_login_rate_limit)],
 )
-async def demo_login(payload: DemoLoginRequest, request: Request) -> dict[str, object]:
+async def demo_login(payload: DemoLoginRequest, request: Request) -> DemoLoginResponse:
     """Mint a throwaway organisation for this visitor.
 
     Shared demo orgs would put one visitor's upload in front of the next, and a
@@ -127,9 +164,9 @@ async def demo_login(payload: DemoLoginRequest, request: Request) -> dict[str, o
     token = request.app.state.dev_idp.mint(
         subject=org.external_id, org_id=org.id, ttl=DEMO_TOKEN_TTL_SECONDS
     )
-    return {
-        "access_token": token,
-        "org_id": org.id,
-        "org_name": org.name,
-        "expires_in": DEMO_TOKEN_TTL_SECONDS,
-    }
+    return DemoLoginResponse(
+        access_token=token,
+        org_id=uuid.UUID(org.id),
+        org_name=org.name,
+        expires_in=DEMO_TOKEN_TTL_SECONDS,
+    )

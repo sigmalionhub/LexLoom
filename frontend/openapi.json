@@ -68,9 +68,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Jwks  Well Known Jwks Json Get"
+                  "$ref": "#/components/schemas/Jwks"
                 }
               }
             }
@@ -102,9 +100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Demo Login Api V1 Auth Demo Login Post"
+                  "$ref": "#/components/schemas/DemoLoginResponse"
                 }
               }
             }
@@ -145,11 +141,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Create Conversation Api V1 Conversations Post"
+                  "$ref": "#/components/schemas/CreateConversationResponse"
                 }
               }
             }
@@ -203,11 +195,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Create Message Api V1 Conversations  Conversation Id  Messages Post"
+                  "$ref": "#/components/schemas/CreateMessageResponse"
                 }
               }
             }
@@ -249,9 +237,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Create Stream Ticket Api V1 Auth Stream Tickets Post"
+                  "$ref": "#/components/schemas/StreamTicketResponse"
                 }
               }
             }
@@ -347,6 +333,20 @@
         ],
         "title": "CreateConversationRequest"
       },
+      "CreateConversationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "CreateConversationResponse"
+      },
       "CreateMessageRequest": {
         "properties": {
           "content": {
@@ -361,6 +361,20 @@
           "content"
         ],
         "title": "CreateMessageRequest"
+      },
+      "CreateMessageResponse": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id"
+        ],
+        "title": "CreateMessageResponse"
       },
       "DemoLoginRequest": {
         "properties": {
@@ -377,6 +391,35 @@
         ],
         "title": "DemoLoginRequest"
       },
+      "DemoLoginResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id"
+          },
+          "org_name": {
+            "type": "string",
+            "title": "Org Name"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "org_id",
+          "org_name",
+          "expires_in"
+        ],
+        "title": "DemoLoginResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -389,6 +432,61 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "Jwks": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/JwksKey"
+            },
+            "type": "array",
+            "title": "Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keys"
+        ],
+        "title": "Jwks"
+      },
+      "JwksKey": {
+        "properties": {
+          "kty": {
+            "type": "string",
+            "title": "Kty"
+          },
+          "use": {
+            "type": "string",
+            "title": "Use"
+          },
+          "alg": {
+            "type": "string",
+            "title": "Alg"
+          },
+          "kid": {
+            "type": "string",
+            "title": "Kid"
+          },
+          "n": {
+            "type": "string",
+            "title": "N"
+          },
+          "e": {
+            "type": "string",
+            "title": "E"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kty",
+          "use",
+          "alg",
+          "kid",
+          "n",
+          "e"
+        ],
+        "title": "JwksKey",
+        "description": "One RSA public key, in the six members RFC 7517 needs to verify with.\n\nNamed rather than left as `dict[str, str]` so the *absence* of the private\nmembers is visible in the schema. `d`, `p` and `q` are not here, and a\nresponse model drops anything not declared — so if a future key source ever\nhanded them over, this endpoint would not pass them on."
       },
       "StreamTicketRequest": {
         "properties": {
@@ -403,6 +501,24 @@
           "message_id"
         ],
         "title": "StreamTicketRequest"
+      },
+      "StreamTicketResponse": {
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "title": "Ticket"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "title": "StreamTicketResponse"
       },
       "ValidationError": {
         "properties": {

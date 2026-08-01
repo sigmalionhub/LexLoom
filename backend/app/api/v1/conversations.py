@@ -52,16 +52,35 @@ class StreamTicketRequest(BaseModel):
     message_id: uuid.UUID
 
 
+# Response models, declared as return annotations rather than `response_model=`
+# — FastAPI reads either, and an annotation is the one a type checker reads too.
+# Without them every 2xx in `openapi.json` is `{}`, `/docs` answers "an untyped
+# object", and the generated client in `frontend/lib/api-types.ts` has nothing
+# to offer but `Record<string, unknown>`.
+class CreateConversationResponse(BaseModel):
+    id: uuid.UUID
+
+
+class CreateMessageResponse(BaseModel):
+    message_id: uuid.UUID
+
+
+class StreamTicketResponse(BaseModel):
+    ticket: str
+    # The ticket's real lifetime. A client times out on this, not on a literal.
+    expires_in: int
+
+
 @router.post("/conversations", status_code=status.HTTP_201_CREATED)
 async def create_conversation(
     payload: CreateConversationRequest, principal: CurrentPrincipal, session: TenantSession
-) -> dict[str, str]:
+) -> CreateConversationResponse:
     conversation_id = uuid.uuid4()
     await session.execute(
         text("INSERT INTO conversations (id, org_id, title) VALUES (:i, :o, :t)"),
         {"i": str(conversation_id), "o": principal.org_id, "t": payload.title},
     )
-    return {"id": str(conversation_id)}
+    return CreateConversationResponse(id=conversation_id)
 
 
 @router.post("/conversations/{conversation_id}/messages", status_code=status.HTTP_202_ACCEPTED)
@@ -70,7 +89,7 @@ async def create_message(
     payload: CreateMessageRequest,
     principal: CurrentPrincipal,
     session: TenantSession,
-) -> dict[str, str]:
+) -> CreateMessageResponse:
     """Accept the question and return immediately.
 
     Generation happens on the stream endpoint, not here. Answering 202 rather
@@ -111,13 +130,13 @@ async def create_message(
             "status": _PENDING,
         },
     )
-    return {"message_id": str(message_id)}
+    return CreateMessageResponse(message_id=message_id)
 
 
 @router.post("/auth/stream-tickets")
 async def create_stream_ticket(
     payload: StreamTicketRequest, principal: CurrentPrincipal, request: Request
-) -> dict[str, object]:
+) -> StreamTicketResponse:
     """Mint the credential an EventSource can carry in its URL.
 
     The message id is not checked for existence here. A ticket is only ever
@@ -132,7 +151,7 @@ async def create_stream_ticket(
     # TICKET_TTL_SECONDS, not a second literal 60. Two numbers that must agree
     # is one number and a latent lie; the one in the contract is the one
     # clients build timeouts on.
-    return {"ticket": ticket, "expires_in": TICKET_TTL_SECONDS}
+    return StreamTicketResponse(ticket=ticket, expires_in=TICKET_TTL_SECONDS)
 
 
 @router.get("/conversations/{conversation_id}/messages/{message_id}/stream")

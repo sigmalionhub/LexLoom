@@ -187,20 +187,78 @@ export interface components {
       /** Title */
       title: string;
     };
+    /** CreateConversationResponse */
+    CreateConversationResponse: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+    };
     /** CreateMessageRequest */
     CreateMessageRequest: {
       /** Content */
       content: string;
+    };
+    /** CreateMessageResponse */
+    CreateMessageResponse: {
+      /**
+       * Message Id
+       * Format: uuid
+       */
+      message_id: string;
     };
     /** DemoLoginRequest */
     DemoLoginRequest: {
       /** Label */
       label: string;
     };
+    /** DemoLoginResponse */
+    DemoLoginResponse: {
+      /** Access Token */
+      access_token: string;
+      /**
+       * Org Id
+       * Format: uuid
+       */
+      org_id: string;
+      /** Org Name */
+      org_name: string;
+      /** Expires In */
+      expires_in: number;
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
       detail?: components['schemas']['ValidationError'][];
+    };
+    /** Jwks */
+    Jwks: {
+      /** Keys */
+      keys: components['schemas']['JwksKey'][];
+    };
+    /**
+     * JwksKey
+     * @description One RSA public key, in the six members RFC 7517 needs to verify with.
+     *
+     *     Named rather than left as `dict[str, str]` so the *absence* of the private
+     *     members is visible in the schema. `d`, `p` and `q` are not here, and a
+     *     response model drops anything not declared — so if a future key source ever
+     *     handed them over, this endpoint would not pass them on.
+     */
+    JwksKey: {
+      /** Kty */
+      kty: string;
+      /** Use */
+      use: string;
+      /** Alg */
+      alg: string;
+      /** Kid */
+      kid: string;
+      /** N */
+      n: string;
+      /** E */
+      e: string;
     };
     /** StreamTicketRequest */
     StreamTicketRequest: {
@@ -209,6 +267,13 @@ export interface components {
        * Format: uuid
        */
       message_id: string;
+    };
+    /** StreamTicketResponse */
+    StreamTicketResponse: {
+      /** Ticket */
+      ticket: string;
+      /** Expires In */
+      expires_in: number;
     };
     /** ValidationError */
     ValidationError: {
@@ -291,9 +356,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+          'application/json': components['schemas']['Jwks'];
         };
       };
     };
@@ -317,9 +380,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+          'application/json': components['schemas']['DemoLoginResponse'];
         };
       };
       /** @description Validation Error */
@@ -352,9 +413,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            [key: string]: string;
-          };
+          'application/json': components['schemas']['CreateConversationResponse'];
         };
       };
       /** @description Validation Error */
@@ -389,9 +448,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            [key: string]: string;
-          };
+          'application/json': components['schemas']['CreateMessageResponse'];
         };
       };
       /** @description Validation Error */
@@ -424,9 +481,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
+          'application/json': components['schemas']['StreamTicketResponse'];
         };
       };
       /** @description Validation Error */

@@ -1,0 +1,36 @@
+{
+  "name": "lexloom-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static demo page for the LexLoom API: chat on the left, live backend panel on the right.",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "build": "next build",
+    "preview": "next build && node scripts/serve.mjs --static",
+    "lint": "next lint",
+    "format": "prettier --write \"{app,components,lib,scripts}/**/*.{ts,tsx,mjs,css}\" \"*.{ts,mjs}\"",
+    "gen:types": "openapi-typescript openapi.json -o lib/api-types.ts",
+    "snapshot:openapi": "node scripts/snapshot-openapi.mjs"
+  },
+  "dependencies": {
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.10",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.35",
+    "openapi-typescript": "7.5.2",
+    "postcss": "8.4.49",
+    "prettier": "3.4.2",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.7.2"
+  }
+}

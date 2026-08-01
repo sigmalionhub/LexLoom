@@ -152,6 +152,24 @@ Compose has no source bind mount, so a code or migration change needs
 `docker compose build`. Without a rebuild, `alembic upgrade head` runs against the old
 image, no-ops, and reports success.
 
+### The demo page
+
+```bash
+cd frontend
+npm ci
+npm run dev          # http://127.0.0.1:3000, API proxied to :8100 from the same origin
+npm run preview      # the same page, served from the static build that gets deployed
+```
+
+Chat on the left, a live panel on the right showing the named SSE events in arrival
+order, the measured interval between the `citations` frame and the first token, the
+caller's `org_id`, and a cross-tenant probe made with a second tenant's real token.
+Every figure on that panel is read off the wire in the browser; none of it is scripted.
+
+`npm run build` produces `frontend/out/`, a directory of files. There is no Node
+process in production: the same nginx that fronts the API serves them, which is also
+why the API has no CORS middleware.
+
 ### Tests
 
 ```bash
@@ -255,6 +273,7 @@ backend/app/        api/v1/  auth/  chat/  db/  worker/     application
 backend/alembic/    0001…0004                                schema, roles, policies
 backend/tests/      120 tests, real Postgres + real uvicorn
 backend/seed/       GDPR excerpts, sourced from EUR-Lex with the reuse basis recorded
+frontend/           Next.js 14, static export: the demo page and its backend panel
 docs/               api-contract.md, errors.md, adr/
 deploy/             Postgres role bootstrap
 ```

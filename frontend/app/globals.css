@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* The composition is a fixed two-material split (paper left, slate right).
+       There is no dark variant of it, so the form controls are told which
+       scheme they are living in rather than guessing from the OS. */
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-slate font-sans text-ink antialiased;
+  }
+
+  /* One focus treatment for the whole page: a brass ring that reads on paper
+     and on slate alike, so keyboard navigation is never invisible on either
+     material. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brass ring-offset-2;
+    --tw-ring-offset-color: theme('colors.paper');
+  }
+
+  .on-slate :focus-visible {
+    --tw-ring-offset-color: theme('colors.slate');
+  }
+
+  ::selection {
+    @apply bg-brass/30;
+  }
+}
+
+@layer components {
+  /* Instrument labelling: small, wide-tracked, upper-case monospace. Used for
+     every section header inside the backend panel and nowhere else. */
+  .label-micro {
+    @apply font-mono text-micro uppercase text-mist;
+  }
+
+  /* A measured figure. Tabular numerals so a value ticking from 9 ms to 10 ms
+     does not shift the layout under it. */
+  .figure {
+    @apply font-mono tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

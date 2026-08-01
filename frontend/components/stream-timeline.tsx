@@ -35,7 +35,14 @@ export function StreamTimeline({ turn }: StreamTimelineProps) {
   if (!turn || !t || !started) return null;
 
   const total = Math.max(t.end ?? t.lastToken ?? t.firstToken ?? t.citations ?? 0, 1);
-  const marks: Mark[] = [{ at: 0, kind: 'plain', title: 'message_start' }];
+
+  // `message_start` is plotted where it was measured, never at the origin.
+  // Pinning it to zero would have drawn the whole of the connection setup as if
+  // it were the interval between the stream opening and retrieval finishing —
+  // on the one plot that exists to make that interval legible, and in front of
+  // the reader most likely to take it literally.
+  const marks: Mark[] = [];
+  if (t.start !== undefined) marks.push({ at: t.start, kind: 'plain', title: 'message_start' });
   if (t.citations !== undefined) marks.push({ at: t.citations, kind: 'measured', title: 'citations' });
   if (t.firstToken !== undefined) marks.push({ at: t.firstToken, kind: 'plain', title: 'first token' });
   if (t.end !== undefined) marks.push({ at: t.end, kind: 'plain', title: 'message_end' });
@@ -60,7 +67,11 @@ export function StreamTimeline({ turn }: StreamTimelineProps) {
 
       {showZoom && zoomRange !== null && (
         <Axis
-          caption={`first ${zoomRange} ms · ${magnification.toFixed(0)}× magnified`}
+          // One decimal, always. Rounded to whole numbers a true 1.65× prints as
+          // "2× magnified", which overstates the scale by a fifth on the caption
+          // whose whole purpose is that the factor is computed rather than
+          // implied.
+          caption={`first ${zoomRange} ms · ${magnification.toFixed(1)}× magnified`}
           range={zoomRange}
           marks={marks.filter((mark) => mark.at <= zoomRange)}
           band={
@@ -74,10 +85,18 @@ export function StreamTimeline({ turn }: StreamTimelineProps) {
         />
       )}
 
-      <p className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[0.6875rem] text-mist">
-        <Key swatch="measured">citations</Key>
-        <Key swatch="band">token frames</Key>
-      </p>
+      <div className="space-y-1.5">
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[0.6875rem] text-mist">
+          <Key swatch="measured">citations</Key>
+          <Key swatch="band">token frames</Key>
+        </p>
+        {/* Says what the origin is, so the space to the left of the first mark
+            cannot be read as retrieval time. */}
+        <p className="font-mono text-[0.6875rem] leading-relaxed text-mist/70">
+          0 ms is when the browser opened the connection, so the run-up to{' '}
+          <span className="text-mist">message_start</span> is setup, not retrieval.
+        </p>
+      </div>
     </div>
   );
 }

@@ -170,12 +170,18 @@ Every figure on that panel is read off the wire in the browser; none of it is sc
 process in production: the same nginx that fronts the API serves them, which is also
 why the API has no CORS middleware.
 
+`npm audit` reports five high-severity PostCSS advisories, all reached through
+`next@14.2.35`, and the only fix npm offers is Next 16. They are stated here rather
+than left for your tooling to find: in a static export PostCSS runs at build time and
+ships zero bytes to the browser, so the runtime exposure of this page is nil. The
+finding is real; the risk it describes is not present in what gets deployed.
+
 ### Tests
 
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 120 passed
+.venv/bin/pytest -q          # 121 passed
 ```
 
 The suite needs the Compose Postgres and Redis running. It is not a mock suite: it
@@ -271,7 +277,7 @@ tool would not have.
 ```
 backend/app/        api/v1/  auth/  chat/  db/  worker/     application
 backend/alembic/    0001…0004                                schema, roles, policies
-backend/tests/      120 tests, real Postgres + real uvicorn
+backend/tests/      121 tests, real Postgres + real uvicorn
 backend/seed/       GDPR excerpts, sourced from EUR-Lex with the reuse basis recorded
 frontend/           Next.js 14, static export: the demo page and its backend panel
 docs/               api-contract.md, errors.md, adr/

@@ -36,7 +36,13 @@ export interface Turn {
   tokens: number;
   /** Named frames in arrival order, with their measured offsets. */
   frames: Frame[];
-  timings: { citations?: number; firstToken?: number; lastToken?: number; end?: number };
+  /**
+   * Measured offsets from the moment the `EventSource` was constructed. `start`
+   * is the arrival of `message_start`, and it is not zero: it carries the
+   * connection setup, which is why the timeline plots it where it landed rather
+   * than at the origin.
+   */
+  timings: { start?: number; citations?: number; firstToken?: number; lastToken?: number; end?: number };
   status: TurnStatus;
   finishReason?: string;
   /** The server's own `event: error` frame, if one arrived. */
@@ -59,6 +65,13 @@ export interface IsolationReport {
   orgsSeen: string[];
   /** Citation rows received in total. */
   rows: number;
+  /**
+   * Tenants that actually received citations — not tenants created. It is
+   * printed next to `orgsSeen.length`, and the two matching is what says each
+   * tenant saw only its own rows, so counting an idle tenant here would make
+   * the pair say nothing.
+   */
+  tenantsAsked: number;
   /** Rows whose `org_id` was not the asking tenant's. This is the number that must stay 0. */
   foreignRows: number;
   probe: { intruder: string; target: string; result: ProbeResult } | null;
@@ -74,7 +87,9 @@ export function useLexloom() {
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [probe, setProbe] = useState<IsolationReport['probe']>(null);
   const [probeRunning, setProbeRunning] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // No `busy` state: it is derived per tenant, further down. A single global
+  // flag meant that switching tenants mid-answer showed the newly selected
+  // tenant a Stop button wired to somebody else's stream.
   const [creatingTenant, setCreatingTenant] = useState(false);
   const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null);
 
@@ -182,7 +197,6 @@ export function useLexloom() {
           status: 'sending',
         },
       ]);
-      setBusy(true);
 
       try {
         const conversationId = tenant.conversationId ?? (await createConversation(tenant));
@@ -194,7 +208,11 @@ export function useLexloom() {
 
         streamRef.current = openAnswerStream(streamUrl(conversationId, messageId, ticket), lifetime, {
           onFrame: (frame) => patchTurn(turnId, (turn) => ({ frames: [...turn.frames, frame] })),
-          onStart: (data) => patchTurn(turnId, { model: data.model }),
+          onStart: (data, at) =>
+            patchTurn(turnId, (turn) => ({
+              model: data.model,
+              timings: { ...turn.timings, start: at },
+            })),
           onCitations: (chunks, at) =>
             patchTurn(turnId, (turn) => ({
               citations: chunks,
@@ -208,7 +226,8 @@ export function useLexloom() {
             })),
           onServerError: (problem) => patchTurn(turnId, { serverError: problem }),
           onEnd: (outcome) => {
-            setBusy(false);
+            // Every branch below leaves a terminal status on the turn, which is
+            // what clears the composer for this tenant.
             if (outcome.kind === 'complete') {
               patchTurn(turnId, (turn) => ({
                 status: 'complete',
@@ -251,7 +270,6 @@ export function useLexloom() {
           },
         });
       } catch (error) {
-        setBusy(false);
         const described = describe(error, 'The question could not be sent.');
         patchTurn(turnId, {
           status: 'failed',
@@ -305,16 +323,26 @@ export function useLexloom() {
 
   const isolation = useMemo<IsolationReport>(() => {
     const orgsSeen = new Set<string>();
+    const askers = new Set<string>();
     let rows = 0;
     let foreignRows = 0;
     for (const turn of turns) {
-      for (const citation of turn.citations ?? []) {
+      if (turn.citations === null) continue;
+      askers.add(turn.orgId);
+      for (const citation of turn.citations) {
         rows += 1;
         orgsSeen.add(citation.org_id);
         if (citation.org_id !== turn.orgId) foreignRows += 1;
       }
     }
-    return { orgsSeen: [...orgsSeen], rows, foreignRows, probe, probeRunning };
+    return {
+      orgsSeen: [...orgsSeen],
+      rows,
+      tenantsAsked: askers.size,
+      foreignRows,
+      probe,
+      probeRunning,
+    };
   }, [turns, probe, probeRunning]);
 
   const activeTenant = tenants.find((t) => t.orgId === activeOrgId) ?? null;
@@ -325,6 +353,12 @@ export function useLexloom() {
   const currentTurn = activeTurns.length > 0 ? activeTurns[activeTurns.length - 1] : null;
   /** Another tenant in this session has asked something, and this one has not. */
   const elsewhereHasHistory = activeTurns.length === 0 && turns.length > 0;
+  /**
+   * Busy is a property of the selected tenant, not of the page: a stream still
+   * running for the tenant you just switched away from must not put a Stop
+   * button in front of the tenant you switched to.
+   */
+  const busy = activeTurns.some((turn) => turn.status === 'sending' || turn.status === 'streaming');
 
   return {
     tenants,

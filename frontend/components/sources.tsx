@@ -56,13 +56,17 @@ export function Sources({ citations, orgId }: SourcesProps) {
                 <span className="mt-1.5 flex items-center gap-2">
                   <span
                     aria-hidden
-                    className="h-px w-16 shrink-0 overflow-hidden bg-rule"
+                    // A hairline read as a divider rather than as a gauge, and
+                    // adjacent scores were indistinguishable at full width. The
+                    // bar carries real information, so it gets enough weight to
+                    // be seen.
+                    className="h-[3px] w-[72px] shrink-0 overflow-hidden rounded-full bg-rule"
                     title={`rank ${index + 1} of ${citations.length} in this response`}
                   >
                     <span
-                      className="block h-px bg-brass"
+                      className="block h-full rounded-full bg-brass"
                       style={{
-                        width: `${Math.max(6, (citation.score / best) * 100)}%`,
+                        width: `${Math.max(8, (citation.score / best) * 100)}%`,
                       }}
                     />
                   </span>

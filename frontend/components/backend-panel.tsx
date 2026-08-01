@@ -38,7 +38,14 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
           <h2 className="font-mono text-[0.8125rem] uppercase tracking-[0.16em] text-chalk">
             Live backend
           </h2>
-          <span className="figure text-data text-mist">{turn?.model ?? 'fake-1'}</span>
+          {/* The model name is read off the `message_start` frame. Before a
+              stream has run there is nothing to read, so this shows the same
+              grey placeholder as every other unmeasured value: a plausible
+              literal in a readout styled like a measurement is the exact habit
+              this panel exists to avoid. */}
+          <span className={`figure text-data ${turn?.model ? 'text-mist' : 'text-mist/40'}`}>
+            {turn?.model ?? '—'}
+          </span>
         </div>
         <p className="mt-1.5 text-[0.8125rem] leading-snug text-mist">
           Read off this session, not from a script.
@@ -298,7 +305,7 @@ function RequestLog({ requests }: { requests: RequestRecord[] }) {
 /* -------------------------------------------------------------------------- */
 
 function IsolationBlock({ isolation, tenantCount }: { isolation: IsolationReport; tenantCount: number }) {
-  const { orgsSeen, rows, foreignRows, probe, probeRunning } = isolation;
+  const { orgsSeen, rows, tenantsAsked, foreignRows, probe, probeRunning } = isolation;
   const clean = foreignRows === 0;
 
   return (
@@ -306,9 +313,10 @@ function IsolationBlock({ isolation, tenantCount }: { isolation: IsolationReport
       <div>
         <Row label="citation rows received">{rows}</Row>
         {/* Printed next to each other on purpose: the org_id count matching the
-            tenant count is what says each tenant saw only its own rows. Either
-            number alone would be ambiguous. */}
-        <Row label="tenants used">{tenantCount}</Row>
+            number of tenants that actually asked is what says each tenant saw
+            only its own rows. Either number alone would be ambiguous, and
+            counting a tenant that never asked would make the pair meaningless. */}
+        <Row label="tenants that asked">{tenantsAsked}</Row>
         <Row label="org_id values in them">{orgsSeen.length}</Row>
         <div className="mt-2 flex items-baseline justify-between gap-4 border-t border-slate-rule pt-3">
           <span className="font-mono text-data text-mist">rows from another tenant</span>

@@ -2,9 +2,10 @@ import type { components } from './api-types';
 
 /**
  * The API is same-origin. In production nginx serves this bundle and proxies
- * `/api` to the FastAPI process; in development `next.config.mjs` rewrites the
- * same prefix to `127.0.0.1:8100`. Either way the browser sees one origin,
- * which is why the backend carries no CORS middleware — see
+ * `/api` to the FastAPI process; in development `scripts/serve.mjs` does the
+ * same job — deliberately, rather than Next's `rewrites()`, which buffers SSE
+ * and would make the panel measure a 0 ms gap. Either way the browser sees one
+ * origin, which is why the backend carries no CORS middleware — see
  * `docs/api-contract.md` §9.
  *
  * `NEXT_PUBLIC_API_ORIGIN` exists only as an escape hatch for someone hosting

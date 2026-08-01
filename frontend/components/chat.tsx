@@ -269,6 +269,14 @@ function TurnView({ turn }: { turn: Turn }) {
         {turn.question}
       </h2>
 
+      {/* The answer arrives one token at a time, which is invisible to a screen
+          reader and far too chatty to announce token by token. So the stages are
+          announced instead — sources retrieved, answer arriving, answer
+          complete — and the answer itself is left as ordinary readable text. */}
+      <p aria-live="polite" className="sr-only">
+        {announce(turn)}
+      </p>
+
       {turn.citations !== null && (
         <div className="mt-4">
           <p className="label-micro mb-2 text-ink-soft/70">
@@ -279,7 +287,10 @@ function TurnView({ turn }: { turn: Turn }) {
       )}
 
       {(turn.answer || streaming) && (
-        <p className="mt-5 whitespace-pre-wrap font-serif text-[1.0625rem] leading-[1.65] text-ink">
+        <p
+          aria-busy={streaming}
+          className="mt-5 whitespace-pre-wrap font-serif text-[1.0625rem] leading-[1.65] text-ink"
+        >
           {turn.answer}
           {streaming && (
             <span aria-hidden className="ml-px animate-caret text-brass">
@@ -317,4 +328,22 @@ function TurnView({ turn }: { turn: Turn }) {
       )}
     </article>
   );
+}
+
+/** One short sentence per stage, so the announcement changes only four times. */
+function announce(turn: Turn): string {
+  switch (turn.status) {
+    case 'sending':
+      return 'Sending the question.';
+    case 'streaming':
+      return turn.citations === null
+        ? 'Retrieving sources.'
+        : `${turn.citations.length} sources retrieved. The answer is arriving.`;
+    case 'complete':
+      return 'The answer is complete.';
+    case 'cancelled':
+      return 'Stopped.';
+    case 'failed':
+      return turn.failure?.summary ?? 'The question failed.';
+  }
 }

@@ -1,5 +1,7 @@
 # LexLoom
 
+[![CI](https://github.com/sigmalionhub/LexLoom/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/sigmalionhub/LexLoom/actions/workflows/ci.yml)
+
 A multi-tenant FastAPI backend for a legal-research assistant: ask a question, get
 sources first and then a streaming answer, with tenant isolation enforced by the
 database rather than by remembering to write `WHERE org_id = …`.
@@ -11,7 +13,8 @@ describing it.
 **Start here:**
 [**API contract**](docs/api-contract.md) ·
 [**Error catalogue**](docs/errors.md) ·
-[**ADR 0003 — tenant isolation and what it does not cover**](docs/adr/0003-tenant-isolation.md)
+[**ADR 0003 — tenant isolation and what it does not cover**](docs/adr/0003-tenant-isolation.md) ·
+[**Deployment runbook**](deploy/README.md)
 
 ---
 
@@ -152,6 +155,10 @@ Compose has no source bind mount, so a code or migration change needs
 `docker compose build`. Without a rebuild, `alembic upgrade head` runs against the old
 image, no-ops, and reports success.
 
+Putting it on a real host — nginx, TLS, what `ENV=demo` makes mandatory, and the memory
+budget for a shared box with 2.2 GB free — is [`deploy/README.md`](deploy/README.md),
+step by step and with the failure modes attached.
+
 ### The demo page
 
 ```bash
@@ -181,7 +188,7 @@ finding is real; the risk it describes is not present in what gets deployed.
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 121 passed
+.venv/bin/pytest -q          # 153 passed
 ```
 
 The suite needs the Compose Postgres and Redis running. It is not a mock suite: it
@@ -208,16 +215,25 @@ Postgres deadlock. CI runs the same thing against service containers.
   executed; every error code, captured; and the traps written down — CRLF framing,
   `EventSource` reconnecting after a *successful* stream, `score` being comparable only
   within one response.
-- **Decisions with their costs attached.** Each ADR ends with what I got wrong on this
-  build and what it cost, not with what I would do at a hundred times the scale.
+- **Decisions with their costs attached.** Three ADRs, and the longest section of each
+  is *What I got wrong and what it cost*: a table everyone believed was protected and
+  was not; guards that reported success against the very thing they existed to catch; a
+  response sent before its own transaction committed; a test that could not fail. Each
+  is written up with the measurement that exposed it, and each names the code that now
+  holds the property. Not what I would do at a hundred times the scale — what this
+  build got wrong at one.
 
 ## Honest limits
 
 This is milestone 1 of a larger design. What is *not* here:
 
-- **No live demo URL.** The service is not deployed yet. Everything above runs locally
-  with `docker compose up`.
-- **No frontend.** The API is the deliverable at this stage.
+- **No live demo URL yet.** Everything above runs locally with `docker compose up`.
+  The deployment is written down rather than performed — a shared host, nginx, TLS and
+  the memory budget it has to fit inside are in [`deploy/README.md`](deploy/README.md).
+- **The frontend is a demonstration page, not a product UI.** One conversation, no
+  history, no document management, no design system — it exists to show the stream
+  arriving and the isolation holding, and it is described under
+  [The demo page](#the-demo-page). The API is the deliverable.
 - **No real model.** `model: "fake-1"` is a deterministic canned generator behind the
   provider interface. Streaming, cancellation, retrieval and citations are real; the
   prose is not an answer to your question.
@@ -280,11 +296,11 @@ tool would not have.
 ```
 backend/app/        api/v1/  auth/  chat/  db/  worker/     application
 backend/alembic/    0001…0004                                schema, roles, policies
-backend/tests/      121 tests, real Postgres + real uvicorn
+backend/tests/      153 tests, real Postgres + real uvicorn
 backend/seed/       GDPR excerpts, sourced from EUR-Lex with the reuse basis recorded
 frontend/           Next.js 14, static export: the demo page and its backend panel
 docs/               api-contract.md, errors.md, adr/
-deploy/             Postgres role bootstrap
+deploy/             README.md — the runbook; nginx vhost and proxy snippet; role bootstrap
 ```
 
 Everything is English: prose, code, comments and commit history. The commit log is

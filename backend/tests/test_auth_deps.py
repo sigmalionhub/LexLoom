@@ -19,8 +19,8 @@ class _StaticJwks:
 async def test_rejection_reason_is_logged_but_not_returned_to_the_caller(capsys) -> None:
     """The 401 body must not become an oracle for probing the verifier.
 
-    Same shape as test_tracebacks_do_not_leak_frame_locals (Task 5): the
-    sentinel value here is the specific rejection reason ("no key matches kid
+    Same shape as test_tracebacks_do_not_leak_frame_locals: the sentinel
+    value here is the specific rejection reason ("no key matches kid
     'nope'"). It must land in the log so an operator can diagnose real
     failures, but never in the response body a caller receives — otherwise a
     caller probing with crafted tokens learns exactly which check failed and

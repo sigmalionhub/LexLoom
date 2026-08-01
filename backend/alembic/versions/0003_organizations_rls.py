@@ -21,8 +21,8 @@ def upgrade() -> None:
     # only deployment shape this table's isolation claim can honestly rely on.
     op.execute("ALTER TABLE organizations FORCE ROW LEVEL SECURITY")
     # Creating an organisation is legitimate for any caller — the demo-login
-    # endpoint (Task 12) provisions one for every first-time visitor, before
-    # that visitor has any org context to scope a policy to. Reading, changing
+    # endpoint provisions one for every first-time visitor, before that
+    # visitor has any org context to scope a policy to. Reading, changing
     # or deleting one is not legitimate unless it is the caller's own.
     op.execute(
         "CREATE POLICY org_self_insert ON organizations "

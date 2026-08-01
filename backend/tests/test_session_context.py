@@ -56,8 +56,8 @@ async def test_the_structural_guard_raises_when_a_scoped_session_has_no_org() ->
 
     `tenant_session("")` rejects on its own `if not org_id` before a session is
     ever created, so it never reaches the listener. Constructing the factory
-    directly is the only way to prove the guard — the one thing Task 11's
-    policies will trust — actually fires.
+    directly is the only way to prove the guard — the one thing the row-level
+    security policies trust — actually fires.
     """
     session = session_factory(info={"tenant_scoped": True})
     with pytest.raises(MissingTenantContextError, match="without an organisation"):

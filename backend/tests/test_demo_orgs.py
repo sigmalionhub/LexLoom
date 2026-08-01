@@ -1115,8 +1115,8 @@ def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
 
 
 def test_a_stream_ticket_cannot_outlive_the_organisation_it_names() -> None:
-    """Task 14 added a second credential that can reach a child table, so the
-    residual argument acquired a second half.
+    """Stream tickets are a second credential that can reach a child table, so
+    the residual argument has a second half.
 
     A stream ticket authorises the SSE endpoint, and that endpoint writes: it
     stores the assistant's answer when generation finishes. So the question the
@@ -1213,8 +1213,8 @@ EXPECTED_ROUTES = {
     ("/health/ready", frozenset({"GET"})),
     ("/.well-known/jwks.json", frozenset({"GET"})),
     ("/api/v1/auth/demo-login", frozenset({"POST"})),
-    # Task 14. `stream-tickets` is the one addition that issues a credential, so
-    # it is the one the residual argument had to be re-read for. It is not a
+    # `stream-tickets` is the only route on this surface that issues a
+    # credential, so it is the one the residual argument turns on. It is not a
     # refresh endpoint: it needs a live demo token to be called at all, it
     # cannot be called with its own output, and its 60-second ticket is held to
     # the organisation's lifetime by

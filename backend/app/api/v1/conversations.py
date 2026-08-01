@@ -150,8 +150,8 @@ async def stream_message(
         # Without this the ticket-audience test gets a bare 500 from Starlette's
         # default error middleware instead of the 401 the contract promises.
         #
-        # The detail is fixed and says nothing about WHY. Task 9 removed exactly
-        # this oracle from the bearer-token path (commit bad23cc): a caller who
+        # The detail is fixed and says nothing about WHY. The same oracle was
+        # removed from the bearer-token path in commit bad23cc: a caller who
         # can tell "expired" from "wrong audience" from "unknown kid" can probe
         # for valid message ids and for the ticket's lifetime. The reason goes
         # to the log, where the operator can see it and the caller cannot.

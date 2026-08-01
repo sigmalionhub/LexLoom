@@ -33,8 +33,9 @@ async def test_organizations_table_exists() -> None:
 async def test_owned_tables_query_separates_app_from_migrator() -> None:
     """The ownership branch only matters if this query tells the roles apart.
 
-    lexloom_app never owns any table in public (grants only, per Task 2's
-    role setup); lexloom_migrator owns everything it created via Alembic,
+    lexloom_app never owns any table in public — it is granted privileges and
+    creates nothing, per deploy/postgres/init/01-roles.sh and the GRANTs in the
+    migrations; lexloom_migrator owns everything it created via Alembic,
     including organizations. Proving the query returns 0 for one and a
     non-zero count for the other is what the ownership check in
     assert_unprivileged_role actually depends on.

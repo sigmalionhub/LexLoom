@@ -57,7 +57,7 @@ def client_close_handler(
     This is the *only* place a cancellation is recorded, and it is not the
     obvious place. The obvious place — `except asyncio.CancelledError` inside
     the generator — cannot be relied on. Measured on this stack while building
-    the provider (Task 13): a disconnect cancels the task driving the response
+    the streaming provider: a disconnect cancels the task driving the response
     wherever it happens to be suspended, and with uvicorn advertising ASGI
     spec_version 2.3 a client that goes away under backpressure leaves it
     suspended in the socket write rather than in the generator, which is then

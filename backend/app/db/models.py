@@ -60,9 +60,10 @@ class Message(Base):
 class DocumentChunk(Base):
     """Row-level security scoped by org_id; see migration 0002 for the policy.
 
-    This is the table Task 11's headline test targets: a bare
+    This is the table the headline isolation test targets: a bare
     `SELECT * FROM document_chunks` with no WHERE clause must return only the
-    caller organisation's rows.
+    caller organisation's rows. See
+    test_a_query_with_no_where_clause_returns_only_the_caller_org.
     """
 
     __tablename__ = "document_chunks"

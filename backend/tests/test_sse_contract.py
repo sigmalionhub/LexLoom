@@ -367,11 +367,11 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     correctly; a real one is what proves the sources a reader saw are the
     sources a reload will show.
 
-    It has to match *only* that chunk, which is why the question is a phrase
-    from a commercial contract rather than a word of regulation: every demo
-    tenant is provisioned owning a copy of the public GDPR corpus, so a question
-    like "obligations" now finds that too and the comparison below stops being
-    about one known row.
+    The stored-equals-streamed comparison is over the whole list, so it does not
+    care how many citations there are — which matters, because every demo tenant
+    now owns a copy of the public GDPR corpus and retrieval ORs the question's
+    lexemes, so most questions match several chunks. The tenant's own seeded
+    chunk is located by its text rather than by being the only one.
     """
     async with tenant_session(demo_org_id) as session:
         await session.execute(
@@ -414,21 +414,20 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     # The stored sources are the streamed sources, field for field, after a
     # round trip through JSONB — not merely a list of the right length.
     assert answer["citations"] == streamed_chunks
-    assert len(streamed_chunks) == 1, (
-        "the question was meant to match only the chunk this test seeded; if the public "
-        "corpus every demo tenant now owns contains this phrase too, change the phrase "
-        "rather than the assertion — the comparison above is what makes this test mean "
-        "anything"
-    )
-    assert streamed_chunks[0].keys() == {
-        "chunk_id", "org_id", "content", "page_from", "page_to", "score"
-    }
-    assert streamed_chunks[0]["org_id"] == demo_org_id
-    assert streamed_chunks[0]["page_from"] == 3
-    assert streamed_chunks[0]["page_to"] == 4
-    assert streamed_chunks[0]["score"] == 1.0
-    assert "survive termination" in streamed_chunks[0]["content"]
-    uuid.UUID(streamed_chunks[0]["chunk_id"])  # a real id, not a repr
+    assert streamed_chunks, "the question matched nothing, so the comparison above is vacuous"
+    assert {chunk["org_id"] for chunk in streamed_chunks} == {demo_org_id}
+
+    seeded = [chunk for chunk in streamed_chunks if "survive termination" in chunk["content"]]
+    assert len(seeded) == 1, "the chunk this test seeded is not among the sources"
+    mine = seeded[0]
+    assert mine.keys() == {"chunk_id", "org_id", "content", "page_from", "page_to", "score"}
+    assert mine["page_from"] == 3
+    assert mine["page_to"] == 4
+    # A real `ts_rank`, not the constant this field used to carry. Bounded below
+    # rather than pinned: the value depends on the question and on how much of
+    # the corpus shares its terms, and neither is this test's business.
+    assert mine["score"] > 0
+    uuid.UUID(mine["chunk_id"])  # a real id, not a repr
     # 'pending' is what a question keeps when nobody stayed for the answer, so
     # it has to move once one exists — otherwise the column says nothing.
     assert question["status"] == "answered"
@@ -478,13 +477,10 @@ async def test_citations_carry_the_tenants_own_chunks(client, demo_auth, demo_or
         events = await _events(response)
 
     chunks = next(data["chunks"] for name, data in events if name == "citations")
-    assert len(chunks) == 1, (
-        "the question was meant to match only the chunk this test seeded; if the public "
-        "corpus every demo tenant now owns contains this phrase too, change the phrase"
-    )
-    assert chunks[0]["org_id"] == demo_org_id
-    assert chunks[0]["page_from"] == 7
-    assert "72-hour breach notice" in chunks[0]["content"]
+    assert {chunk["org_id"] for chunk in chunks} == {demo_org_id}
+    seeded = [chunk for chunk in chunks if "72-hour breach notice" in chunk["content"]]
+    assert len(seeded) == 1, "the tenant's own chunk is not among the sources it was shown"
+    assert seeded[0]["page_from"] == 7
 
 
 async def test_a_visitor_who_has_uploaded_nothing_still_gets_sources(
@@ -498,10 +494,18 @@ async def test_a_visitor_who_has_uploaded_nothing_still_gets_sources(
     the `citations` event goes out with an empty list, the ordering assertions
     above still hold, and the demo shows no sources at all. Only asking as a
     visitor who has uploaded nothing catches that.
+
+    The question is a *question*, in the words a visitor would use, and that is
+    the second half of this test. Giving every tenant a corpus fixed the empty
+    demo only for questions phrased as search terms: under the substring match
+    this replaced, and under `plainto_tsquery` too, this exact sentence returned
+    zero citations against a corpus that plainly answers it — the same empty
+    `citations` event, reached by a different route and just as silent.
     """
     conversation_id = await _create_conversation(client, demo_auth)
-    # A word, not a sentence: M1 retrieval is a literal substring match.
-    message_id = await _ask(client, demo_auth, conversation_id, "processor")
+    message_id = await _ask(
+        client, demo_auth, conversation_id, "What are the processor's obligations?"
+    )
     ticket = await _ticket(client, demo_auth, message_id)
 
     async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:

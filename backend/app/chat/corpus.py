@@ -67,20 +67,38 @@ def load_excerpts() -> tuple[Excerpt, ...]:
     The provenance of the text — source, URL, terms of reuse, how the excerpts
     were extracted — travels in the file itself rather than here, so it cannot
     drift away from the data it describes.
+
+    Every way this can fail arrives as `CorpusUnavailableError` naming the path,
+    which is the entire point of having the error: the file is found by walking
+    up from `__file__`, so "which file did it actually look at" is the first
+    question anyone will ask. Catching only `OSError` covered the missing file
+    and left malformed JSON surfacing as a bare `JSONDecodeError` and a renamed
+    key as a bare `KeyError` — two of the four failure modes bypassing the very
+    error written to explain them.
     """
     try:
         document = json.loads(SEED_FILE.read_text(encoding="utf-8"))
     except OSError as error:
         raise CorpusUnavailableError(f"cannot read the seed corpus at {SEED_FILE}") from error
+    except json.JSONDecodeError as error:
+        raise CorpusUnavailableError(f"the seed corpus at {SEED_FILE} is not valid JSON") from error
 
-    excerpts = tuple(
-        Excerpt(
-            content=item["content"],
-            page_from=int(item["page_from"]),
-            page_to=int(item["page_to"]),
+    try:
+        excerpts = tuple(
+            Excerpt(
+                content=item["content"],
+                page_from=int(item["page_from"]),
+                page_to=int(item["page_to"]),
+            )
+            for item in document["excerpts"]
         )
-        for item in document["excerpts"]
-    )
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise CorpusUnavailableError(
+            f"the seed corpus at {SEED_FILE} does not have the expected shape "
+            f"({{'excerpts': [{{'content': str, 'page_from': int, 'page_to': int}}, ...]}}): "
+            f"{error!r}"
+        ) from error
+
     if not excerpts:
         raise CorpusUnavailableError(f"the seed corpus at {SEED_FILE} contains no excerpts")
     return excerpts
@@ -141,6 +159,18 @@ async def seed_public_corpus() -> int:
     The savepoint is load-bearing: a unique violation aborts the enclosing
     transaction, so swallowing the exception without one leaves the session
     poisoned and the failure resurfaces at commit, pointing at the wrong line.
+
+    **Stale rows are an operational fact, not a bug this can prevent.** These
+    rows are a *copy* of `gdpr_excerpts.json` taken whenever this last ran, so a
+    database seeded from an older file keeps serving the older text until
+    someone runs it again — and nothing in the running application would notice,
+    because nothing reads these rows. `copy_corpus_into` reads the file, so
+    every demo tenant gets the current corpus whatever this organisation holds;
+    the drift is invisible precisely because the seed organisation is not yet
+    used for anything. It stops being invisible at M2, which is when embeddings
+    get computed over these rows — so re-running this belongs in the deployment
+    that ships a changed corpus, and `test_the_seeded_rows_are_the_file_they_came_from`
+    is what proves a run leaves the two in agreement.
     """
     org_id = str(PUBLIC_CORPUS_ORG_ID)
     async with tenant_session(org_id) as session:

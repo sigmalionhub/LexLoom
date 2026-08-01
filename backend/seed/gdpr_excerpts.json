@@ -5,7 +5,7 @@
     "published_in": "OJ L 119, 4.5.2016, p. 1-88",
     "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng",
     "retrieved": "2026-08-01",
-    "terms": "Reuse of European Union legislation published on EUR-Lex is authorised under Commission Decision 2011/833/EU on the reuse of Commission documents, provided the source is acknowledged. This file is that acknowledgement. Only the legislation printed in the paper edition of the Official Journal of the European Union is deemed authentic.",
+    "terms": "Reuse of European Union legislation published on EUR-Lex is authorised under Commission Decision 2011/833/EU on the reuse of Commission documents, provided the source is acknowledged. This file is that acknowledgement. The electronic edition of the Official Journal has been the authentic one since 1 July 2013, under Council Regulation (EU) No 216/2013; the excerpts below were taken from it.",
     "extraction": "Extracted from the Publications Office PDF of OJ L 119 (88 pages, one PDF page per OJ page), then checked character for character against the independent XHTML rendition of the same act: every excerpt below occurs verbatim in both."
   },
   "content_format": "`content` is a contiguous verbatim extract from the provision named at its start, prefixed with that name and an em dash so a citation card says which provision it quotes. Long provisions are cut at a sentence or clause boundary rather than reworded, so what remains is still the source's own words. `page_from` and `page_to` are the OJ L 119 pages the extract itself begins and ends on, which is why they are equal wherever an extract was cut before a page break.",

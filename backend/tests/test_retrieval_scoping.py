@@ -1,5 +1,7 @@
+import re
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, text
 
@@ -39,8 +41,14 @@ async def test_search_chunks_adds_no_org_id_filter_of_its_own(two_orgs) -> None:
     a filter added through a bound parameter, a helper, or a wrapper would still
     show up here.
 
-    Only the part after `FROM` is inspected: `org_id` is in the select list on
-    purpose, because the caller returns it in the citation payload.
+    The rule applied: `org_id` may appear where columns are *chosen*, and
+    nowhere that rows are *restricted*. So every `SELECT … FROM` span is
+    removed — the citation payload returns `org_id`, and the query has more
+    than one select list since retrieval moved to a CTE — and the assertion
+    runs on what is left, which is the FROM, WHERE, ORDER BY and LIMIT clauses
+    of every level of the statement. A filter tucked inside a subquery in the
+    FROM clause survives the stripping too, because its own `SELECT … FROM` is
+    removed separately and its WHERE is not.
     """
     org_a, _ = two_orgs
     issued: list[str] = []
@@ -57,9 +65,15 @@ async def test_search_chunks_adds_no_org_id_filter_of_its_own(two_orgs) -> None:
 
     reads = [statement for statement in issued if "document_chunks" in statement]
     assert len(reads) == 1, f"expected one read of document_chunks, saw {len(reads)}"
-    after_from = reads[0].split("FROM", 1)[1]
-    assert "org_id" not in after_from, (
-        "search_chunks now filters by org_id itself, so the test above no longer "
+    restricting_clauses = re.sub(
+        r"\bSELECT\b.*?\bFROM\b", " ", reads[0], flags=re.DOTALL | re.IGNORECASE
+    )
+    assert "org_id" in reads[0], (
+        "org_id is no longer in the statement at all, so the stripping below would "
+        "pass without testing anything"
+    )
+    assert "org_id" not in restricting_clauses, (
+        "search_chunks now restricts by org_id itself, so the test above no longer "
         "demonstrates that the row-level security policy is what confines the search:\n"
         f"{reads[0]}"
     )
@@ -143,11 +157,20 @@ async def test_the_public_corpus_organisation_is_invisible_to_a_demo_tenant(
 ) -> None:
     """The corpus is copied, never shared through a policy exception.
 
-    A permissive `USING (org_id = <the seed organisation> OR ...)` on
-    `document_chunks` would serve every tenant the same rows for free — and
-    would put a permanent hole in the exact property this repository exists to
-    demonstrate, in the one table a visitor actually reads. That change would
-    leave every other test in this suite green. This is the one it fails.
+    A permissive extra policy on `document_chunks` naming the public corpus
+    organisation would serve every tenant the same rows for free — and would put
+    a permanent hole in the exact property this repository exists to
+    demonstrate, in the one table a visitor actually reads.
+
+    What makes this test the one that refuses it is its first line. Two of the
+    invariant tests in `test_isolation_invariants.py` do also fail against such
+    a policy — but only because *this* database happens to have a populated
+    public corpus organisation for them to see. They read whatever rows exist;
+    on a deployment where `scripts/seed_corpus.py` was never run, the corpus
+    organisation is empty, the backdoor returns nothing to notice, and the whole
+    invariant module passes with it installed. This test seeds the corpus as its
+    own precondition, so what it asserts does not depend on what the database
+    happened to be holding.
     """
     await seed_public_corpus()
     org_id = await _demo_org(client, created_orgs)
@@ -163,6 +186,58 @@ async def test_the_public_corpus_organisation_is_invisible_to_a_demo_tenant(
     assert str(PUBLIC_CORPUS_ORG_ID) not in {citation["org_id"] for citation in citations}
 
 
+def test_every_way_the_corpus_file_can_fail_names_the_file(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One error type for all of them, and it says which path it read.
+
+    The corpus is located by walking up from `app/chat/corpus.py`, so "which
+    file did it actually look at" is the first question anyone debugging this
+    will have — and the error exists to answer it. Catching only `OSError`
+    covered the missing file and let malformed JSON escape as a bare
+    `JSONDecodeError` and a renamed key as a bare `KeyError`: half the failure
+    modes walking past the error written to explain them.
+
+    The cache is cleared on both sides. `load_excerpts` memoises, so a corpus
+    read here would otherwise be served to the tests that follow.
+    """
+    import app.chat.corpus as corpus_module
+
+    broken = {
+        "missing file": None,
+        "not JSON at all": "{",
+        "no excerpts key": '{"source": {}}',
+        "excerpts is not a list of objects": '{"excerpts": ["just a string"]}',
+        "an excerpt is missing a field": '{"excerpts": [{"content": "x", "page_from": 1}]}',
+        "a page number is not a number": (
+            '{"excerpts": [{"content": "x", "page_from": "one", "page_to": 1}]}'
+        ),
+        "no excerpts at all": '{"excerpts": []}',
+    }
+
+    corpus_module.load_excerpts.cache_clear()
+    try:
+        for description, body in broken.items():
+            path = tmp_path / f"{abs(hash(description))}.json"
+            if body is not None:
+                path.write_text(body, encoding="utf-8")
+            monkeypatch.setattr(corpus_module, "SEED_FILE", path)
+            corpus_module.load_excerpts.cache_clear()
+
+            with pytest.raises(corpus_module.CorpusUnavailableError) as raised:
+                corpus_module.load_excerpts()
+            assert str(path) in str(raised.value), (
+                f"the error for {description!r} does not name the file it read"
+            )
+    finally:
+        monkeypatch.undo()
+        corpus_module.load_excerpts.cache_clear()
+
+    # The real file still loads, so nothing above left a broken path or a
+    # poisoned cache behind for the tests that follow.
+    assert len(load_excerpts()) == 30
+
+
 async def test_seeding_the_public_corpus_twice_leaves_one_copy() -> None:
     """`seed_corpus.py` is documented as idempotent, so re-running it is checked.
 
@@ -170,6 +245,14 @@ async def test_seeding_the_public_corpus_twice_leaves_one_copy() -> None:
     seeder that appended would grow the corpus by a full copy on every
     deployment, and the duplicates would surface as repeated citation cards
     rather than as an error.
+
+    This test permanently creates organisation `000…001` in whatever database it
+    runs against, which is deliberate and bounded: the seeder is idempotent, so
+    a database gains one organisation and one corpus the first time the suite
+    runs and nothing on any run after that. Measured across two consecutive full
+    runs, the organisation and chunk counts do not move. It is not registered
+    for teardown because the row is meant to outlive the run — that is what
+    `expires_at IS NULL` says.
     """
     assert await seed_public_corpus() == len(load_excerpts())
     assert await seed_public_corpus() == len(load_excerpts())
@@ -182,3 +265,29 @@ async def test_seeding_the_public_corpus_twice_leaves_one_copy() -> None:
         )
     assert stored == len(load_excerpts())
     assert expires_at is None, "the public corpus organisation would be purged after 24 hours"
+
+
+async def test_the_seeded_rows_are_the_file_they_came_from() -> None:
+    """Counting rows would let the seeder write thirty of the wrong thing.
+
+    What this cannot check, and does not claim to: whether a *deployment's*
+    seed organisation is current. These rows are a copy taken whenever the
+    seeder last ran, so a database seeded from an older file keeps the older
+    text, and no test that seeds first — this one included — can observe that.
+    Nothing in the running application reads these rows today (`copy_corpus_into`
+    reads the file), so the drift is invisible until M2 computes embeddings over
+    them. What is checked here is the half that can be: a run leaves the rows
+    equal to the file, field for field.
+    """
+    await seed_public_corpus()
+
+    async with tenant_session(str(PUBLIC_CORPUS_ORG_ID)) as session:
+        rows = (
+            await session.execute(
+                text("SELECT content, page_from, page_to FROM document_chunks")
+            )
+        ).all()
+
+    assert sorted(rows) == sorted(
+        (excerpt.content, excerpt.page_from, excerpt.page_to) for excerpt in load_excerpts()
+    ), "the seeded rows are not the excerpts in gdpr_excerpts.json"

@@ -28,6 +28,11 @@ Eight routes. That is the entire API.
 
 `GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
 
+Two of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
+is metered per client address and answers `429`, and the stream endpoint has a
+concurrency ceiling and answers `503`. Both carry `Retry-After` —
+see [§6.1](#61-refusals-429-503-and-retry-after).
+
 **There are no read endpoints.** No conversation list, no message list, no
 `GET /conversations/{id}`. A client holds the state it created, or it loses it on
 reload. This is a real limitation, not an omission from the document — see
@@ -501,6 +506,47 @@ Validation failures carry one extra field, `errors`, holding Pydantic's own repo
 `loc` tells you whether the problem is in `body`, `path` or `query`. This is the only
 error shape with a field beyond the RFC 9457 members plus `code` and `request_id`.
 
+### 6.1 Refusals: `429`, `503` and `Retry-After`
+
+Two responses are refusals rather than failures. Neither says anything is wrong with
+the request; both are admission control (`backend/app/limits.py`) declining to start
+work on a shared box with 2.2 GB of RAM.
+
+| Status | `code` | Raised by |
+|---|---|---|
+| `429` | `rate_limited` | `POST /api/v1/auth/demo-login` — too many tenants from one address |
+| `503` | `capacity_unavailable` | `GET …/stream` at its concurrency ceiling, or either endpoint when the limiter cannot reach Redis |
+
+Both carry a **`Retry-After` response header**, in seconds. It is a header rather than
+a body member because RFC 9457 defines no field for it and `Retry-After` is already
+defined by RFC 9110.
+
+**Read the header, not the sentence.** The `detail` of both says *"Retry after
+Retry-After seconds."* literally — the number is in the header and deliberately not in
+the prose, because the prose is not a contract. A client that renders `detail` straight
+into the UI shows a visitor the words "Retry-After" and no number.
+
+Defaults, all configurable: 30 tenants per address per hour, 16 concurrent streams for
+the process and 4 per tenant. `Retry-After` is the remainder of the current window for
+`429`, `5` for a stream ceiling and `30` when Redis is unreachable — the last of those
+is an operator-scale problem, not a queueing one. The numbers, the reasoning and the
+failure behaviour are in
+[errors.md](errors.md#admission-control--the-numbers-behind-429-and-503).
+
+**Which address you are metered on** is decided by two *request* headers. A browser
+client sets neither, and behind the deployed nginx both are set by the proxy — a value
+you send yourself is overwritten before the application sees it.
+
+| Request header | Read when | Effect |
+|---|---|---|
+| `X-Forwarded-For` | the immediate peer is in `TRUSTED_PROXIES` **and** presents the header below | its **last** entry becomes the metering key |
+| `X-LexLoom-Proxy` | `TRUSTED_PROXY_SECRET` is configured | must match it; otherwise `X-Forwarded-For` is ignored and the peer address is used |
+
+Against a local stack, where no secret is configured, position is the whole test — so
+`X-Forwarded-For` from a loopback or bridge peer *is* believed, which is how the limit
+is exercised in development. That is also why the secret is mandatory on a public box:
+without it, anything that can reach the port picks its own bucket.
+
 ---
 
 ## 7. What a cross-tenant request looks like
@@ -561,6 +607,10 @@ to leak. See [ADR 0003](adr/0003-tenant-isolation.md), including what that does
   every outstanding token.
 - **`404` means "not yours or not there", and you cannot tell which.** Do not build a
   UI that distinguishes them.
+- **`429` and `503` are retryable; read `Retry-After` and honour it.** Both `detail`
+  strings name the header instead of a number, so rendering `detail` alone tells the
+  visitor nothing. A `503` on a stream means the box is at its concurrency ceiling —
+  do not open more streams, close one.
 - **`409` on a stream means the answer already exists.** Fetch it rather than
   regenerating — except that today there is no endpoint to fetch it with, so treat
   it as "stop retrying".
@@ -587,15 +637,19 @@ Stated because a contract with unstated holes is not a contract.
 - **No CORS.** There is no CORS middleware; a preflight `OPTIONS` returns
   `405 method_not_allowed` and no `Access-Control-*` header is ever sent. The
   frontend must be same-origin behind the reverse proxy.
-- **No rate limiting.** `POST /api/v1/auth/demo-login` is unauthenticated and each
-  call writes an organisation plus a 30-row corpus copy — 8.9 KB of chunk text, at
-  22 ms per call (20 sequential calls in 449 ms). Nothing bounds it today.
+- **No per-tenant quota, and no global cap on tenant creation.** `POST
+  /api/v1/auth/demo-login` is unauthenticated and each call writes an organisation plus
+  a 30-row corpus copy — 8.9 KB of chunk text, at 22 ms per call (20 sequential calls
+  in 449 ms). It *is* metered, per client address ([§6.1](#61-refusals-429-503-and-retry-after)).
+  What that does not bound is a caller spread across many addresses: nothing limits the
+  box as a whole, and the 24-hour tenant TTL is what reclaims the rows.
 - **No delete or update** of anything. The only removal is the 24-hour tenant purge —
   and that purge is currently declared on a schedule that nothing runs, so today it
   happens only when invoked by hand. See
   [ADR 0001](adr/0001-celery-over-arq.md#the-scheduler-is-declared-and-does-not-run).
 - **No `Last-Event-ID` / stream resumption.** Frames carry no `id:`.
-- **No `Retry-After`** on any response.
+- **No `Retry-After` outside `429` and `503`.** Those two carry it; nothing else does,
+  and there is no back-pressure signal on a successful response.
 - **Two concurrent streams on one message both succeed.** Measured: both return
   `200`, both emit 41 `token` events, and the conversation ends with two assistant
   rows for one question. The `409` guard is a replay guard, not a lock — it fires

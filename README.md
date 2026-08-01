@@ -227,9 +227,12 @@ This is milestone 1 of a larger design. What is *not* here:
 - **No read endpoints.** You can create a conversation, ask, and stream the answer. You
   cannot list or re-fetch anything, so a page reload loses the conversation from the UI
   while the rows survive in the database.
-- **No rate limiting, and `POST /auth/demo-login` is unauthenticated.** Each call
-  writes an organisation and a 30-row corpus copy. Nothing bounds it. This is the one
-  item that must close before the demo faces the public internet.
+- **The demo-login limit is per address, not global.** `POST /auth/demo-login` is
+  unauthenticated by design and each call writes an organisation and a 30-row corpus
+  copy, so it is metered: 30 tenants per address per hour, plus 16 concurrent streams
+  for the process and 4 per tenant, refused with `429`/`503` and a `Retry-After`. What
+  that does not bound is a caller spread across many addresses — nothing caps the box
+  as a whole, and the 24-hour TTL is what reclaims the rows.
 - **No CORS.** A preflight returns `405`. The frontend must be same-origin behind the
   reverse proxy.
 - **No `Idempotency-Key`,** anywhere. A retried `POST` creates a second row.

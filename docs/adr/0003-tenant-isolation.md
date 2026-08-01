@@ -122,7 +122,7 @@ The point of this table is the third column.
 | `org_isolation` policies on `conversations`, `messages`, `document_chunks` | Every `SELECT`/`INSERT`/`UPDATE`/`DELETE` these two roles issue, including one with a forgotten `WHERE`. Verified by attack, not by reading. | Anything connecting as a different role. Any query issued by the migration role. | The start-up guard refuses to boot on a privileged role, so the application cannot silently become the exception. |
 | The `app.current_org_id` setting | The tenant identity for the transaction, parameterised so it cannot be injected into. | **Any role can set it to any value.** It is a variable, not a capability. RLS here defends against a forgotten `WHERE`, not against an attacker who has achieved SQL execution. | The value is written in exactly one place, from a claim in a verified JWT. There is no code path that takes it from a header, a query parameter or a body. |
 | `FORCE ROW LEVEL SECURITY` on all four tables | Would make the policies bind the *table owner* as well. | **Nothing, in this deployment.** See below — it is currently inert. | Kept because it binds the day the migration role stops being a superuser, which is the only shape in which the owner's isolation claim is honest. |
-| `org_self_insert` on `organizations` | Nothing. It is `WITH CHECK (true)` by design. | **Any limit on organisation creation.** See below. | The limit is an endpoint concern and does not exist yet. |
+| `org_self_insert` on `organizations` | Nothing. It is `WITH CHECK (true)` by design. | **Any limit on organisation creation, and any constraint on what an inserted row says.** See below. | The limit is an endpoint concern, and it is enforced there: `POST /auth/demo-login` is metered per client address in `backend/app/limits.py`. Per address, not globally. |
 | The schema's parent→child relationships | Nothing. **There are no foreign keys at all.** See below. | Referential integrity, cascade deletes, orphan prevention. | Every parent lookup is an explicit `SELECT` inside the tenant's context; the purge deletes children by identity. Both are convention. |
 | PgBouncer / a transaction-mode pooler | Not in use today. `set_config(..., true)` inside an explicit transaction is safe under transaction pooling, because the server connection is pinned for the transaction's duration. | Session-scoped `SET` would **not** be safe. `LISTEN`/`NOTIFY` and session advisory locks are unavailable under transaction pooling. | The transaction-local form is the only one used, and this row exists so that nobody "optimises" it into a session `SET` later. |
 | The worker role (`lexloom_worker`) | Runs under the same policies as the API; `org_id` travels in the task payload; the same start-up guard runs post-fork in every prefork child. | The task *payload* is not itself validated as belonging to the caller — a task enqueued with the wrong `org_id` acts as that tenant. | Payloads are constructed server-side from a verified principal, never from client input. This is a convention, and it is the one most likely to be broken by a future feature. |
@@ -270,12 +270,32 @@ ROLLBACK;
 ```
 
 So **the limit on organisation creation is a rate limit on an endpoint, and not a
-property of the policy.** Today there is no such rate limit, and
-`POST /api/v1/auth/demo-login` is unauthenticated: each call writes an organisation
-plus a 30-row corpus copy at about 22 ms per call. Read/update/delete are still
-confined — the row is invisible to its own creator until a context names it — so this
-is an availability and storage exposure, not a confidentiality one. It is the single
-largest open item before this demo can face the public internet.
+property of the policy.** `POST /api/v1/auth/demo-login` is unauthenticated and each
+call writes an organisation plus a 30-row corpus copy at about 22 ms per call, so the
+endpoint is where the ceiling has to live — and it does: `backend/app/limits.py` meters
+tenant creation per client address, 30 an hour by default, refusing with `429` and a
+`Retry-After`. Concurrent streams are capped in the same module. The numbers and their
+sizing are in [errors.md](../errors.md#admission-control--the-numbers-behind-429-and-503).
+
+What that closes is one address exhausting the box. What it does not close, and what
+this policy therefore still leaves open:
+
+- **The meter is per address.** A caller spread across many addresses is unbounded by
+  anything here; the 24-hour TTL is what reclaims the rows.
+- **The id is the caller's choice.** Shown above.
+- **So is `expires_at`.** `WITH CHECK (true)` checks no column, so a session on an
+  application role can write an organisation with a TTL of its own choosing — or with
+  `NULL`, which is how the permanent seed organisation marks itself and which
+  `purge_expired_orgs()` reads as "never collect this". A row inserted that way is
+  invisible to its creator and to every tenant, and permanent. Nothing in the API
+  offers that: `provision_demo_org` computes `expires_at` server-side from
+  `DEMO_ORG_TTL`, and there is no code path that takes it from a request. It is a
+  property of the *policy*, and it is here because the same sentence that makes the id
+  free makes every other column free with it.
+
+Read/update/delete are still confined — the row is invisible to its own creator until a
+context names it — so all of this is an availability and storage exposure, not a
+confidentiality one.
 
 One related Postgres behaviour, since it is the trap this policy set creates.
 `INSERT … ON CONFLICT` with an explicit conflict target against `organizations`

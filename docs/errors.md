@@ -1,0 +1,436 @@
+# Error catalogue
+
+Every error response from this service is `application/problem+json` per RFC 9457.
+The `type` member of each response points at a section of this file:
+
+```
+type = "<ERROR_TYPE_BASE_URL>/docs/errors#" + code.replace("_", "-")
+```
+
+so `conversation_not_found` → `#conversation-not-found`. The anchors below are named
+to match exactly.
+
+`type` is an **identifier, not a live URL**. This service does not serve
+`/docs/errors` — `GET /docs/errors` returns `404`. It names the section here.
+
+Every response body below was captured from the running service.
+
+---
+
+## The shape
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#conversation-not-found",
+  "title": "Conversation not found",
+  "status": 404,
+  "code": "conversation_not_found",
+  "detail": "No such conversation.",
+  "instance": "/api/v1/conversations/00000000-0000-4000-8000-000000000000/messages",
+  "request_id": "0ea9ed97-0211-4e7e-ac99-ce50e457ad7e"
+}
+```
+
+| Member | Stability | Notes |
+|---|---|---|
+| `code` | **stable** | Switch on this. Never on `detail`. |
+| `status` | stable | Matches the HTTP status line. Several codes share a status. |
+| `type` | stable | Derived mechanically from `code`. |
+| `title` | may be reworded | Short human summary. |
+| `detail` | may be reworded | Never carries a reason an attacker could use — see below. |
+| `instance` | — | The request path. Echoes only what the caller sent. |
+| `request_id` | — | Also the `X-Request-Id` response header. The join key into the logs. |
+| `errors` | — | **Only on `validation_error`.** Pydantic's own report. |
+
+`request_id` is present on every error, including the `500` path, where it is set
+from request state rather than from the context variable — the context variable has
+already been reset by the time the catch-all handler runs.
+
+---
+
+## Summary
+
+| Status | `code` | Raised by |
+|---|---|---|
+| 401 | [`missing_credentials`](#missing-credentials) | Any bearer endpoint, no `Authorization: Bearer …` |
+| 401 | [`invalid_token`](#invalid-token) | Any bearer endpoint; also the stream endpoint's ticket |
+| 404 | [`conversation_not_found`](#conversation-not-found) | `POST /conversations/{id}/messages` |
+| 404 | [`message_not_found`](#message-not-found) | `GET …/stream` |
+| 404 | [`not_found`](#not-found) | The router: no route matches |
+| 405 | [`method_not_allowed`](#method-not-allowed) | The router: path matches, method does not |
+| 409 | [`message_already_answered`](#message-already-answered) | `GET …/stream` on a message that has an answer |
+| 422 | [`validation_error`](#validation-error) | Any endpoint, any malformed input |
+| 500 | [`internal_error`](#internal-error) | The catch-all |
+
+`503` from `GET /health/ready` is **not** in this catalogue: readiness answers with
+its own body (`{"status": "degraded", "checks": {…}}`), not with problem+json,
+because a probe's consumer is a supervisor rather than a client.
+
+---
+
+<a id="missing-credentials"></a>
+## `missing_credentials` — 401
+
+No `Authorization` header, or one that does not start with `Bearer `.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/conversations \
+    -H 'Content-Type: application/json' -d '{"title":"x"}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#missing-credentials",
+  "title": "Authentication required",
+  "status": 401,
+  "code": "missing_credentials",
+  "detail": "Expected a Bearer token",
+  "instance": "/api/v1/conversations",
+  "request_id": "a56bc8ad-ee15-4be1-9297-2da58fc679ac"
+}
+```
+
+**Client action:** obtain a token via `POST /api/v1/auth/demo-login`. Do not retry
+the same request.
+
+---
+
+<a id="invalid-token"></a>
+## `invalid_token` — 401
+
+The credential was present and did not verify. Both credentials produce this code;
+only `detail` differs, and only to say *which* credential, never why.
+
+Bearer token:
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/conversations \
+    -H 'Authorization: Bearer not.a.jwt' -H 'Content-Type: application/json' -d '{"title":"x"}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#invalid-token",
+  "title": "Invalid credentials",
+  "status": 401,
+  "code": "invalid_token",
+  "detail": "The supplied credentials are not valid.",
+  "instance": "/api/v1/conversations",
+  "request_id": "b2fb025b-6d78-4c5d-afc0-a5a9391b67af"
+}
+```
+
+Stream ticket:
+
+```console
+$ curl -s "http://127.0.0.1:8100/api/v1/conversations/6c9b4e6d-…/messages/0a6a0902-…/stream?ticket=nope"
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#invalid-token",
+  "title": "Invalid credentials",
+  "status": 401,
+  "code": "invalid_token",
+  "detail": "The stream ticket is not valid for this message.",
+  "instance": "/api/v1/conversations/6c9b4e6d-…/messages/0a6a0902-…/stream",
+  "request_id": "e7b7dbba-988c-4505-a6e4-c105d618fed2"
+}
+```
+
+### Why `detail` is fixed
+
+Expired, wrong audience, unknown `kid`, wrong issuer, bad signature, missing
+`org_id` — all of them return the same string. A caller that can tell these apart
+can probe: an "expired" verdict distinguishes a real ticket from a forged one and
+reveals the ticket lifetime, and a "wrong audience" verdict on a stream ticket
+confirms that the message id in the URL is a message that exists. The reason is
+logged (`token_rejected` / `stream_ticket_rejected` with a `reason` field), where the
+operator can read it and the caller cannot.
+
+If you are debugging a `401`, the answer is in the server log line carrying your
+`request_id`, not in the response.
+
+### Common causes
+
+- **The API restarted.** The signing keypair is generated in memory at start-up, so
+  a restart rotates the `kid` and invalidates every outstanding token and ticket.
+- The bearer token is older than 3600 s.
+- The ticket is older than 60 s.
+- A ticket was sent as a bearer token, or a bearer token as `?ticket=`. Their
+  audiences differ (`stream:<message_id>` vs `lexloom-api`), so neither is accepted
+  in the other's place.
+
+**Client action:** re-authenticate. Never retry with the same credential.
+
+---
+
+<a id="conversation-not-found"></a>
+## `conversation_not_found` — 404
+
+`POST /api/v1/conversations/{conversation_id}/messages` where the conversation is not
+visible to the caller's organisation.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/conversations/00000000-0000-4000-8000-000000000000/messages \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"content":"hi"}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#conversation-not-found",
+  "title": "Conversation not found",
+  "status": 404,
+  "code": "conversation_not_found",
+  "detail": "No such conversation.",
+  "instance": "/api/v1/conversations/00000000-0000-4000-8000-000000000000/messages",
+  "request_id": "0ea9ed97-0211-4e7e-ac99-ce50e457ad7e"
+}
+```
+
+**"Not visible to the caller" covers both "does not exist" and "belongs to another
+organisation", and the response cannot distinguish them.** The lookup runs inside the
+caller's tenant context, so another organisation's conversation is not in the result
+set at all — the handler never holds the information it would need to leak. A `403`
+here would confirm the resource exists, which is the leak this design refuses.
+
+---
+
+<a id="message-not-found"></a>
+## `message_not_found` — 404
+
+`GET …/stream` where no message matches all of: the message id, **the conversation id
+in the path**, and role `user`, inside the ticket holder's organisation.
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#message-not-found",
+  "title": "Message not found",
+  "status": 404,
+  "code": "message_not_found",
+  "detail": "No such message in this conversation.",
+  "instance": "/api/v1/conversations/6c9b4e6d-…/messages/11111111-1111-4111-8111-111111111111/stream",
+  "request_id": "319802fb-7dde-4bbb-a277-f198bc8a16fe"
+}
+```
+
+The conversation id is a *predicate*, not decoration: a valid ticket does not open its
+message under an arbitrary conversation id from the URL. The role clause matters too
+— it is what keeps a stored assistant row from being addressable at all, rather than
+being found and refused with a `409` that would confirm it exists.
+
+Verified identical, byte for byte apart from `request_id` and `instance`, between a
+request for another tenant's real message and a request for a message id that exists
+nowhere. See [api-contract.md §7](api-contract.md#7-what-a-cross-tenant-request-looks-like).
+
+---
+
+<a id="message-already-answered"></a>
+## `message_already_answered` — 409
+
+The message has a stored answer. Generating again would leave two assistant rows for
+one question.
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#message-already-answered",
+  "title": "Message already answered",
+  "status": 409,
+  "code": "message_already_answered",
+  "detail": "This message has been answered; fetch the conversation instead.",
+  "instance": "/api/v1/conversations/6c9b4e6d-…/messages/0a6a0902-…/stream",
+  "request_id": "9a153fae-b405-4da1-9dcb-0389ed4142ce"
+}
+```
+
+**This is the code an `EventSource` hits on its automatic reconnect**, and handling it
+is not optional. A ticket stays valid for its whole minute, `EventSource` reopens the
+connection when a completed stream closes, and browsers retry navigations. Without
+this guard each of those would regenerate the answer.
+
+It is a **replay guard, not a lock**: it fires once an answer exists. Two streams
+opened concurrently, before either has stored anything, both proceed — see
+[api-contract.md §9](api-contract.md#9-what-this-api-does-not-have).
+
+`detail` says "fetch the conversation instead", which is currently advice you cannot
+take: there is no read endpoint. Treat it as "stop retrying".
+
+**Client action:** stop. Do not retry, do not mint a new ticket.
+
+---
+
+<a id="not-found"></a>
+## `not_found` — 404
+
+No route matches the path. Emitted by the router, mapped into problem+json so that a
+client never has to parse two different error shapes.
+
+```console
+$ curl -s http://127.0.0.1:8100/api/v1/nope
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#not-found",
+  "title": "Not Found",
+  "status": 404,
+  "code": "not_found",
+  "detail": "Not Found",
+  "instance": "/api/v1/nope",
+  "request_id": "0929998c-6c02-4842-9388-951864c2f8c8"
+}
+```
+
+`title` and `detail` are both the router's own phrase here, so they carry no more
+information than `code` does. Distinguish this from `conversation_not_found` and
+`message_not_found`, which mean the route exists and the resource does not.
+
+---
+
+<a id="method-not-allowed"></a>
+## `method_not_allowed` — 405
+
+The path matches a route registered for a different method. The `Allow` header is
+preserved.
+
+```console
+$ curl -s -X DELETE http://127.0.0.1:8100/api/v1/conversations -H "Authorization: Bearer $TOKEN" -D -
+```
+```http
+HTTP/1.1 405 Method Not Allowed
+allow: POST
+content-type: application/problem+json
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#method-not-allowed",
+  "title": "Method Not Allowed",
+  "status": 405,
+  "code": "method_not_allowed",
+  "detail": "Method Not Allowed",
+  "instance": "/api/v1/conversations",
+  "request_id": "cd58d2f4-255c-4032-8ae2-8f1798043e35"
+}
+```
+
+A cross-origin preflight lands here: there is no CORS middleware, so `OPTIONS`
+matches no route and returns this.
+
+---
+
+<a id="validation-error"></a>
+## `validation_error` — 422
+
+Any input that fails schema validation — body, path parameter or query parameter.
+This is the only error carrying an extra member, `errors`, holding Pydantic's report
+verbatim.
+
+Body field too short:
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/conversations \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"title":""}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#validation-error",
+  "title": "Invalid request",
+  "status": 422,
+  "code": "validation_error",
+  "detail": "The request body or parameters failed validation.",
+  "instance": "/api/v1/conversations",
+  "request_id": "fcebe6e2-130f-44b2-916d-2ded53af5265",
+  "errors": [
+    {"type": "string_too_short", "loc": ["body", "title"],
+     "msg": "String should have at least 1 character", "input": "",
+     "ctx": {"min_length": 1}}
+  ]
+}
+```
+
+Missing query parameter — the stream endpoint without `?ticket=`:
+
+```json
+"errors": [
+  {"type": "missing", "loc": ["query", "ticket"], "msg": "Field required", "input": null}
+]
+```
+
+Malformed path parameter:
+
+```json
+"errors": [
+  {"type": "uuid_parsing", "loc": ["path", "conversation_id"],
+   "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+   "input": "not-a-uuid", "ctx": {"error": "invalid character: found `n` at 1"}}
+]
+```
+
+Malformed JSON body:
+
+```json
+"errors": [
+  {"type": "json_invalid", "loc": ["body", 1], "msg": "JSON decode error",
+   "input": {}, "ctx": {"error": "Expecting property name enclosed in double quotes"}}
+]
+```
+
+A demo label with nothing visible in it — here a single U+3164 HANGUL FILLER, which
+is an ordinary `Lo` letter that draws nothing and is the canonical blank-username
+character:
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/auth/demo-login \
+    -H 'Content-Type: application/json' -d '{"label":"ㅤ"}'
+```
+```json
+"errors": [
+  {"type": "value_error", "loc": ["body", "label"],
+   "msg": "Value error, label must contain at least one character that renders",
+   "input": "ㅤ", "ctx": {"error": {}}}
+]
+```
+
+### Field constraints
+
+| Endpoint | Field | Rule |
+|---|---|---|
+| `POST /auth/demo-login` | `label` | 1..64 after whitespace stripping; not entirely non-rendering |
+| `POST /conversations` | `title` | 1..255 |
+| `POST /conversations/{id}/messages` | `content` | 1..8000 |
+| `POST /auth/stream-tickets` | `message_id` | UUID |
+| `GET …/stream` | `ticket` | required query parameter |
+
+**Client action:** `loc[0]` tells you whether to fix the body, the path or the query.
+This is a bug in the client; do not retry unchanged.
+
+`errors` mirrors Pydantic's structure and follows Pydantic's version. Read `loc` and
+`type`; do not depend on the exact wording of `msg`.
+
+---
+
+<a id="internal-error"></a>
+## `internal_error` — 500
+
+An unhandled exception reached the catch-all. The body deliberately says nothing
+about the cause.
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#internal-error",
+  "title": "Internal error",
+  "status": 500,
+  "code": "internal_error",
+  "detail": "An unexpected error occurred. Quote the request_id when reporting it.",
+  "instance": "/…",
+  "request_id": "…"
+}
+```
+
+There is no route in the shipped service that produces this on demand, so unlike
+every other entry here the body above is the handler's literal output rather than a
+captured response. It is covered by tests that mount a deliberately failing route.
+
+The full traceback is logged as a **string**, not as structured frames. Structured
+frame logging carries every frame's local variables, and in an ingestion path those
+locals hold tenant document text — which would mean an observability change quietly
+copying customer data into the log stream. The `request_id` is how a caller points at
+the log line without the service having to hand them the cause.
+
+**Client action:** show the `request_id` to the user, and stop. A `500` here is not a
+retry signal; nothing about the request will have changed.

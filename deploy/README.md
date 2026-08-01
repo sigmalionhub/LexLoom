@@ -39,18 +39,34 @@ it.
 
 ## Step 1 — DNS (do this first; certificate issuance depends on it)
 
-Add an **A record** in the `sigmalion.io` zone:
+Add an **A record** in the `sigmalion.io` zone (DNS is hosted at Spaceship —
+`launch1.spaceship.net`, `launch2.spaceship.net`):
 
 ```
 lexloom.sigmalion.io.   A   46.225.217.79
 ```
 
 Verify before continuing — a certificate request against a name that does not resolve
-fails in a way that is tedious to unpick:
+fails in a way that is tedious to unpick. Ask the **authoritative** servers, not your local
+resolver, which can hold a cached negative answer from before you added the record:
 
 ```bash
-dig +short lexloom.sigmalion.io          # must print 46.225.217.79
+NS=$(dig +short NS sigmalion.io | head -1)
+
+dig +short @"$NS" lexloom.sigmalion.io A     # must print 46.225.217.79
+dig +short @"$NS" zzq7x-nope.sigmalion.io A  # must print NOTHING
 ```
+
+The second line is not padding. If a random subdomain also resolves, the zone has a
+**wildcard**, the first line proves nothing about your record, and the certificate will be
+issued for a name that points wherever the wildcard points. A wildcard answers every name,
+so querying `*.sigmalion.io` literally does not detect one — only a name nobody would ever
+create does.
+
+Repeat a failing query two or three times before concluding anything. A one-off `SERVFAIL`
+is a hiccup; a consistent `SERVFAIL` — as opposed to `NXDOMAIN` — means something *does*
+exist at that name and is broken, usually a stale delegation, and adding an A record at the
+parent will not fix it until that is removed.
 
 ## Step 2 — host preparation (requires sudo, so a human runs it)
 

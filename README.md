@@ -287,9 +287,11 @@ tool would not have.
 - **Tracebacks are logged as strings, not structured frames.** Frame-local logging
   copies every local variable, and in an ingestion path those hold tenant document
   text — an observability change that quietly exports customer data.
-- **Bounded containers.** Memory limits are set in Compose because the intended host
-  has ~2.2 GB free and no swap, where an unbounded process does not degrade, it takes
-  the box down.
+- **Bounded containers.** Memory limits are set in Compose because the intended host is
+  shared, has ~2.2 GB free and 2 vCPUs, and arrives with no swap — the runbook adds 2 GB
+  of it, which buys time rather than headroom. An unbounded process there does not
+  degrade politely; it thrashes the host and then gets somebody killed, and the kernel
+  picks who.
 
 ## Repository
 

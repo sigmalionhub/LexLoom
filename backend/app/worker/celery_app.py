@@ -25,8 +25,8 @@ celery_app.conf.beat_schedule = {
     "purge-expired-demo-orgs": {
         "task": "lexloom.purge_expired_orgs",
         # Hourly. The TTL is 24h, so the granularity that matters is "well
-        # under a day"; running it more often would only add wakeups on a box
-        # with 2.2 GB of RAM and no swap.
+        # under a day"; running it more often would only add wakeups on a
+        # 2 vCPU box shared with other applications.
         "schedule": 3600.0,
     }
 }

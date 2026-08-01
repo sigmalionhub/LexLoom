@@ -104,8 +104,9 @@ class Settings(BaseSettings):
     # --- Admission control (app/limits.py) ---------------------------------
     #
     # The numbers are sized for the deployment target in deploy/README.md: a
-    # shared box with 2 vCPU, 2.2 GB free and no swap, where an OOM kill can
-    # take a neighbouring application rather than this one.
+    # shared box with 2 vCPU, 2.2 GB free and 2 GB of swap, where memory
+    # pressure slows every application on the host and the OOM kill at the end
+    # of it can take a neighbouring one rather than this.
 
     limits_enabled: bool = Field(
         default=True,
@@ -200,9 +201,9 @@ class Settings(BaseSettings):
         """`LIMITS_ENABLED=false` is how the test suite runs; refuse it here.
 
         Without this the flag is one environment variable between a public,
-        unauthenticated, 31-rows-per-call endpoint and a box with no swap. A
-        warning would not do: it is read after the OOM killer has already
-        chosen a victim, and the victim may be somebody else's application.
+        unauthenticated, 31-rows-per-call endpoint and a shared box. A warning
+        would not do: it is read after the OOM killer has already chosen a
+        victim, and the victim may be somebody else's application.
 
         Keyed on `PUBLIC_ENVS`, not on `production` alone. Keyed on
         `production` this validator was **dead code on the only box it was

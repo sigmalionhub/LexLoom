@@ -35,14 +35,16 @@ The deciding argument was not throughput. It was:
    Celery's prefork model rebuilt by hand and worse. Celery's prefork pool gives
    process isolation for free, and `max-tasks-per-child` bounds the memory a leaking
    native library can accumulate. That bound matters concretely: the deployment target
-   has 2.2 GB of free RAM and **no swap**, so a worker that grows without a ceiling
-   does not degrade, it takes the box down.
+   is a **shared** box with 2.2 GB of free RAM, 2 vCPUs and 2 GB of swap the runbook
+   adds. A worker that grows without a ceiling does not degrade politely there — it
+   fills RAM, thrashes every application on the host through that swapfile, and then
+   gets one of them killed anyway.
 
 2. **`task_acks_late=True` with `task_reject_on_worker_lost=True`.** A task is
    acknowledged after it completes, not when it is delivered. If the worker is killed
-   mid-parse — which on a box with no swap means the OOM killer, not a crash — the job
-   returns to the queue instead of vanishing. This is the property that makes "202
-   Accepted" an honest answer.
+   mid-parse — and on this box the end of that road is the OOM killer, not a crash the
+   process can report — the job returns to the queue instead of vanishing. This is the
+   property that makes "202 Accepted" an honest answer.
 
 3. **Operational legibility.** `celery -A app.worker.celery_app inspect registered`
    answers "is the worker actually consuming from the broker I think it is" in one

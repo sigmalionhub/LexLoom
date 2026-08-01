@@ -462,9 +462,22 @@ the message.
 
 ## 6. Errors
 
-Every error leaves this service as `application/problem+json` (RFC 9457) — including
-routing `404`s, `405`s, validation failures and unhandled exceptions. There is no
-path that returns FastAPI's default `{"detail": …}`.
+Every error under `/api/v1` leaves this service as `application/problem+json`
+(RFC 9457) — including routing `404`s, `405`s, validation failures and unhandled
+exceptions. There is no path that returns FastAPI's default `{"detail": …}`.
+
+One documented exception, and it is not under `/api/v1`: **`GET /health/ready` answers
+its `503` as plain `application/json`**, with the same body shape as its `200` and one
+`false` in it:
+
+```json
+{"status": "degraded", "checks": {"database": false, "redis": true}}
+```
+
+That is deliberate. A readiness probe is read by a supervisor, not by a client, and the
+useful answer is *which* dependency is unreachable — which the fixed `detail` of a
+problem document is designed not to say. Nothing else in this API answers an error
+outside the problem shape.
 
 ```json
 {
@@ -531,7 +544,7 @@ the process and 4 per tenant. `Retry-After` is the remainder of the current wind
 `429`, `5` for a stream ceiling and `30` when Redis is unreachable — the last of those
 is an operator-scale problem, not a queueing one. The numbers, the reasoning and the
 failure behaviour are in
-[errors.md](errors.md#admission-control--the-numbers-behind-429-and-503).
+[errors.md](errors.md#admission-control).
 
 **Which address you are metered on** is decided by two *request* headers. A browser
 client sets neither, and behind the deployed nginx both are set by the proxy — a value

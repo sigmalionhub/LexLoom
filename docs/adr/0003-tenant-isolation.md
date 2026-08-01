@@ -280,7 +280,7 @@ call writes an organisation plus a 30-row corpus copy at about 22 ms per call, s
 endpoint is where the ceiling has to live — and it does: `backend/app/limits.py` meters
 tenant creation per client address, 30 an hour by default, refusing with `429` and a
 `Retry-After`. Concurrent streams are capped in the same module. The numbers and their
-sizing are in [errors.md](../errors.md#admission-control--the-numbers-behind-429-and-503).
+sizing are in [errors.md](../errors.md#admission-control).
 
 What that closes is one address exhausting the box. What it does not close, and what
 this policy therefore still leaves open:
@@ -317,8 +317,20 @@ ERROR:  new row violates row-level security policy for table "organizations"
 The same statement without `ON CONFLICT` succeeds. And the *untargeted*
 `ON CONFLICT DO NOTHING` does not error — it silently no-ops against a colliding row
 in **any** tenant, which is an existence oracle for other organisations' external ids.
-Neither form is acceptable here, so provisioning uses a plain `INSERT` and catches the
-unique violation in application code, inside a savepoint.
+Neither form is acceptable here, so nothing that writes this table uses one.
+
+The two writers handle the collision they cannot use `ON CONFLICT` for differently, and
+the difference is not cosmetic:
+
+- `provision_demo_org` (`app/auth/demo.py`) issues a plain `INSERT` and catches nothing.
+  Its `external_id` is derived from a fresh uuid4, so a unique violation is not a case
+  that arises; a `try` there would be an unreachable branch pretending to be a guard.
+- `seed_public_corpus` (`app/chat/corpus.py`) inserts a row with a fixed id and does
+  catch `IntegrityError`, because on every run after the first that row is already
+  there. That one is wrapped in a **savepoint**, and the savepoint is load-bearing: a
+  unique violation aborts the enclosing transaction, so swallowing the exception without
+  one leaves the session poisoned and the real failure surfaces at commit, pointing at
+  the wrong line entirely.
 
 ---
 

@@ -5,8 +5,9 @@ Two ceilings live here.
 `POST /api/v1/auth/demo-login` is unauthenticated and provisions a whole tenant
 — an organisation row plus its own copy of the 30-chunk seed corpus, 31 rows
 and about 11.7 kB, every time. Nothing about the endpoint bounds how often that
-happens, and the deployment target is a shared box with 2.2 GB free and no swap
-where the OOM killer may pick a *neighbouring* application. So tenant creation
+happens, and the deployment target is a shared box with 2.2 GB free and 2 GB of
+swap, where memory pressure is felt by every application on the host and the
+OOM killer at the end of it may pick a *neighbouring* one. So tenant creation
 is metered per client address.
 
 Every SSE stream holds a connection open for as long as it generates, so the
@@ -66,8 +67,9 @@ PROXY_SECRET_HEADER = "x-lexloom-proxy"  # noqa: S105 (a header name, not a cred
 # service to strangers. /64 fails in the direction that is merely generous.
 _IPV6_BUCKET_BITS = 64
 
-# A demo answer is about 44 tokens at 30 ms, so a slot that is genuinely in use
-# frees within seconds. Five is long enough that a client honouring it is not
+# A demo answer is 41 tokens at 30 ms — about 1.3 s, and 44 frames once the
+# three non-token events are counted — so a slot that is genuinely in use frees
+# within seconds. Five is long enough that a client honouring it is not
 # hammering, short enough that a visitor who waits does not conclude the page
 # is broken.
 _STREAM_RETRY_AFTER_SECONDS = 5

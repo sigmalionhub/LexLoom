@@ -589,9 +589,10 @@ retry signal; nothing about the request will have changed.
 
 Both ceilings live in `backend/app/limits.py` and are counted in Redis, so they mean the
 same thing to every process that serves a request. The defaults are sized for the
-deployment in [deploy/README.md](../deploy/README.md): 2 vCPU, 2.2 GB free, **no swap**,
-where an OOM kill picks its victim by its own scoring and may take a neighbouring
-application rather than this one.
+deployment in [deploy/README.md](../deploy/README.md): 2 vCPU, 2.2 GB free and 2 GB of
+swap, **shared with other applications**. Memory pressure there is felt by all of them,
+and the OOM kill at the end of it picks its victim by the kernel's scoring rather than
+by who caused it — so it may take a neighbouring application rather than this one.
 
 | Setting | Default | Why that number |
 |---|---|---|
@@ -601,7 +602,7 @@ application rather than this one.
 | `MAX_CONCURRENT_STREAMS_PER_ORG` | 4 | A tab, its `EventSource` reconnect and a second tab all fit, and at least four different organisations can always be streaming. |
 | `STREAM_SLOT_TTL_SECONDS` | 600 | How long a slot may go **without a sign of life** before the sweep collects it. Not a cap on stream length: a running stream refreshes its own slot every 150 s, so the sweep only ever collects one whose process died holding it. |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` in code, `127.0.0.1,::1,172.16.0.0/12` as `docker-compose.yml` ships it | Whose `X-Forwarded-For` is believed, or `none`. See below. |
-| `TRUSTED_PROXY_SECRET` | unset in code, **required when `ENV=demo`** | Proves a request came *through* nginx, not merely from its direction. See below. |
+| `TRUSTED_PROXY_SECRET` | unset in code, **required when `ENV` is `demo` or `production`, unless `TRUSTED_PROXIES=none`** | Proves a request came *through* nginx, not merely from its direction. See below. |
 | `LIMITS_ENABLED` | `true` | |
 
 The code default for `TRUSTED_PROXIES` is loopback because that is the safe answer for a
@@ -631,7 +632,14 @@ reaches the container from the bridge gateway, so on a shared host "the peer is 
 proxy" is true of anything that can open a socket to it — including a server-side request
 forgery in a neighbouring application. When `TRUSTED_PROXY_SECRET` is set, the peer must
 also present it in `X-LexLoom-Proxy`, which nginx sends and nothing else on the box does.
-`ENV=demo` refuses to start without it.
+
+The exact rule, because it is a start-up refusal and a half-remembered version of it
+costs a deployment: `Settings` refuses to construct when `ENV` is **`demo` or
+`production`** *and* `TRUSTED_PROXIES` names at least one network *and* the secret is
+empty. All three. With `TRUSTED_PROXIES=none` the forwarding header is never read and
+there is nothing for a secret to protect, so no secret is demanded — which is how a
+process that serves no HTTP at all, such as the Celery worker, runs on a public box
+without holding one.
 
 A caller who reaches the port directly is metered on its socket address, whatever it
 claims to forward. IPv6 is bucketed by **/64**, because a customer delegated a /64 would

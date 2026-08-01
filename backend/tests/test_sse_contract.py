@@ -366,6 +366,12 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     column round-trips through JSONB whether or not the payload is built
     correctly; a real one is what proves the sources a reader saw are the
     sources a reload will show.
+
+    It has to match *only* that chunk, which is why the question is a phrase
+    from a commercial contract rather than a word of regulation: every demo
+    tenant is provisioned owning a copy of the public GDPR corpus, so a question
+    like "obligations" now finds that too and the comparison below stops being
+    about one known row.
     """
     async with tenant_session(demo_org_id) as session:
         await session.execute(
@@ -381,7 +387,7 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
         )
 
     conversation_id = await _create_conversation(client, demo_auth)
-    message_id = await _ask(client, demo_auth, conversation_id, "obligations")
+    message_id = await _ask(client, demo_auth, conversation_id, "survive termination")
     ticket = await _ticket(client, demo_auth, message_id)
 
     async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:
@@ -408,7 +414,12 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     # The stored sources are the streamed sources, field for field, after a
     # round trip through JSONB — not merely a list of the right length.
     assert answer["citations"] == streamed_chunks
-    assert len(streamed_chunks) == 1
+    assert len(streamed_chunks) == 1, (
+        "the question was meant to match only the chunk this test seeded; if the public "
+        "corpus every demo tenant now owns contains this phrase too, change the phrase "
+        "rather than the assertion — the comparison above is what makes this test mean "
+        "anything"
+    )
     assert streamed_chunks[0].keys() == {
         "chunk_id", "org_id", "content", "page_from", "page_to", "score"
     }
@@ -467,10 +478,40 @@ async def test_citations_carry_the_tenants_own_chunks(client, demo_auth, demo_or
         events = await _events(response)
 
     chunks = next(data["chunks"] for name, data in events if name == "citations")
-    assert len(chunks) == 1
+    assert len(chunks) == 1, (
+        "the question was meant to match only the chunk this test seeded; if the public "
+        "corpus every demo tenant now owns contains this phrase too, change the phrase"
+    )
     assert chunks[0]["org_id"] == demo_org_id
     assert chunks[0]["page_from"] == 7
     assert "72-hour breach notice" in chunks[0]["content"]
+
+
+async def test_a_visitor_who_has_uploaded_nothing_still_gets_sources(
+    client, demo_auth, demo_org_id
+) -> None:
+    """The demo's acceptance criterion, over the wire, for the visitor it is about.
+
+    Every other test in this file seeds a chunk first, so all of them would stay
+    green with demo tenants provisioned empty — which is exactly what happened.
+    Nothing raises when a tenant owns no chunks: `search_chunks` returns `[]`,
+    the `citations` event goes out with an empty list, the ordering assertions
+    above still hold, and the demo shows no sources at all. Only asking as a
+    visitor who has uploaded nothing catches that.
+    """
+    conversation_id = await _create_conversation(client, demo_auth)
+    # A word, not a sentence: M1 retrieval is a literal substring match.
+    message_id = await _ask(client, demo_auth, conversation_id, "processor")
+    ticket = await _ticket(client, demo_auth, message_id)
+
+    async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:
+        events = await _events(response)
+
+    names = [name for name, _ in events]
+    chunks = next(data["chunks"] for name, data in events if name == "citations")
+    assert chunks, "a visitor who has uploaded nothing is shown no sources"
+    assert names.index("citations") < names.index("token")
+    assert {chunk["org_id"] for chunk in chunks} == {demo_org_id}
 
 
 async def _create_conversation(client, headers) -> str:

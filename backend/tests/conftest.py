@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pytest
 from fastapi import FastAPI
@@ -164,6 +165,50 @@ async def created_orgs():
             await session.execute(
                 text("DELETE FROM organizations WHERE id = :org"), {"org": org_id}
             )
+
+
+@pytest.fixture
+async def two_orgs(created_orgs: list[str]) -> tuple[str, str]:
+    """Seed two organisations, each owning one chunk whose text names it.
+
+    Here rather than in a test module because two modules need it, and a second
+    copy would be a second account of what a seeded tenant looks like — the two
+    could drift while both stayed green.
+
+    `organizations` carries RLS too (migration 0003), but its INSERT policy is
+    unconditional (`WITH CHECK (true)`) — anyone can create an organisation,
+    including a caller with no tenant context yet, which is exactly the shape of
+    the demo-login endpoint. So this insert goes through system_session.
+    `document_chunks` has no such unconditional policy: the application role is
+    neither the table owner nor BYPASSRLS, so the policy binds it. On SELECT an
+    unset context silently matches zero rows; on INSERT Postgres evaluates
+    WITH CHECK and *raises*. Chunks therefore have to be written through
+    tenant_session.
+
+    Registered for teardown, which it was not while it lived in a test module.
+    That omission is measurable rather than theoretical: the development
+    database is shared between runs and had accumulated over a thousand
+    organisations by the time anyone counted.
+    """
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    async with system_session() as session:
+        for org_id, name in ((a, "Acme Legal"), (b, "Globex Compliance")):
+            await session.execute(
+                text("INSERT INTO organizations (id, external_id, name) VALUES (:i, :e, :n)"),
+                {"i": org_id, "e": f"ext_{org_id}", "n": name},
+            )
+    created_orgs.extend([a, b])
+
+    for org_id, name in ((a, "Acme Legal"), (b, "Globex Compliance")):
+        async with tenant_session(org_id) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO document_chunks (id, org_id, content, page_from, page_to) "
+                    "VALUES (:i, :o, :c, 1, 1)"
+                ),
+                {"i": str(uuid.uuid4()), "o": org_id, "c": f"secret text of {name}"},
+            )
+    return a, b
 
 
 @pytest.fixture

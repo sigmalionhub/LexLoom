@@ -1,0 +1,164 @@
+{
+  "source": {
+    "title": "Regulation (EU) 2016/679 of the European Parliament and of the Council of 27 April 2016 on the protection of natural persons with regard to the processing of personal data and on the free movement of such data, and repealing Directive 95/46/EC (General Data Protection Regulation)",
+    "celex": "32016R0679",
+    "published_in": "OJ L 119, 4.5.2016, p. 1-88",
+    "url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng",
+    "retrieved": "2026-08-01",
+    "terms": "Reuse of European Union legislation published on EUR-Lex is authorised under Commission Decision 2011/833/EU on the reuse of Commission documents, provided the source is acknowledged. This file is that acknowledgement. Only the legislation printed in the paper edition of the Official Journal of the European Union is deemed authentic.",
+    "extraction": "Extracted from the Publications Office PDF of OJ L 119 (88 pages, one PDF page per OJ page), then checked character for character against the independent XHTML rendition of the same act: every excerpt below occurs verbatim in both."
+  },
+  "content_format": "`content` is a contiguous verbatim extract from the provision named at its start, prefixed with that name and an em dash so a citation card says which provision it quotes. Long provisions are cut at a sentence or clause boundary rather than reworded, so what remains is still the source's own words. `page_from` and `page_to` are the OJ L 119 pages the extract itself begins and ends on, which is why they are equal wherever an extract was cut before a page break.",
+  "excerpts": [
+    {
+      "content": "Article 4(7) GDPR — ‘controller’ means the natural or legal person, public authority, agency or other body which, alone or jointly with others, determines the purposes and means of the processing of personal data;",
+      "page_from": 33,
+      "page_to": 33
+    },
+    {
+      "content": "Article 4(8) GDPR — ‘processor’ means a natural or legal person, public authority, agency or other body which processes personal data on behalf of the controller;",
+      "page_from": 33,
+      "page_to": 33
+    },
+    {
+      "content": "Article 4(11) GDPR — ‘consent’ of the data subject means any freely given, specific, informed and unambiguous indication of the data subject's wishes by which he or she, by a statement or by a clear affirmative action, signifies agreement to the processing of personal data relating to him or her;",
+      "page_from": 34,
+      "page_to": 34
+    },
+    {
+      "content": "Article 4(12) GDPR — ‘personal data breach’ means a breach of security leading to the accidental or unlawful destruction, loss, alteration, unauthorised disclosure of, or access to, personal data transmitted, stored or otherwise processed;",
+      "page_from": 34,
+      "page_to": 34
+    },
+    {
+      "content": "Article 5(1)(b) GDPR — collected for specified, explicit and legitimate purposes and not further processed in a manner that is incompatible with those purposes;",
+      "page_from": 35,
+      "page_to": 35
+    },
+    {
+      "content": "Article 5(1)(c) GDPR — adequate, relevant and limited to what is necessary in relation to the purposes for which they are processed (‘data minimisation’);",
+      "page_from": 35,
+      "page_to": 35
+    },
+    {
+      "content": "Article 5(1)(e) GDPR — kept in a form which permits identification of data subjects for no longer than is necessary for the purposes for which the personal data are processed;",
+      "page_from": 36,
+      "page_to": 36
+    },
+    {
+      "content": "Article 5(1)(f) GDPR — processed in a manner that ensures appropriate security of the personal data, including protection against unauthorised or unlawful processing and against accidental loss, destruction or damage, using appropriate technical or organisational measures (‘integrity and confidentiality’).",
+      "page_from": 36,
+      "page_to": 36
+    },
+    {
+      "content": "Article 5(2) GDPR — The controller shall be responsible for, and be able to demonstrate compliance with, paragraph 1 (‘accountability’).",
+      "page_from": 36,
+      "page_to": 36
+    },
+    {
+      "content": "Article 6(1)(a) GDPR — the data subject has given consent to the processing of his or her personal data for one or more specific purposes;",
+      "page_from": 36,
+      "page_to": 36
+    },
+    {
+      "content": "Article 6(1)(f) GDPR — processing is necessary for the purposes of the legitimate interests pursued by the controller or by a third party, except where such interests are overridden by the interests or fundamental rights and freedoms of the data subject which require protection of personal data, in particular where the data subject is a child.",
+      "page_from": 36,
+      "page_to": 36
+    },
+    {
+      "content": "Article 7(3) GDPR — The data subject shall have the right to withdraw his or her consent at any time. The withdrawal of consent shall not affect the lawfulness of processing based on consent before its withdrawal. Prior to giving consent, the data subject shall be informed thereof. It shall be as easy to withdraw as to give consent.",
+      "page_from": 37,
+      "page_to": 37
+    },
+    {
+      "content": "Article 12(3) GDPR — The controller shall provide information on action taken on a request under Articles 15 to 22 to the data subject without undue delay and in any event within one month of receipt of the request.",
+      "page_from": 40,
+      "page_to": 40
+    },
+    {
+      "content": "Article 15(1) GDPR — The data subject shall have the right to obtain from the controller confirmation as to whether or not personal data concerning him or her are being processed, and, where that is the case, access to the personal data and the following information:",
+      "page_from": 43,
+      "page_to": 43
+    },
+    {
+      "content": "Article 17(1) GDPR — The data subject shall have the right to obtain from the controller the erasure of personal data concerning him or her without undue delay and the controller shall have the obligation to erase personal data without undue delay where one of the following grounds applies:",
+      "page_from": 43,
+      "page_to": 43
+    },
+    {
+      "content": "Article 25(1) GDPR — Taking into account the state of the art, the cost of implementation and the nature, scope, context and purposes of processing as well as the risks of varying likelihood and severity for rights and freedoms of natural persons posed by the processing, the controller shall, both at the time of the determination of the means for processing and at the time of the processing itself, implement appropriate technical and organisational measures, such as pseudonymisation, which are designed to implement data-protection principles, such as data minimisation, in an effective manner and to integrate the necessary safeguards into the processing in order to meet the requirements of this Regulation and protect the rights of data subjects.",
+      "page_from": 48,
+      "page_to": 48
+    },
+    {
+      "content": "Article 28(1) GDPR — Where processing is to be carried out on behalf of a controller, the controller shall use only processors providing sufficient guarantees to implement appropriate technical and organisational measures in such a manner that processing will meet the requirements of this Regulation and ensure the protection of the rights of the data subject.",
+      "page_from": 49,
+      "page_to": 49
+    },
+    {
+      "content": "Article 28(2) GDPR — The processor shall not engage another processor without prior specific or general written authorisation of the controller. In the case of general written authorisation, the processor shall inform the controller of any intended changes concerning the addition or replacement of other processors, thereby giving the controller the opportunity to object to such changes.",
+      "page_from": 49,
+      "page_to": 49
+    },
+    {
+      "content": "Article 28(3) GDPR — Processing by a processor shall be governed by a contract or other legal act under Union or Member State law, that is binding on the processor with regard to the controller and that sets out the subject-matter and duration of the processing, the nature and purpose of the processing, the type of personal data and categories of data subjects and the obligations and rights of the controller. That contract or other legal act shall stipulate, in particular, that the processor:",
+      "page_from": 49,
+      "page_to": 49
+    },
+    {
+      "content": "Article 28(3)(a) GDPR — processes the personal data only on documented instructions from the controller, including with regard to transfers of personal data to a third country or an international organisation, unless required to do so by Union or Member State law to which the processor is subject;",
+      "page_from": 49,
+      "page_to": 49
+    },
+    {
+      "content": "Article 28(3)(b) GDPR — ensures that persons authorised to process the personal data have committed themselves to confidentiality or are under an appropriate statutory obligation of confidentiality;",
+      "page_from": 49,
+      "page_to": 49
+    },
+    {
+      "content": "Article 30(1) GDPR — Each controller and, where applicable, the controller's representative, shall maintain a record of processing activities under its responsibility. That record shall contain all of the following information:",
+      "page_from": 50,
+      "page_to": 50
+    },
+    {
+      "content": "Article 32(1) GDPR — Taking into account the state of the art, the costs of implementation and the nature, scope, context and purposes of processing as well as the risk of varying likelihood and severity for the rights and freedoms of natural persons, the controller and the processor shall implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk, including inter alia as appropriate:",
+      "page_from": 51,
+      "page_to": 51
+    },
+    {
+      "content": "Article 33(1) GDPR — In the case of a personal data breach, the controller shall without undue delay and, where feasible, not later than 72 hours after having become aware of it, notify the personal data breach to the supervisory authority competent in accordance with Article 55, unless the personal data breach is unlikely to result in a risk to the rights and freedoms of natural persons.",
+      "page_from": 52,
+      "page_to": 52
+    },
+    {
+      "content": "Article 34(1) GDPR — When the personal data breach is likely to result in a high risk to the rights and freedoms of natural persons, the controller shall communicate the personal data breach to the data subject without undue delay.",
+      "page_from": 52,
+      "page_to": 52
+    },
+    {
+      "content": "Article 35(1) GDPR — Where a type of processing in particular using new technologies, and taking into account the nature, scope, context and purposes of the processing, is likely to result in a high risk to the rights and freedoms of natural persons, the controller shall, prior to the processing, carry out an assessment of the impact of the envisaged processing operations on the protection of personal data.",
+      "page_from": 53,
+      "page_to": 53
+    },
+    {
+      "content": "Article 37(1) GDPR — The controller and the processor shall designate a data protection officer in any case where:",
+      "page_from": 55,
+      "page_to": 55
+    },
+    {
+      "content": "Article 44 GDPR — Any transfer of personal data which are undergoing processing or are intended for processing after transfer to a third country or to an international organisation shall take place only if, subject to the other provisions of this Regulation, the conditions laid down in this Chapter are complied with by the controller and processor, including for onward transfers of personal data from the third country or an international organisation to another third country or to another international organisation.",
+      "page_from": 60,
+      "page_to": 60
+    },
+    {
+      "content": "Article 82(1) GDPR — Any person who has suffered material or non-material damage as a result of an infringement of this Regulation shall have the right to receive compensation from the controller or processor for the damage suffered.",
+      "page_from": 81,
+      "page_to": 81
+    },
+    {
+      "content": "Article 83(5) GDPR — Infringements of the following provisions shall, in accordance with paragraph 2, be subject to administrative fines up to 20 000 000 EUR, or in the case of an undertaking, up to 4 % of the total worldwide annual turnover of the preceding financial year, whichever is higher:",
+      "page_from": 83,
+      "page_to": 83
+    }
+  ]
+}

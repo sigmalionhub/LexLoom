@@ -23,40 +23,6 @@ FORCE_MESSAGE = (
 )
 
 
-@pytest.fixture
-async def two_orgs() -> tuple[str, str]:
-    """Seed two organisations, each owning one chunk.
-
-    `organizations` now carries RLS too (see migration 0003), but its INSERT
-    policy is unconditional (`WITH CHECK (true)`) — anyone can create an
-    organisation, including a caller with no tenant context yet, which is
-    exactly the shape of the demo-login endpoint. So this insert still goes
-    through system_session. `document_chunks` has no such unconditional
-    policy: the application role is neither the table owner nor BYPASSRLS, so
-    the policy binds it unconditionally. On SELECT an unset context silently
-    matches zero rows; on INSERT Postgres evaluates WITH CHECK and *raises*.
-    Chunks therefore have to be written through tenant_session.
-    """
-    a, b = str(uuid.uuid4()), str(uuid.uuid4())
-    async with system_session() as s:
-        for org_id, name in ((a, "Acme Legal"), (b, "Globex Compliance")):
-            await s.execute(
-                text("INSERT INTO organizations (id, external_id, name) VALUES (:i, :e, :n)"),
-                {"i": org_id, "e": f"ext_{org_id}", "n": name},
-            )
-
-    for org_id, name in ((a, "Acme Legal"), (b, "Globex Compliance")):
-        async with tenant_session(org_id) as s:
-            await s.execute(
-                text(
-                    "INSERT INTO document_chunks (id, org_id, content, page_from, page_to) "
-                    "VALUES (:i, :o, :c, 1, 1)"
-                ),
-                {"i": str(uuid.uuid4()), "o": org_id, "c": f"secret text of {name}"},
-            )
-    return a, b
-
-
 async def test_every_org_scoped_table_has_rls_forced(org_scoped_tables) -> None:
     """Catalog-driven: finds every table with an org_id column rather than
     naming them, so a table added tomorrow is covered automatically."""
@@ -239,7 +205,7 @@ async def test_a_tenant_cannot_delete_another_organisation(two_orgs) -> None:
     assert still_there == 1
 
 
-async def test_creating_an_organisation_still_works() -> None:
+async def test_creating_an_organisation_still_works(created_orgs: list[str]) -> None:
     """The demo-login endpoint creates an organisation for a visitor who has
     no tenant context yet, so INSERT must stay unconditional.
 
@@ -254,6 +220,7 @@ async def test_creating_an_organisation_still_works() -> None:
             text("INSERT INTO organizations (id, external_id, name) VALUES (:i, :e, :n)"),
             {"i": new_org, "e": f"ext_{new_org}", "n": "Brand New Tenant"},
         )
+    created_orgs.append(new_org)
     async with tenant_session(new_org) as s:
         name = await s.scalar(
             text("SELECT name FROM organizations WHERE id = :i"), {"i": new_org}

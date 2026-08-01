@@ -123,6 +123,74 @@ async def test_a_provider_failure_is_still_stored_as_a_finished_answer() -> None
     assert stored == [("", "error")]
 
 
+async def test_a_failure_mid_answer_keeps_the_tokens_and_names_the_reason() -> None:
+    """The failure path's *payload* is a contract, not just its event names.
+
+    The two tests above assert the sequence of `event` names and that something
+    is stored. Neither reads a single `data` field, so the wire contract the
+    frontend actually switches on — `code` on the `error` event and
+    `finish_reason` on `message_end` — was unguarded: renaming
+    `provider_unavailable` or writing `finish_reason: "stop"` on a failed
+    generation left both of them green.
+
+    Both providers above also raise before yielding anything, so the answer
+    under test is always `""`. That is the one case where "the partial answer is
+    kept" cannot be distinguished from "nothing is kept". This provider speaks
+    first and fails afterwards, which is what a real one does when an upstream
+    drops mid-generation, and it is the only shape that can tell those apart.
+    """
+
+    class DiesMidSentence:
+        async def stream(self, prompt: str):
+            yield "Under "
+            yield "the "
+            raise RuntimeError("upstream closed the connection")
+
+    stored: list[tuple[str, str]] = []
+
+    async def store(answer: str, finish_reason: str) -> None:
+        stored.append((answer, finish_reason))
+
+    seen = [
+        event
+        async for event in generate_events(
+            message_id="m1",
+            provider=DiesMidSentence(),
+            citations=[],
+            prompt="q",
+            on_complete=store,
+        )
+    ]
+
+    assert [event["event"] for event in seen] == [
+        "message_start",
+        "citations",
+        "token",
+        "token",
+        "error",
+        "message_end",
+    ]
+
+    # The client is told what happened in terms it can switch on, and is told
+    # nothing about the exception. "upstream closed the connection" is the
+    # operator's business; the log carries it and the stream does not.
+    error = json.loads(next(e for e in seen if e["event"] == "error")["data"])
+    assert error == {
+        "code": "provider_unavailable",
+        "message": "Generation failed; sources are above.",
+    }
+    assert "upstream closed the connection" not in json.dumps(seen)
+
+    # `message_end` still arrives, and it says the answer ended badly. A stream
+    # that simply stopped would leave a UI spinning forever.
+    assert json.loads(seen[-1]["data"]) == {"finish_reason": "error"}
+
+    # What was generated before the failure is kept. The alternative — discard
+    # a half-answer because it is incomplete — throws away the only part that
+    # worked, and it is why `finish_reason` exists to qualify it.
+    assert stored == [("Under the ", "error")]
+
+
 # --------------------------------------------------------------------------
 # The rest of this module runs against a real uvicorn process.
 #

@@ -216,11 +216,13 @@ bootstrap superuser — and **superuser bypass is unconditional and outranks `FO
 ------------------+----------+--------------
  lexloom_migrator | t        | t
 
-SELECT count(*) FROM organizations;   -->  1509
+SELECT count(*) FROM organizations;   -->  1509   (a development database, 2026-08-01)
 ```
 
-Fifteen hundred organisations, from the role that owns the tables, with `FORCE` set on
-every one of them. So on this deployment `FORCE` protects nothing.
+The count moves with every demo login and every test run, so reproduce it rather than
+compare it. The property is the invariant: **an unscoped `SELECT` from the owner
+returns every tenant's rows, on tables that all carry `FORCE`.** The same query as
+`lexloom_app` returns `0`. So on this deployment `FORCE` protects nothing.
 
 It stays, and the reason is worth being precise about: it is the flag that makes the
 policies bind **the day the migration role stops being a superuser**, which is the

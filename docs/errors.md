@@ -10,8 +10,19 @@ type = "<ERROR_TYPE_BASE_URL>/docs/errors#" + code.replace("_", "-")
 so `conversation_not_found` → `#conversation-not-found`. The anchors below are named
 to match exactly.
 
+`ERROR_TYPE_BASE_URL` defaults to `http://localhost:8100` and is passed through
+Compose from `.env`, so setting it there and recreating the `api` service changes the
+prefix on every error:
+
+```console
+$ sed -i 's|^ERROR_TYPE_BASE_URL=.*|ERROR_TYPE_BASE_URL=https://api.example.test|' .env
+$ docker compose up -d api && curl -s localhost:8100/api/v1/nope | jq -r .type
+https://api.example.test/docs/errors#not-found
+```
+
 `type` is an **identifier, not a live URL**. This service does not serve
-`/docs/errors` — `GET /docs/errors` returns `404`. It names the section here.
+`/docs/errors` — `GET /docs/errors` returns `404` whatever the prefix is. It names the
+section here.
 
 Every response body below was captured from the running service.
 
@@ -410,6 +421,19 @@ This is a bug in the client; do not retry unchanged.
 An unhandled exception reached the catch-all. The body deliberately says nothing
 about the cause.
 
+The easiest way to see a real one is the state a reader is in between steps 1 and 2 of
+the README: the stack is up and the migrations have not been applied, so the first
+write hits a table that does not exist.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/auth/demo-login \
+    -H 'Content-Type: application/json' -d '{"label":"Acme Legal"}' -D -
+```
+```http
+HTTP/1.1 500 Internal Server Error
+content-type: application/problem+json
+x-request-id: 3814bcce-01f8-4e53-9f63-2c927652a933
+```
 ```json
 {
   "type": "http://localhost:8100/docs/errors#internal-error",
@@ -417,20 +441,29 @@ about the cause.
   "status": 500,
   "code": "internal_error",
   "detail": "An unexpected error occurred. Quote the request_id when reporting it.",
-  "instance": "/…",
-  "request_id": "…"
+  "instance": "/api/v1/auth/demo-login",
+  "request_id": "3814bcce-01f8-4e53-9f63-2c927652a933"
 }
 ```
 
-There is no route in the shipped service that produces this on demand, so unlike
-every other entry here the body above is the handler's literal output rather than a
-captured response. It is covered by tests that mount a deliberately failing route.
+Note what the body does *not* say: not the table, not the statement, not the SQLSTATE.
+Only the `request_id`, which is also the `X-Request-Id` header, and which matches the
+log line exactly.
 
-The full traceback is logged as a **string**, not as structured frames. Structured
-frame logging carries every frame's local variables, and in an ingestion path those
-locals hold tenant document text — which would mean an observability change quietly
-copying customer data into the log stream. The `request_id` is how a caller points at
-the log line without the service having to hand them the cause.
+The full traceback is logged as a **string**, not as structured frames:
+
+```
+log keys: ['event', 'exception', 'level', 'path', 'request_id', 'timestamp']
+exception is a str — first line: Traceback (most recent call last):
+                     last line:  (Background on this error at: https://sqlalche.me/e/20/f405)
+request_id: 3814bcce-01f8-4e53-9f63-2c927652a933
+```
+
+Six keys, and no frame locals among them. Structured frame logging carries every
+frame's local variables, and in an ingestion path those locals hold tenant document
+text — an observability change that quietly copies customer data into the log stream.
+The `request_id` is how a caller points at the log line without the service having to
+hand them the cause.
 
 **Client action:** show the `request_id` to the user, and stop. A `500` here is not a
 retry signal; nothing about the request will have changed.

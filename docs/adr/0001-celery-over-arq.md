@@ -125,12 +125,14 @@ that exists in configuration and nowhere in the process tree is the most expensi
 kind of wrong: it reads as done in the code, in review, and in this document, and it
 is discoverable only by looking at what is actually running.
 
-The cost so far is contained — the development database holds 33 tenants carrying a
-TTL and none has aged out yet. What it cost in judgement is larger: I wrote a
-schedule and believed the feature was finished, and the gap was found by listing
-running services, not by reading the code that declares it. The code now carries the
-disclaimer in a comment rather than looking functional, which is the minimum honest
-state, but the fix is a deployment change and it is still open.
+The cost so far is contained only because the development database is young: it holds
+a few dozen TTL-bearing tenants and none has yet reached 24 hours. That is a fact with
+a shelf life, not a mitigation — the first tenant to age out is the first one that is
+never collected. What it cost in judgement is larger: I wrote a schedule and believed
+the feature was finished, and the gap was found by listing running services, not by
+reading the code that declares it. The code now carries the disclaimer in a comment
+rather than looking functional, which is the minimum honest state, but the fix is a
+deployment change and it is still open.
 
 ### The obvious retry predicate would have retried the wrong things
 

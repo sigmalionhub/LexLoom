@@ -269,7 +269,8 @@ threshold on it across questions.
 
 The `error` branch is the one part of this table that **cannot be produced by curl
 against the shipped build**: the bundled provider is deterministic and does not fail.
-Driving the shipped generator directly with a failing provider gives the real frames —
+Driving the shipped generator with a provider that fails mid-answer gives the real
+frames —
 
 ```
 event: token
@@ -282,10 +283,16 @@ event: message_end
 data: {"finish_reason": "error"}
 ```
 
-— and the partial answer that was produced before the failure is stored rather than
-discarded, with `finish_reason: "error"` recording how it ended. Treat this row as
-documented-and-exercised rather than curl-verified, and note that no automated test
-covers it today.
+— and the partial answer produced before the failure is stored rather than discarded,
+with `finish_reason: "error"` recording how it ended. Note that the `error` event says
+what went wrong in terms you can switch on and nothing about the exception: the
+provider's own message goes to the log, never onto the wire.
+
+The whole branch — the two `code`/`message` members, `finish_reason: "error"`, the
+partial answer being kept, and the exception text *not* appearing — is asserted by
+`test_a_failure_mid_answer_keeps_the_tokens_and_names_the_reason`. So this row is
+test-verified rather than curl-verified, which is the only part of the contract where
+those differ.
 
 ### 4.4 Headers
 

@@ -29,10 +29,12 @@ event: message_start
 data: {"message_id": "d2f0ab9e-86f0-4e11-bd11-2406578dfa2d", "model": "fake-1"}
 
 event: citations
-data: {"chunks": [{"chunk_id": "cf0d6e41-…", "content": "Article 33(1) GDPR — In the case of a
-personal data breach, the controller shall without undue delay and, where feasible, not later
-than 72 hours after having become aware of it, notify …", "page_from": 52, "page_to": 52,
-"score": 0.027581878006458282}, …]}
+data: {"chunks": [{"chunk_id": "cf0d6e41-49c7-42df-9389-2242b6602de2",
+"org_id": "268bb2a1-43af-4a05-a9ae-9638f5b7fe6f", "content": "Article 33(1) GDPR — In the case
+of a personal data breach, the controller shall without undue delay and, where feasible, not
+later than 72 hours after having become aware of it, notify the personal data breach to the
+supervisory authority […]", "page_from": 52, "page_to": 52,
+"score": 0.027581878006458282}, {…}, {…}]}
 
 event: token
 data: {"text": "Under "}
@@ -49,6 +51,11 @@ data: {"finish_reason": "stop"}
 ```
 first_byte=0.018053s  total=1.289160s  bytes=3399  frames=44
 ```
+
+Wrapped for width — each `data:` is one line on the wire, and frames are separated by
+CRLF. `[…]` is truncated prose and `{…}` are the other two chunks; a `Citation` has
+exactly the six members shown. Full object and field semantics in
+[the contract](docs/api-contract.md#42-events).
 
 Sources at 18 ms, answer typed out over the following 1.3 s. That ordering is the
 whole design: the citations frame is on the wire before the first token, so the wait
@@ -87,15 +94,16 @@ if the role they get can bypass row-level security.
 No API keys, no accounts, no secrets to obtain. The signing keypair is generated in
 memory at start-up and the language model is a local fake.
 
+**1. Bring the stack up.**
+
 ```bash
 cp .env.example .env
 docker compose up -d --build
-curl -fsS http://127.0.0.1:8100/health/ready
-# {"status":"ready","checks":{"database":true,"redis":true}}
 ```
 
-Migrations run as the migration role, which is **not** the role the API connects as —
-so the DSN has to be supplied explicitly:
+**2. Apply the migrations — before using the service, not after.** They run as the
+migration role, which is **not** the role the API connects as, so the DSN has to be
+supplied explicitly:
 
 ```bash
 docker compose exec \
@@ -110,10 +118,26 @@ docker compose exec \
 
 Running it with the container's own `DATABASE_URL` fails with
 `permission denied for table alembic_version`, which is the design working: the
-application role owns nothing and cannot change the schema it is confined by.
+application role owns nothing and cannot change the schema it is confined by. Nothing
+in Compose applies migrations for you.
 
-Then walk the four calls in [docs/api-contract.md §3](docs/api-contract.md#3-the-chat-flow-end-to-end),
-or in one line:
+**3. Check readiness.**
+
+```bash
+curl -fsS http://127.0.0.1:8100/health/ready
+# {"status":"ready","checks":{"database":true,"redis":true}}
+```
+
+Readiness answers exactly one question — *are Postgres and Redis reachable from this
+process* — and deliberately no more. It does **not** check that the schema exists: a
+completely unmigrated database still returns `{"status":"ready"}`, and the first real
+request then fails with a `500`. That is why step 2 comes first. Liveness is narrower
+still and touches no dependency at all, so a transient database blip cannot get a
+healthy process killed.
+
+**4. Use it.** Walk the four calls in
+[docs/api-contract.md §3](docs/api-contract.md#3-the-chat-flow-end-to-end), or start
+with one line:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8100/api/v1/auth/demo-login \

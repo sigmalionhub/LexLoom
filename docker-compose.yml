@@ -43,6 +43,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://lexloom_app:${APP_DB_PASSWORD:-app}@postgres:5432/lexloom
       REDIS_URL: redis://redis:6379/0
       ENV: ${ENV:-local}
+      # The prefix every RFC 9457 `type` URI is built from. It has to be passed
+      # explicitly: .dockerignore keeps .env out of the image, so a value set
+      # there reaches Compose and stops. Without this line the setting falls
+      # back to its default and a reader who edits .env, as docs/errors.md
+      # invites them to, sees `type` keep saying localhost and has no way to
+      # tell whether the variable or the documentation is wrong.
+      ERROR_TYPE_BASE_URL: ${ERROR_TYPE_BASE_URL:-http://localhost:8100}
     ports:
       - "127.0.0.1:8100:8100"
     mem_limit: 450m

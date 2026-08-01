@@ -24,10 +24,11 @@ exists to prevent; a Redis that is down already fails `GET /health/ready`, so
 the operator is being told about the real problem elsewhere.
 """
 
+import hmac
 import ipaddress
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import redis.asyncio as aioredis
 import structlog
@@ -49,10 +50,20 @@ _DEMO_LOGIN_KEY = KEY_PREFIX + "demo-login:{bucket}:{window}"
 _GLOBAL_STREAMS_KEY = KEY_PREFIX + "streams:global"
 _ORG_STREAMS_KEY = KEY_PREFIX + "streams:org:{org_id}"
 
-# IPv6 is metered by /64, not by address. A residential IPv6 customer is
-# routinely delegated a /64 or shorter, so per-address counting would give one
-# visitor 2**64 budgets — a limit in name only. /64 is the smallest block an
-# operator is expected to hand out whole.
+# The header nginx uses to prove a request came *through* it rather than
+# merely from its direction. See `TRUSTED_PROXY_SECRET` in config.py.
+PROXY_SECRET_HEADER = "x-lexloom-proxy"  # noqa: S105 (a header name, not a credential)
+
+# IPv6 is metered by /64, not by address: per-address counting would give a
+# single visitor 2**64 budgets, which is not a limit.
+#
+# /64 is the smallest unit an operator hands out whole, and the honest limit of
+# this choice is that it is *only* the smallest. A residential customer
+# delegated a /56 holds 256 of these buckets and a business with a /48 holds
+# 65,536, so an IPv6 visitor's effective budget scales with the size of their
+# delegation. Bucketing at /48 instead would fix that and start merging
+# unrelated end sites into one bucket, which fails in the direction that denies
+# service to strangers. /64 fails in the direction that is merely generous.
 _IPV6_BUCKET_BITS = 64
 
 # A demo answer is about 44 tokens at 30 ms, so a slot that is genuinely in use
@@ -91,11 +102,21 @@ def _redis(settings: Settings) -> aioredis.Redis:
 def client_ip(request: Request) -> str:
     """The address this request is metered against.
 
-    The immediate peer decides whether the forwarding header is read at all. In
-    production nginx terminates TLS and the peer is nginx, so the real address
-    only exists in `X-Forwarded-For`; anywhere else the header is whatever the
+    Two conditions gate the forwarding header, and both have to hold.
+
+    *Position.* The immediate peer must be in `TRUSTED_PROXIES`. On the demo
+    box nginx terminates TLS and the peer is nginx, so the real address only
+    exists in `X-Forwarded-For`; anywhere else the header is whatever the
     caller typed, and honouring it would let anyone pick their own limit key —
     a limit worse than none, because it looks like protection.
+
+    *Provenance.* When `TRUSTED_PROXY_SECRET` is set, the peer must also
+    present it in `X-LexLoom-Proxy`. Position alone is not enough on a shared
+    host: the container's peer is the Compose bridge gateway for every
+    connection through the published port, so a server-side request forgery in
+    a neighbouring application would arrive looking exactly like nginx. The
+    secret is set by `deploy/nginx/snippets/lexloom-proxy.conf` and by nothing
+    else on the box.
 
     When the peer is trusted, the **last** entry is taken, never the first.
     There is exactly one proxy in front of this application and it is
@@ -114,7 +135,7 @@ def client_ip(request: Request) -> str:
     This is only the authority if nothing upstream has already rewritten the
     peer, which uvicorn does by default — see the `--no-proxy-headers` comment
     in `backend/Dockerfile` and
-    test_the_image_does_not_let_the_server_derive_the_client_address_too.
+    test_the_dockerfile_command_disables_uvicorns_own_proxy_header_handling.
     """
     peer = request.client.host if request.client else ""
     if not peer:
@@ -122,6 +143,12 @@ def client_ip(request: Request) -> str:
         # which is the right way round for a ceiling.
         return "unknown"
     if not _is_trusted_proxy(peer):
+        return peer
+    if not _carries_the_proxy_secret(request):
+        # Right network, wrong provenance. On a shared box the peer address
+        # only says the connection came through the published port, which
+        # every process on the host can do.
+        logger.warning("forwarded_for_without_proxy_secret", peer=peer)
         return peer
 
     # `getlist`, not `get`: a caller can send its own header and a proxy can add
@@ -150,9 +177,33 @@ def rate_limit_bucket(address: str) -> str:
     except ValueError:
         # `client_ip` only returns this for a request with no peer at all.
         return address
+    # An IPv4-mapped address (`::ffff:203.0.113.9`) is an IPv4 client wearing an
+    # IPv6 shape — which every dual-stack listener produces. Masked to /64 the
+    # whole mapped range collapses to `::/64`, so *every* IPv4 client reaching
+    # such a listener would share one bucket: not a bypass, but 30 logins an
+    # hour for the internet. Unwrap first, then meter as what it is.
+    mapped = parsed.ipv4_mapped if parsed.version == 6 else None
+    if mapped is not None:
+        return str(mapped)
     if parsed.version == 6:
         return str(ipaddress.ip_network(f"{parsed}/{_IPV6_BUCKET_BITS}", strict=False))
     return str(parsed)
+
+
+def _carries_the_proxy_secret(request: Request) -> bool:
+    """Does this request prove it came *through* the proxy, not just from it?
+
+    An unset secret means peer position is the whole test, which is the right
+    answer for local development and for a box this application has to itself.
+    `Settings` makes it mandatory on a public deployment that trusts any proxy.
+
+    `compare_digest` rather than `==`: the comparison is against a secret and
+    the caller controls one side of it.
+    """
+    secret = get_settings().trusted_proxy_secret
+    if not secret:
+        return True
+    return hmac.compare_digest(request.headers.get(PROXY_SECRET_HEADER, ""), secret)
 
 
 def _is_trusted_proxy(peer: str) -> bool:
@@ -237,12 +288,60 @@ async def enforce_demo_login_rate_limit(request: Request) -> None:
         raise _rate_limited(max(window_ends_at - now, 1))
 
 
-@dataclass(frozen=True)
+@dataclass
 class StreamSlot:
     """One admitted stream's reservation, released when the stream ends."""
 
     org_id: str
     token: str
+    refreshed_at: float = field(default_factory=time.time)
+
+    async def touch(self) -> None:
+        """Say the stream is still alive, so the sweep does not collect it.
+
+        The sweep exists for slots whose process died holding them, and it can
+        only tell the difference if a living stream keeps saying so.
+
+        **The previous version of this had no `touch` and justified it wrongly.**
+        It argued that nginx's `proxy_read_timeout 300s` caps a stream, so no
+        live stream could reach the 600 s TTL. `proxy_read_timeout` is an
+        *inactivity* timeout between successive reads, and
+        `EventSourceResponse(ping=15)` writes every fifteen seconds — so nginx
+        holds such a connection indefinitely and a stream can outlive any fixed
+        TTL. Demonstrated: a live stream's slot was swept and a second stream
+        was admitted over the ceiling. Harmless with `FakeProvider`'s 1.3 s
+        answer, and real the moment a slower provider is swapped in behind
+        `LLMProvider` — which is what that interface is for. The ceiling would
+        have stopped being a ceiling for exactly the streams that cost most.
+
+        Throttled to a quarter of the TTL, so a 44-token answer never touches
+        Redis at all and a long one touches it a handful of times.
+
+        `ZADD ... XX` updates an existing member and never creates one. Without
+        it a touch racing a release would resurrect a slot that nothing will
+        ever give back — and a slot that has already been swept stays swept
+        rather than reappearing with a fresh score.
+        """
+        if not self.token:
+            return
+        settings = get_settings()
+        now = time.time()
+        if now - self.refreshed_at < max(settings.stream_slot_ttl_seconds / 4, 1):
+            return
+        self.refreshed_at = now
+        org_key = _ORG_STREAMS_KEY.format(org_id=self.org_id)
+        try:
+            async with _redis(settings) as redis:
+                async with redis.pipeline(transaction=True) as pipe:
+                    for key in (_GLOBAL_STREAMS_KEY, org_key):
+                        pipe.zadd(key, {self.token: now}, xx=True)
+                        pipe.expire(key, settings.stream_slot_ttl_seconds)
+                    await pipe.execute()
+        except (RedisError, OSError):
+            # Logged, not raised: the caller is mid-answer. The cost of a
+            # missed touch is that this slot ages towards the sweep, and the
+            # next touch fixes it.
+            logger.warning("stream_slot_not_refreshed", org_id=self.org_id, exc_info=True)
 
     async def release(self) -> None:
         """Give the slot back. Idempotent, and never raises into a stream.
@@ -271,13 +370,17 @@ class StreamSlot:
 async def acquire_stream_slot(org_id: str) -> StreamSlot:
     """Reserve one of the concurrent-stream slots, or refuse with a 503.
 
-    Each ceiling is a sorted set of live slot tokens scored by the second they
-    were taken. A plain counter cannot be used: it is only ever correct if
-    every increment is matched by a decrement, and the process holding a stream
-    can be killed. Scores make the set self-healing — every acquisition first
-    drops entries older than `stream_slot_ttl_seconds`, which is longer than
-    any stream nginx will keep open, so the only thing the sweep can collect is
-    a leak.
+    Each ceiling is a sorted set of live slot tokens, scored by the second the
+    slot was last known to be alive. A plain counter cannot be used: it is only
+    ever correct if every increment is matched by a decrement, and the process
+    holding a stream can be killed. Scores make the set self-healing — every
+    acquisition first drops entries older than `stream_slot_ttl_seconds`.
+
+    The score is a *liveness* timestamp, not the start time, because nothing
+    caps how long a stream may run — see `StreamSlot.touch`. A living stream
+    refreshes its own score, so what the sweep collects is a slot that has gone
+    `stream_slot_ttl_seconds` without a sign of life, which for a process that
+    died holding one is always.
 
     Admission is add-then-count rather than count-then-add. Two requests
     racing on count-then-add can both read `limit - 1` and both proceed; with
@@ -306,6 +409,8 @@ async def acquire_stream_slot(org_id: str) -> StreamSlot:
                     # Bounds the key itself, not the slots: the prune above is
                     # what expires slots. This only keeps an organisation that
                     # never streams again from leaving a set behind for ever.
+                    # `touch` re-arms it, so a long stream cannot have the key
+                    # expire out from under its own membership.
                     pipe.expire(key, settings.stream_slot_ttl_seconds)
                 results = await pipe.execute()
 
@@ -333,4 +438,38 @@ async def acquire_stream_slot(org_id: str) -> StreamSlot:
         logger.warning("limits_backend_unavailable", check="stream_admission", exc_info=True)
         raise _capacity_unavailable(_BACKEND_RETRY_AFTER_SECONDS) from None
 
-    return StreamSlot(org_id=org_id, token=token)
+    return StreamSlot(org_id=org_id, token=token, refreshed_at=now)
+
+
+def report_configuration(settings: Settings) -> None:
+    """Say once, at start-up, whether the ceilings are on and what they are.
+
+    A process started outside Compose with `LIMITS_ENABLED=false` in its
+    environment runs unmetered and, without this, says nothing about it — the
+    cheapest way to notice would be to spend thirty logins and watch none of
+    them be refused. An absent limit that announces itself is an operational
+    problem; an absent limit that is silent is an incident.
+
+    `warning` when they are off, deliberately: it is the line someone has to be
+    able to find in a log they are skimming.
+    """
+    if not settings.limits_enabled:
+        logger.warning(
+            "limits_disabled",
+            env=settings.env,
+            detail="demo-login is unmetered and concurrent streams are uncapped",
+        )
+        return
+    logger.info(
+        "limits_enabled",
+        env=settings.env,
+        demo_login_limit=settings.demo_login_limit,
+        demo_login_window_seconds=settings.demo_login_window_seconds,
+        max_concurrent_streams=settings.max_concurrent_streams,
+        max_concurrent_streams_per_org=settings.max_concurrent_streams_per_org,
+        trusted_proxies=settings.trusted_proxies,
+        # The value never goes near a log line; whether one is required does.
+        # Without it a mismatched secret looks exactly like a working limiter
+        # that meters every visitor on one bucket.
+        proxy_secret_required=bool(settings.trusted_proxy_secret),
+    )

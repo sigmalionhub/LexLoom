@@ -292,9 +292,15 @@ async def _releasing(slot: StreamSlot, events: AsyncIterator[dict]) -> AsyncIter
     response task is parked. Both paths run on a completed stream — the
     disconnect message arrives on the happy path as well — and `release` is a
     ZREM, which is idempotent.
+
+    The `touch` is the other half of the same bookkeeping: nothing caps how
+    long a stream may run, so a slot has to keep saying it is alive or the
+    sweep will collect it while its connection is still open. It is throttled
+    inside `StreamSlot`, so this call costs nothing on a short answer.
     """
     try:
         async for event in events:
+            await slot.touch()
             yield event
     finally:
         await slot.release()

@@ -5,9 +5,10 @@ from fastapi import FastAPI
 from app.api.v1 import auth, conversations, health
 from app.auth.dev_idp import DevIdp
 from app.auth.jwks import JwksCache
-from app.config import get_settings
+from app.config import PUBLIC_ENVS, get_settings
 from app.db.engine import assert_unprivileged_role, engine
 from app.errors import install_error_handlers
+from app.limits import report_configuration
 from app.logging import configure_logging
 from app.middleware import RequestContextMiddleware
 
@@ -32,9 +33,15 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
     app.state.dev_idp = DevIdp(settings.auth_issuer, settings.auth_audience)
+    # PUBLIC_ENVS, not `production` alone. A plaintext JWKS fetch is an
+    # on-path opening — a spoofed key set makes every subsequent token verify —
+    # and that is true of any box the internet can reach, including the demo,
+    # which cannot call itself `production` because it deliberately runs the
+    # dev IdP that refuses to start there.
     app.state.jwks_cache = JwksCache(
-        settings.auth_jwks_url, require_https=settings.env == "production"
+        settings.auth_jwks_url, require_https=settings.env in PUBLIC_ENVS
     )
+    report_configuration(settings)
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)
     app.include_router(health.router)

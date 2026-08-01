@@ -1,3 +1,6 @@
+import asyncio
+import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -5,8 +8,11 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from app.config import Settings, get_settings
-from app.limits import acquire_stream_slot, client_ip, rate_limit_bucket
+from app.api.v1.conversations import _releasing
+from app.config import PROXY_SECRET_PLACEHOLDER, Settings, get_settings
+from app.errors import ProblemError
+from app.limits import PROXY_SECRET_HEADER, acquire_stream_slot, client_ip, rate_limit_bucket
+from app.main import create_app
 
 # RFC 5737 TEST-NET-3 and RFC 3849 documentation addresses. Every test that
 # writes a rate-limit key uses one, so a key this suite creates can never be
@@ -17,9 +23,13 @@ _ANOTHER_OUTSIDE = "203.0.113.10"
 _BEHIND_THE_PROXY = "198.51.100.4"
 
 
-def _request(peer: str | None, forwarded: list[str] | None = None) -> Request:
+def _request(
+    peer: str | None, forwarded: list[str] | None = None, secret: str | None = None
+) -> Request:
     """A minimal ASGI scope: an immediate peer and whatever it claims to forward."""
     headers = [(b"x-forwarded-for", value.encode()) for value in (forwarded or [])]
+    if secret is not None:
+        headers.append((PROXY_SECRET_HEADER.encode(), secret.encode()))
     return Request(
         {
             "type": "http",
@@ -83,7 +93,133 @@ def test_an_ipv6_bucket_is_a_network_rather_than_a_single_address() -> None:
     assert rate_limit_bucket(_OUTSIDE) == _OUTSIDE
 
 
-def test_the_image_does_not_let_the_server_derive_the_client_address_too() -> None:
+def test_an_ipv4_client_on_a_dual_stack_listener_is_not_bucketed_with_the_world() -> None:
+    """`::ffff:203.0.113.9` is an IPv4 client wearing an IPv6 shape, which is
+    what a dual-stack listener reports.
+
+    Masked to /64 the entire IPv4-mapped range collapses to `::/64`, so every
+    IPv4 visitor would have shared one bucket — 30 logins an hour for the whole
+    internet. Over-restriction rather than a bypass, and just as broken.
+    """
+    mapped, another = f"::ffff:{_OUTSIDE}", f"::ffff:{_ANOTHER_OUTSIDE}"
+    assert rate_limit_bucket(mapped) == _OUTSIDE
+    assert rate_limit_bucket(mapped) != rate_limit_bucket(another)
+
+
+def test_a_trusted_peer_without_the_shared_secret_is_metered_on_itself(settings_override) -> None:
+    """Position is not provenance.
+
+    The container's peer is the bridge gateway for everything that reaches the
+    published port, so on a shared host an SSRF in a neighbouring application
+    arrives looking exactly like nginx. The secret is what nginx has and the
+    neighbour does not.
+    """
+    secret = "s" * 32
+    settings_override(trusted_proxies="127.0.0.1", trusted_proxy_secret=secret)
+
+    honoured = _request("127.0.0.1", [_BEHIND_THE_PROXY], secret=secret)
+    assert client_ip(honoured) == _BEHIND_THE_PROXY
+
+    missing = _request("127.0.0.1", [_BEHIND_THE_PROXY])
+    assert client_ip(missing) == "127.0.0.1"
+
+    wrong = _request("127.0.0.1", [_BEHIND_THE_PROXY], secret="s" * 31 + "x")
+    assert client_ip(wrong) == "127.0.0.1"
+
+
+def _events_from(captured: str) -> dict[str, dict]:
+    """The structured log lines a block of stdout carries, by event name."""
+    found: dict[str, dict] = {}
+    for line in captured.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and "event" in record:
+            found[record["event"]] = record
+    return found
+
+
+def test_the_process_says_at_start_up_that_the_ceilings_are_off(
+    settings_override, capsys
+) -> None:
+    """A process started outside Compose with LIMITS_ENABLED=false in its
+    environment runs unmetered. Without this line the cheapest way to notice is
+    to spend thirty logins and watch none of them be refused.
+
+    A warning, not info: it has to be findable in a log someone is skimming.
+    """
+    settings_override(limits_enabled="false")
+    create_app()
+
+    logged = _events_from(capsys.readouterr().out)
+    assert "limits_disabled" in logged, "an unmetered process started silently"
+    assert logged["limits_disabled"]["level"] == "warning"
+    assert "limits_enabled" not in logged
+
+
+def test_the_process_reports_the_ceilings_it_is_actually_running(
+    settings_override, capsys
+) -> None:
+    """Reporting only that they are on would leave the two failures that look
+    identical from outside — a mis-set number, and a proxy secret that does not
+    match nginx's — indistinguishable without spending the budget."""
+    settings_override(limits_enabled="true", demo_login_limit=7, trusted_proxy_secret="s" * 32)
+    create_app()
+
+    logged = _events_from(capsys.readouterr().out)
+    assert "limits_enabled" in logged
+    assert logged["limits_enabled"]["demo_login_limit"] == 7
+    assert logged["limits_enabled"]["proxy_secret_required"] is True
+    # The secret itself must never reach a log line.
+    assert "s" * 32 not in capsys.readouterr().out
+
+
+async def test_a_live_stream_keeps_its_slot_past_the_sweep_horizon(limits_on) -> None:
+    """The sweep collects slots whose process died holding them. It must not
+    collect one whose stream is still running.
+
+    The original TTL argument was wrong: it reasoned that nginx's
+    `proxy_read_timeout 300s` caps a stream below the 600 s TTL.
+    `proxy_read_timeout` is an *inactivity* timeout and `ping=15` writes every
+    fifteen seconds, so nginx holds such a connection indefinitely and nothing
+    caps a stream's length. With `FakeProvider`'s 1.3 s answer that is
+    invisible; behind a slower provider — the entire point of the
+    `LLMProvider` interface — the ceiling would stop being a ceiling for
+    exactly the streams that cost the most.
+
+    Driven through the endpoint's own wrapper rather than a reimplementation of
+    it, because the claim is that a *streaming response* holds its slot.
+    """
+    limits_on(max_concurrent_streams=1, max_concurrent_streams_per_org=1,
+              stream_slot_ttl_seconds=2)
+    org_id = str(uuid.uuid4())
+
+    async def slow_answer():
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            yield {"event": "token", "data": "{}"}
+
+    slot = await acquire_stream_slot(org_id)
+    seen = 0
+    async for _ in _releasing(slot, slow_answer()):
+        seen += 1
+        if seen == 5:
+            # t is now ~2.5 s, past the 2 s horizon. Un-refreshed, this slot's
+            # score is its acquisition time and the sweep would drop it, so a
+            # second stream would be admitted over a ceiling of one.
+            with pytest.raises(ProblemError) as refused:
+                await acquire_stream_slot(org_id)
+            assert refused.value.status == 503
+
+    assert seen == 6
+    # And it is genuinely given back at the end, so the refresh did not turn
+    # into a leak.
+    released = await acquire_stream_slot(org_id)
+    await released.release()
+
+
+def test_the_dockerfile_command_disables_uvicorns_own_proxy_header_handling() -> None:
     """`client_ip` is only the authority if nothing upstream has already
     rewritten the peer.
 
@@ -99,6 +235,11 @@ def test_the_image_does_not_let_the_server_derive_the_client_address_too() -> No
     rotating values three separate budgets. With it, all three landed in one.
     The flag is therefore part of the limit, and this test is what keeps a
     tidy-up of the CMD line from quietly removing it.
+
+    Scope, stated because the name used to promise more: this reads the
+    **Dockerfile**, not a built image. It cannot see an override from
+    `docker-compose.yml`, a `docker run` that supplies its own command, or a
+    developer running bare `uvicorn`. It catches the edit it names.
     """
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
     # Line continuations joined and comments dropped, so the assertion is about
@@ -113,20 +254,83 @@ def test_the_image_does_not_let_the_server_derive_the_client_address_too() -> No
     )
 
 
-def test_the_ceilings_cannot_be_switched_off_in_production() -> None:
+@pytest.mark.parametrize("env", ["demo", "production"])
+def test_the_ceilings_cannot_be_switched_off_where_the_public_can_reach_it(env: str) -> None:
     """The suite runs with the ceilings off, so the mechanism that disables them
-    is one environment variable away from a production box with no swap.
+    is one environment variable away from a public box with no swap.
 
     It is refused at start-up rather than logged, because a warning about an
     absent limit is read after the box has already been taken down.
+
+    **`demo` is the case that matters and the one this originally missed.** The
+    guard used to key on `production`, which the demo box can never be — it
+    runs the dev IdP, and `DevIdp` refuses to start under `ENV=production`. So
+    the check could not fire on the only deployment it was written for, while
+    three documents cited it as the protection.
     """
     with pytest.raises(ValidationError, match="limits_enabled"):
-        Settings(env="production", limits_enabled=False)
+        Settings(env=env, limits_enabled=False, trusted_proxy_secret="s" * 32)
 
-    # The same value is fine anywhere else, which is what makes the suite able
-    # to run at all — so the guard is about production specifically, not about
-    # the flag being unusable.
+    # Fine anywhere the public cannot reach, which is what lets the suite run
+    # at all — the guard is about exposure, not about the flag being unusable.
     assert Settings(env="ci", limits_enabled=False).limits_enabled is False
+
+
+def test_a_public_deployment_cannot_trust_a_proxy_on_position_alone() -> None:
+    """The peer address only says a connection came through the published port,
+    which every process on a shared box can do."""
+    # `limits_enabled` is passed explicitly throughout: the suite exports
+    # LIMITS_ENABLED=false, so without it every `env="demo"` construction here
+    # would stop at the other validator instead of reaching this one.
+    with pytest.raises(ValidationError, match="trusted_proxy_secret"):
+        Settings(env="demo", limits_enabled=True, trusted_proxies="172.16.0.0/12")
+
+    # Nothing to protect when the header is never read.
+    permitted = Settings(env="demo", limits_enabled=True, trusted_proxies="none")
+    assert permitted.trusted_proxy_networks == ()
+
+
+def test_the_shipped_placeholder_is_not_accepted_as_the_shared_secret() -> None:
+    """It is committed to this repository, so it is public by construction —
+    and copying the nginx snippet without editing it is the likely mistake."""
+    with pytest.raises(ValidationError, match="placeholder"):
+        Settings(trusted_proxy_secret=PROXY_SECRET_PLACEHOLDER)
+    with pytest.raises(ValidationError, match="at least"):
+        Settings(trusted_proxy_secret="short")  # noqa: S106 (that is the point)
+
+
+def test_a_demo_deployment_refuses_a_plaintext_jwks_url(settings_override) -> None:
+    """`require_https` was `env == "production"`, so it was unreachable on the
+    box it protects — the same dead-guard shape as the limiter flag.
+
+    Asserted through `create_app` rather than through `JwksCache` directly,
+    because what was wrong was the wiring, not the cache.
+    """
+    settings_override(
+        env="demo",
+        limits_enabled="true",
+        trusted_proxy_secret="s" * 32,
+        auth_jwks_url="http://localhost:8100/.well-known/jwks.json",
+    )
+    with pytest.raises(ValueError, match="HTTPS"):
+        create_app()
+
+    settings_override(auth_jwks_url="https://lexloom.example.test/.well-known/jwks.json")
+    assert create_app() is not None
+
+
+@pytest.mark.parametrize("spec", ["", "   ", ",,", "0.0.0.0/0", "127.0.0.1,::/0"])
+def test_a_trusted_proxy_set_that_means_nothing_or_everything_is_refused(spec: str) -> None:
+    """Both failures are silent and opposite: empty meters the whole site on
+    one bucket, and a zero-length prefix lets every caller name its own key."""
+    with pytest.raises(ValidationError, match="trusted_proxies"):
+        Settings(trusted_proxies=spec)
+
+
+def test_no_trusted_proxies_can_be_said_deliberately() -> None:
+    """Rejecting the empty string has to leave a way to mean it."""
+    assert Settings(trusted_proxies="none").trusted_proxy_networks == ()
+    assert client_ip(_request(_OUTSIDE, ["1.2.3.4"])) == _OUTSIDE
 
 
 def test_the_suite_runs_with_the_ceilings_deliberately_off() -> None:

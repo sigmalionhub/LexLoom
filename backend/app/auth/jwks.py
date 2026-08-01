@@ -26,10 +26,13 @@ class JwksCache:
 
     def __init__(self, url: str, *, require_https: bool = False) -> None:
         if require_https and not url.startswith("https://"):
-            # HTTPS only in production: a plaintext JWKS fetch is an
-            # SSRF/MITM opening — an on-path attacker could serve a spoofed
+            # HTTPS wherever the public can reach this — `app.config.PUBLIC_ENVS`,
+            # which is `demo` as well as `production`. A plaintext JWKS fetch is
+            # an SSRF/MITM opening: an on-path attacker could serve a spoofed
             # key set and every subsequent token would verify against it.
-            raise ValueError(f"JWKS URL must use HTTPS in production, got {url!r}")
+            raise ValueError(
+                f"JWKS URL must use HTTPS on a public deployment, got {url!r}"
+            )
         self._url = url
         self._value: dict | None = None
         self._fetched_at = 0.0

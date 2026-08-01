@@ -74,9 +74,29 @@ cp .env.example .env
 
 Edit `.env` before starting anything:
 
+- **set `ENV=demo`** — not `local`, and not `production`. `demo` is a real value, not a
+  label: it makes the demo-login rate limit and the stream ceilings **mandatory** (the
+  container refuses to start with `LIMITS_ENABLED=false`), requires the JWKS URL to be
+  HTTPS, and requires the proxy secret below — while still permitting the development
+  identity provider, which refuses to start under `production`. Left at `local`, every
+  one of those checks is inert and the box is unprotected while looking configured.
 - set `MIGRATOR_DB_PASSWORD`, `APP_DB_PASSWORD` and `WORKER_DB_PASSWORD` to fresh random
   values — all three, not just the two the application uses
 - set `ERROR_TYPE_BASE_URL=https://lexloom.sigmalion.io`
+- set `AUTH_JWKS_URL=https://lexloom.sigmalion.io/.well-known/jwks.json` — the API
+  verifies its own tokens against this, and `ENV=demo` refuses a plaintext URL because a
+  spoofed key set would make every subsequent token verify
+- set `TRUSTED_PROXY_SECRET` to a fresh value and put **the same string** in the nginx
+  snippet in step 5:
+
+  ```bash
+  openssl rand -hex 32     # keep this; it goes in two places
+  ```
+
+  Without it, anything on this shared box that can reach `127.0.0.1:8100` — including a
+  server-side request forgery in a neighbouring application — can forge
+  `X-Forwarded-For` and create demo tenants without limit. The container refuses to
+  start without it under `ENV=demo`.
 
 The passwords are read **only when the data volume is first created**. Changing them later
 edits nothing inside a Postgres that already exists, so set them now.
@@ -118,10 +138,25 @@ sudo cp -r out/. /srv/lexloom/web/
 ```bash
 sudo mkdir -p /etc/nginx/snippets
 sudo cp /srv/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf /etc/nginx/snippets/
+
+# The shared secret, into the INSTALLED copy — the same string as
+# TRUSTED_PROXY_SECRET in .env. The committed file carries a placeholder that
+# the application refuses to start with, so forgetting this fails loudly.
+SECRET=$(grep '^TRUSTED_PROXY_SECRET=' /srv/lexloom/app/.env | cut -d= -f2-)
+test -n "$SECRET" || { echo 'TRUSTED_PROXY_SECRET is not set in .env'; exit 1; }
+sudo sed -i "s|REPLACE_ME_WITH_TRUSTED_PROXY_SECRET|$SECRET|" \
+  /etc/nginx/snippets/lexloom-proxy.conf
+grep -c REPLACE_ME /etc/nginx/snippets/lexloom-proxy.conf   # must print 0
+
 sudo cp /srv/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
 sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+**Redo the `sed` after every redeploy that copies the snippet again.** A mismatch between
+the two copies does not break the site and does not raise: it makes the application stop
+believing `X-Forwarded-For`, so every visitor on earth is metered on nginx's own address
+and shares one budget of 30 logins an hour. The check below is how you notice.
 
 ## Step 6 — TLS (requires sudo)
 
@@ -171,6 +206,21 @@ Read the timestamps, not the output. **Tokens must arrive spread over about a se
 If every line shares a timestamp, the answer was buffered and released in one flush —
 which is precisely the bug this project exists to fix, and it means `proxy_buffering off`
 is not in effect on the path that served the request.
+
+Then confirm the ceilings are on and that the proxy secret matches. The application says
+both, once, at start-up:
+
+```bash
+docker compose logs api | grep -E '"event": "limits_(enabled|disabled)"'
+```
+
+Expect **`limits_enabled`** with `"env": "demo"` and `"proxy_secret_required": true`.
+`limits_disabled` means the box is unmetered. A missing `X-LexLoom-Proxy` — the mismatch
+described in step 5 — shows up per request instead:
+
+```bash
+docker compose logs api | grep forwarded_for_without_proxy_secret   # expect nothing
+```
 
 Then watch memory, because this box is shared:
 
@@ -234,3 +284,12 @@ sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
   overwrites the header rather than appending to it, so the application receives one
   address it can trust. Adding another proxy in front means revisiting both the snippet
   and the code that reads it.
+- **The proxy secret lives in two files and nothing checks that they agree.** `.env` and
+  the installed nginx snippet. A mismatch is silent in the sense that nothing fails: it
+  degrades the rate limit to one shared budget for every visitor. The start-up line and
+  the `forwarded_for_without_proxy_secret` warning above are how it is caught.
+- **`docker compose up -d --build` will not start with `ENV=demo` unless
+  `AUTH_JWKS_URL` is HTTPS and `TRUSTED_PROXY_SECRET` is set.** That is the intent — a
+  public box that cannot meet those does not belong up — but it means a half-edited
+  `.env` shows as a container that exits rather than as a warning. `docker compose logs
+  api` names the setting.

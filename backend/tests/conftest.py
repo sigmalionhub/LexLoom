@@ -257,7 +257,40 @@ async def demo_org_id(demo_auth: dict[str, str], created_orgs: list[str]) -> str
 
 
 @pytest.fixture
-async def limits_on():
+def settings_override():
+    """Export settings for one test and put the environment back afterwards.
+
+    Not `monkeypatch.setenv`, for one reason that matters: the settings cache
+    has to be cleared *after* the environment is restored, and monkeypatch's
+    own undo runs after the fixture that requested it. Clearing first would let
+    the next `get_settings()` repopulate the cache from this test's variables.
+
+    Each keyword is a `Settings` field, exported upper-cased — which is exactly
+    how pydantic-settings names the environment variable for it, so a
+    misspelled field name fails as an unknown setting rather than silently
+    doing nothing.
+    """
+    saved: dict[str, str | None] = {}
+
+    def _export(**values: object) -> None:
+        for field, value in values.items():
+            name = field.upper()
+            saved.setdefault(name, os.environ.get(name))
+            os.environ[name] = str(value)
+        get_settings.cache_clear()
+
+    yield _export
+
+    for name, previous in saved.items():
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+async def limits_on(settings_override):
     """Turn the ceilings back on for one test, with numbers of its own.
 
     **Request this fixture before `client` and before anything that logs in.**
@@ -266,31 +299,23 @@ async def limits_on():
     the fixture has raised the ceilings is metered against the suite's default
     settings and against database 0.
 
-    Call it: `limits_on(demo_login_limit=2)`. Each keyword is a `Settings`
-    field; it is exported upper-cased, which is exactly how pydantic-settings
-    names the environment variable for it, so a typo'd field name fails as an
-    unknown setting rather than silently doing nothing.
+    Call it: `limits_on(demo_login_limit=2)`. Environment handling and the
+    settings cache belong to `settings_override`; this fixture adds the two
+    variables every such test needs and the Redis sweep on the way out.
 
-    Teardown restores every variable it touched and only then clears the
-    settings cache, so the next test cannot observe this one's ceilings. The
-    Redis sweep is scoped to `KEY_PREFIX` on database 1 — never a FLUSHDB, and
-    never database 0, which belongs to the running stack.
+    The sweep is scoped to `KEY_PREFIX` on database 1 — never a FLUSHDB, and
+    never database 0, which belongs to the running stack. It runs before
+    `settings_override` restores `REDIS_URL`, because fixtures are finalised in
+    reverse dependency order.
     """
-    saved: dict[str, str | None] = {}
     configured = False
-
-    def _export(name: str, value: str) -> None:
-        saved.setdefault(name, os.environ.get(name))
-        os.environ[name] = value
 
     def _configure(**overrides: object) -> None:
         nonlocal configured
         configured = True
-        _export("LIMITS_ENABLED", "true")
-        _export("REDIS_URL", LIMITS_TEST_REDIS_URL)
-        for field, value in overrides.items():
-            _export(field.upper(), str(value))
-        get_settings.cache_clear()
+        settings_override(
+            limits_enabled="true", redis_url=LIMITS_TEST_REDIS_URL, **overrides
+        )
 
     yield _configure
 
@@ -302,13 +327,6 @@ async def limits_on():
         async with aioredis.from_url(LIMITS_TEST_REDIS_URL) as redis:
             async for key in redis.scan_iter(match=f"{KEY_PREFIX}*"):
                 await redis.delete(key)
-
-    for name, previous in saved.items():
-        if previous is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = previous
-    get_settings.cache_clear()
 
 
 @pytest.fixture

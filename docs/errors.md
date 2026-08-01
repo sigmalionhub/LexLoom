@@ -599,9 +599,22 @@ application rather than this one.
 | `DEMO_LOGIN_WINDOW_SECONDS` | 3600 | |
 | `MAX_CONCURRENT_STREAMS` | 16 | The SQLAlchemy pool is 10 + 10 overflow. A stream holds no connection while generating but takes one at each end, so 16 leaves four connections for everything that is not a stream even if every admitted stream reaches at the same instant. |
 | `MAX_CONCURRENT_STREAMS_PER_ORG` | 4 | A tab, its `EventSource` reconnect and a second tab all fit, and at least four different organisations can always be streaming. |
-| `STREAM_SLOT_TTL_SECONDS` | 600 | A crash backstop. nginx caps a stream at `proxy_read_timeout 300s`, so no live stream reaches 600 s and the sweep can only collect a slot whose process died holding it. |
-| `TRUSTED_PROXIES` | `127.0.0.1,::1` | Whose `X-Forwarded-For` is believed. See below. |
+| `STREAM_SLOT_TTL_SECONDS` | 600 | How long a slot may go **without a sign of life** before the sweep collects it. Not a cap on stream length: a running stream refreshes its own slot every 150 s, so the sweep only ever collects one whose process died holding it. |
+| `TRUSTED_PROXIES` | `127.0.0.1,::1` in code, `127.0.0.1,::1,172.16.0.0/12` as `docker-compose.yml` ships it | Whose `X-Forwarded-For` is believed, or `none`. See below. |
+| `TRUSTED_PROXY_SECRET` | unset in code, **required when `ENV=demo`** | Proves a request came *through* nginx, not merely from its direction. See below. |
 | `LIMITS_ENABLED` | `true` | |
+
+The code default for `TRUSTED_PROXIES` is loopback because that is the safe answer for a
+process reached directly. It is the wrong answer inside a container — the port is
+published on the *host's* loopback, so nginx's connection is forwarded in and the peer is
+the Compose bridge gateway — which is why Compose widens it and why the row above gives
+both values.
+
+**Nothing here caps how long a stream may run.** An earlier version of this section
+claimed nginx's `proxy_read_timeout 300s` did. It does not: that is an *inactivity*
+timeout between successive reads, and `EventSourceResponse(ping=15)` writes every fifteen
+seconds, so nginx holds a live stream indefinitely. The slot is kept alive by the stream
+refreshing it, not by the stream being short.
 
 ### Which address a request is metered against
 
@@ -613,9 +626,20 @@ accepted the connection from. Reading the last entry is correct under that vhost
 stays correct under the conventional appending form, where a caller controls every entry
 but the last.
 
+Position is necessary and not sufficient. Every connection through the published port
+reaches the container from the bridge gateway, so on a shared host "the peer is a trusted
+proxy" is true of anything that can open a socket to it — including a server-side request
+forgery in a neighbouring application. When `TRUSTED_PROXY_SECRET` is set, the peer must
+also present it in `X-LexLoom-Proxy`, which nginx sends and nothing else on the box does.
+`ENV=demo` refuses to start without it.
+
 A caller who reaches the port directly is metered on its socket address, whatever it
 claims to forward. IPv6 is bucketed by **/64**, because a customer delegated a /64 would
-otherwise have 2^64 budgets.
+otherwise have 2^64 budgets — and an IPv4-mapped address (`::ffff:203.0.113.9`, which is
+what a dual-stack listener reports) is unwrapped first, or the whole mapped range would
+collapse into one bucket. The honest residual: a customer delegated a **/56** holds 256
+of these buckets and a **/48** holds 65,536, so an IPv6 visitor's budget scales with the
+size of their delegation.
 
 The container starts uvicorn with `--no-proxy-headers`. Without it, uvicorn's own
 `ProxyHeadersMiddleware` rewrites `scope["client"]` from the header first, by a second
@@ -626,5 +650,16 @@ address uvicorn chose.
 
 `LIMITS_ENABLED=false` is how the test suite runs: it creates well over a hundred
 organisations from `127.0.0.1`, which is one address and therefore one budget. `Settings`
-**refuses to construct** with `limits_enabled=False` when `ENV=production`, so the
-process does not start rather than starting unprotected.
+**refuses to construct** with `limits_enabled=False` when `ENV` is `demo` **or**
+`production`, so the process does not start rather than starting unprotected.
+
+The `demo` half of that is the whole point. Keyed on `production` alone — as it first was
+— the check was dead code on the only box it was written for: that deployment runs the
+development identity provider, which refuses to start under `ENV=production`, so `ENV`
+there can never be the value the guard tested. `demo` is the name for what that box
+actually is, and the same taxonomy fixes `JwksCache(require_https=…)`, which was
+decorative there for exactly the same reason.
+
+Whichever way it is set, the process **says so once at start-up** — `limits_enabled` at
+info with the numbers, or `limits_disabled` at warning. An absent limit that announces
+itself is an operational problem; a silent one is an incident.

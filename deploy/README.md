@@ -1,0 +1,236 @@
+# Deploying LexLoom
+
+The target is a **shared production host**, not a sandbox. It already serves other
+applications behind the same nginx, has **2.2 GB of free RAM and no swap**, and 2 vCPUs.
+With no swap the OOM killer picks its victim by its own scoring, so an unbounded demo can
+get a *neighbouring* application killed. Every memory limit and every ceiling in this
+stack exists because of that, not because of tidiness.
+
+Read this whole file before running anything. Roughly ten minutes, most of it waiting.
+
+---
+
+## What runs where
+
+| Piece | Where | Notes |
+|---|---|---|
+| Postgres 16 + pgvector | container | `127.0.0.1:5433` only, never published publicly |
+| Redis | container | `127.0.0.1:6379` only |
+| API (FastAPI) | container | `127.0.0.1:8100` only |
+| Worker (Celery) | container | no ports |
+| Frontend | **files on disk** | statically exported, served by nginx — no Node process |
+| nginx | host, already installed | terminates TLS, serves the files, proxies the API |
+
+The frontend and the API share one origin. That is a requirement, not a preference: the
+backend ships **no CORS headers at all**, so a frontend on a second origin could not call
+it.
+
+---
+
+## Step 1 — DNS (do this first; certificate issuance depends on it)
+
+Add an **A record** in the `sigmalion.io` zone:
+
+```
+lexloom.sigmalion.io.   A   46.225.217.79
+```
+
+Verify before continuing — a certificate request against a name that does not resolve
+fails in a way that is tedious to unpick:
+
+```bash
+dig +short lexloom.sigmalion.io          # must print 46.225.217.79
+```
+
+## Step 2 — host preparation (requires sudo, so a human runs it)
+
+```bash
+# Let the deploy user drive Docker without sudo.
+sudo usermod -aG docker deploy
+# Group membership is read at login. Either log out and back in, or:
+newgrp docker
+
+# 2 GB of swap. This is the single most valuable line in this file: without it,
+# a memory spike in the demo can get one of the OTHER applications on this box
+# OOM-killed instead of the demo.
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Confirm
+free -h        # Swap: 2.0Gi
+docker ps      # must work without sudo
+```
+
+## Step 3 — get the code and build
+
+```bash
+git clone git@github.com:sigmalionhub/LexLoom.git /srv/lexloom/app
+cd /srv/lexloom/app
+cp .env.example .env
+```
+
+Edit `.env` before starting anything:
+
+- set `MIGRATOR_DB_PASSWORD`, `APP_DB_PASSWORD` and `WORKER_DB_PASSWORD` to fresh random
+  values — all three, not just the two the application uses
+- set `ERROR_TYPE_BASE_URL=https://lexloom.sigmalion.io`
+
+The passwords are read **only when the data volume is first created**. Changing them later
+edits nothing inside a Postgres that already exists, so set them now.
+
+```bash
+docker compose up -d --build
+```
+
+Then apply migrations. **The API container cannot do this**, by design — it connects as an
+unprivileged role that owns nothing, which is what makes the tenant isolation claim
+enforceable. Migrations run as the migration role, so both commands below carry its DSN:
+
+```bash
+export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
+
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0004 (head)
+```
+
+Without that DSN, `alembic current` fails with `permission denied for table
+alembic_version` — the application role cannot read the version table, which is the
+isolation design working rather than a misconfiguration.
+
+Check `alembic current`, not the exit code. A container built before a migration existed
+will report success and apply nothing.
+
+## Step 4 — build the frontend
+
+```bash
+cd /srv/lexloom/app/frontend
+npm ci
+npm run build            # emits ./out — a directory of files, no server
+sudo mkdir -p /srv/lexloom/web
+sudo cp -r out/. /srv/lexloom/web/
+```
+
+## Step 5 — nginx (requires sudo)
+
+```bash
+sudo mkdir -p /etc/nginx/snippets
+sudo cp /srv/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf /etc/nginx/snippets/
+sudo cp /srv/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
+sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+## Step 6 — TLS (requires sudo)
+
+```bash
+sudo certbot --nginx -d lexloom.sigmalion.io
+```
+
+certbot rewrites the vhost in place and adds the `:443` block. It leaves the proxy
+settings alone; re-read the file afterwards anyway and confirm `proxy_buffering off` is
+still present in the snippet include.
+
+---
+
+## Verify — and verify the streaming specifically
+
+```bash
+curl -fsS https://lexloom.sigmalion.io/health/ready
+```
+
+`ready` means the process can reach Postgres and Redis. **It does not mean the schema
+exists** — a fresh database with no migrations also answers `ready`. Trust
+`alembic current` for that.
+
+Now the part that actually matters. Streaming is what this project is about, and the
+failure mode is that it works locally and buffers in production:
+
+```bash
+# 1. get a tenant
+TOK=$(curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/auth/demo-login \
+      -H 'content-type: application/json' -d '{"label":"Deploy check"}' | jq -r .access_token)
+# 2. a conversation and a question
+CONV=$(curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/conversations \
+      -H "authorization: Bearer $TOK" -H 'content-type: application/json' \
+      -d '{"title":"check"}' | jq -r .id)
+MSG=$(curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/conversations/$CONV/messages \
+      -H "authorization: Bearer $TOK" -H 'content-type: application/json' \
+      -d '{"content":"What are the processor obligations?"}' | jq -r .message_id)
+TICKET=$(curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/auth/stream-tickets \
+      -H "authorization: Bearer $TOK" -H 'content-type: application/json' \
+      -d "{\"message_id\":\"$MSG\"}" | jq -r .ticket)
+# 3. watch it arrive
+curl -N -s "https://lexloom.sigmalion.io/api/v1/conversations/$CONV/messages/$MSG/stream?ticket=$TICKET" \
+  | while IFS= read -r line; do printf '%s  %s\n' "$(date +%S.%N | cut -c1-6)" "$line"; done
+```
+
+Read the timestamps, not the output. **Tokens must arrive spread over about a second.**
+If every line shares a timestamp, the answer was buffered and released in one flush —
+which is precisely the bug this project exists to fix, and it means `proxy_buffering off`
+is not in effect on the path that served the request.
+
+Then watch memory, because this box is shared:
+
+```bash
+docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}'
+free -h
+```
+
+Budget: postgres 384 MB, redis 64 MB, api 450 MB, worker 650 MB — about **1.55 GB**
+ceiling against 2.2 GB free. The margin is thin on purpose; if something sits near its
+limit, lower it rather than raising the total.
+
+---
+
+## Redeploying
+
+```bash
+cd /srv/lexloom/app && git pull
+docker compose up -d --build
+export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # check BEFORE assuming it ran
+cd frontend && npm ci && npm run build && sudo cp -r out/. /srv/lexloom/web/
+```
+
+A new migration is invisible to a container built before it existed. `alembic upgrade
+head` will then report success and do nothing. Always confirm with `alembic current`.
+
+## Rolling back
+
+```bash
+cd /srv/lexloom/app
+git checkout <previous-sha>
+docker compose up -d --build
+```
+
+Migrations are **not** rolled back automatically. Every migration in this repository has
+a working `downgrade()`, but run one only if the previous revision genuinely cannot read
+the current schema — downgrading a migration that dropped data does not bring it back.
+
+## Turning it off
+
+```bash
+cd /srv/lexloom/app && docker compose down          # keeps the data volume
+sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
+```
+
+---
+
+## Known gaps, stated rather than discovered
+
+- **Nothing runs `celery beat`.** The hourly purge of expired demo tenants is registered
+  on a schedule that no process reads, so the 24-hour TTL is currently enforced by
+  nothing. Until a beat service exists, run it by hand when the row count grows:
+  `docker compose exec worker celery -A app.worker.celery_app call lexloom.purge_expired_orgs`
+- **Demo tenants are not free.** Each one copies a 30-chunk corpus: about 31 rows and
+  11.7 kB per anonymous `demo-login`. Watch the row count for the first days after this
+  goes public.
+- **`/health/ready` does not check the schema.** See above.
+- **The `X-Forwarded-For` handling assumes exactly one proxy** — this nginx. The snippet
+  overwrites the header rather than appending to it, so the application receives one
+  address it can trust. Adding another proxy in front means revisiting both the snippet
+  and the code that reads it.

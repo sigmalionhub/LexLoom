@@ -216,13 +216,18 @@ bootstrap superuser — and **superuser bypass is unconditional and outranks `FO
 ------------------+----------+--------------
  lexloom_migrator | t        | t
 
-SELECT count(*) FROM organizations;   -->  1509   (a development database, 2026-08-01)
+SELECT count(*) FROM organizations;   -->  1605   (a development database, 2026-08-01)
 ```
 
-The count moves with every demo login and every test run, so reproduce it rather than
-compare it. The property is the invariant: **an unscoped `SELECT` from the owner
-returns every tenant's rows, on tables that all carry `FORCE`.** The same query as
-`lexloom_app` returns `0`. So on this deployment `FORCE` protects nothing.
+Every organisation, of every kind — the permanent seed corpus, the throwaway tenants a
+demo login creates, and everything the test suite has left behind. (ADR 0001 quotes the
+TTL-bearing subset of the same table, 129 of them, for a different argument; the numbers
+differ because the populations do.) Both move with every demo login and every test run,
+so reproduce them rather than compare them.
+
+The property is the invariant: **an unscoped `SELECT` from the owner returns every
+tenant's rows, on tables that all carry `FORCE`.** The same query as `lexloom_app`
+returns `0`. So on this deployment `FORCE` protects nothing.
 
 It stays, and the reason is worth being precise about: it is the flag that makes the
 policies bind **the day the migration role stops being a superuser**, which is the

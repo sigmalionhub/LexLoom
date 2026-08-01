@@ -125,10 +125,24 @@ that exists in configuration and nowhere in the process tree is the most expensi
 kind of wrong: it reads as done in the code, in review, and in this document, and it
 is discoverable only by looking at what is actually running.
 
-The cost so far is contained only because the development database is young: it holds
-a few dozen TTL-bearing tenants and none has yet reached 24 hours. That is a fact with
-a shelf life, not a mitigation — the first tenant to age out is the first one that is
-never collected. What it cost in judgement is larger: I wrote a schedule and believed
+The cost so far is contained only because nothing has aged out yet, and that is all:
+
+```
+ all_orgs | ttl_bearing | already_expired    (development database, 2026-08-01)
+     1605 |         129 |               0
+```
+
+Only the middle column is this section's subject. The other 1476 organisations carry
+`expires_at IS NULL` — the permanent seed corpus and everything the test suite creates —
+and the purge is not meant to touch them; they are counted here because ADR 0003 quotes
+the total for a different argument and two undisambiguated numbers read as a
+contradiction. Reproduce these rather than compare them: every demo login and every test
+run moves them.
+
+`already_expired` is the one that matters, and it is zero because the oldest TTL-bearing
+tenant is younger than a day. That is a fact with a shelf life, not a mitigation — the
+first tenant to age out is the first one that is never collected, and 129 of them are
+waiting to. What it cost in judgement is larger: I wrote a schedule and believed
 the feature was finished, and the gap was found by listing running services, not by
 reading the code that declares it. The code now carries the disclaimer in a comment
 rather than looking functional, which is the minimum honest state, but the fix is a

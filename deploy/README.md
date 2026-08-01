@@ -1,10 +1,20 @@
 # Deploying LexLoom
 
 The target is a **shared production host**, not a sandbox. It already serves other
-applications behind the same nginx, has **2.2 GB of free RAM and no swap**, and 2 vCPUs.
-With no swap the OOM killer picks its victim by its own scoring, so an unbounded demo can
-get a *neighbouring* application killed. Every memory limit and every ceiling in this
-stack exists because of that, not because of tidiness.
+applications behind the same nginx, has **2.2 GB of free RAM**, 2 vCPUs, and **arrives
+with no swap** — Step 2 adds 2 GB of it, and that is the single most valuable line in
+this file. Read the sizing below as the argument for why: it is written for the box as
+found, and it does not stop applying once the swapfile is on.
+
+With no swap at all, a memory spike has exactly one outcome: the kernel OOM killer picks
+a victim by its own scoring, and the victim may be a *neighbouring* application rather
+than this one. Swap removes that as the *first* thing that happens — the box thrashes
+instead, which is slow rather than fatal, and slow is recoverable. It does not remove it
+as the last thing that happens: 2 GB of swap on a 2 vCPU box is a delay, not a budget,
+and an unbounded process still gets there.
+
+So the swapfile and the ceilings do different jobs and both are needed. Every memory
+limit and every ceiling in this stack exists because of that, not because of tidiness.
 
 Read this whole file before running anything. Roughly ten minutes, most of it waiting.
 
@@ -50,9 +60,11 @@ sudo usermod -aG docker deploy
 # Group membership is read at login. Either log out and back in, or:
 newgrp docker
 
-# 2 GB of swap. This is the single most valuable line in this file: without it,
-# a memory spike in the demo can get one of the OTHER applications on this box
-# OOM-killed instead of the demo.
+# 2 GB of swap. Without it, a memory spike in the demo can get one of the OTHER
+# applications on this box OOM-killed instead of the demo — the kernel picks by
+# its own scoring, not by who caused it. With it, the first symptom is a slow
+# box rather than a dead neighbour. It buys time, not headroom: the container
+# limits below are still what bounds the total.
 sudo fallocate -l 2G /swapfile
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
@@ -80,8 +92,19 @@ Edit `.env` before starting anything:
   HTTPS, and requires the proxy secret below — while still permitting the development
   identity provider, which refuses to start under `production`. Left at `local`, every
   one of those checks is inert and the box is unprotected while looking configured.
-- set `MIGRATOR_DB_PASSWORD`, `APP_DB_PASSWORD` and `WORKER_DB_PASSWORD` to fresh random
-  values — all three, not just the two the application uses
+- set `MIGRATOR_DB_PASSWORD`, `APP_DB_PASSWORD` and `WORKER_DB_PASSWORD` — all three, not
+  just the two the application uses. **Generate them as hex**, with the same command as
+  the proxy secret below:
+
+  ```bash
+  openssl rand -hex 32     # once per password
+  ```
+
+  Not `base64`, and not a passphrase. Each of these values is interpolated into a URL
+  (`DATABASE_URL` in `docker-compose.yml`, and the `export MIG=` line further down),
+  where `@` and `/` are structural and silently cut the DSN in the wrong place — the
+  failure is "password authentication failed" for a user you did not name. Hex has no
+  character that means anything in a URL, in shell, or in SQL.
 - set `ERROR_TYPE_BASE_URL=https://lexloom.sigmalion.io`
 - set `AUTH_JWKS_URL=https://lexloom.sigmalion.io/.well-known/jwks.json` — the API
   verifies its own tokens against this, and `ENV=demo` refuses a plaintext URL because a
@@ -254,6 +277,13 @@ free -h
 Budget: postgres 384 MB, redis 64 MB, api 450 MB, worker 650 MB — about **1.55 GB**
 ceiling against 2.2 GB free. The margin is thin on purpose; if something sits near its
 limit, lower it rather than raising the total.
+
+These are RAM figures and they stay RAM figures after Step 2. `mem_limit` maps to
+Docker's `--memory`, which caps a container's resident memory; the swapfile lets a
+container that reaches its limit spill into swap instead of being killed there and then,
+but it does not raise the 1.55 GB. Read `docker stats` for the per-container number and
+`free -h` for the box — and treat a *growing* `Swap: used` as the signal it is, because
+by then the whole host is paying for it.
 
 ---
 

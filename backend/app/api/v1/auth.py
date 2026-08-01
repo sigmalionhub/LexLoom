@@ -1,10 +1,11 @@
 import unicodedata
 from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, StringConstraints, field_validator
 
 from app.auth.demo import DEMO_TOKEN_TTL_SECONDS, provision_demo_org
+from app.limits import enforce_demo_login_rate_limit
 
 router = APIRouter(tags=["auth"])
 
@@ -102,7 +103,14 @@ async def jwks(request: Request) -> dict:
     return request.app.state.dev_idp.jwks()
 
 
-@router.post("/api/v1/auth/demo-login")
+@router.post(
+    "/api/v1/auth/demo-login",
+    # A route dependency rather than a call in the body, so the meter is spent
+    # before the body is even validated and cannot be skipped by an early
+    # return added later. FastAPI solves sub-dependencies ahead of body
+    # parsing, so a refused caller never reaches the label rules below.
+    dependencies=[Depends(enforce_demo_login_rate_limit)],
+)
 async def demo_login(payload: DemoLoginRequest, request: Request) -> dict[str, object]:
     """Mint a throwaway organisation for this visitor.
 

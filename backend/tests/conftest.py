@@ -13,6 +13,29 @@ os.environ.setdefault(
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("ENV", "ci")
 
+# The demo-login rate limit and the stream ceilings are OFF for this suite, and
+# this line is the whole mechanism — there is no second way to disable them.
+#
+# Assigned rather than `setdefault`, unlike everything above it. The suite
+# creates well over a hundred organisations from 127.0.0.1, which is one
+# address and therefore one budget, so a developer who happens to export
+# LIMITS_ENABLED=true would watch two thirds of the run fail on a limit that is
+# working correctly. Whether the suite passes must not depend on the shell it
+# was started from.
+#
+# What keeps this from being a way to disable the ceilings in production is not
+# discipline: `Settings` refuses to construct with `limits_enabled=False` when
+# `ENV=production`, so the process does not start. See
+# test_the_ceilings_cannot_be_switched_off_in_production.
+os.environ["LIMITS_ENABLED"] = "false"
+
+# Rate-limit state for the tests that turn the ceilings back on. Database 1,
+# not 0: the development box shares one Redis with the running demo stack and
+# with Celery, both on database 0, so keys written here cannot be mistaken for
+# a real visitor's counter, cannot consume a real stream slot, and can be swept
+# by prefix on the way out without touching anything that matters.
+LIMITS_TEST_REDIS_URL = "redis://localhost:6379/1"
+
 # The worker connects as lexloom_worker, which holds grants lexloom_app
 # deliberately does not (EXECUTE on the purge function, migration 0004). Derived
 # from DATABASE_URL so it follows the host, port and database wherever the suite
@@ -56,6 +79,7 @@ WHERE a.attname = 'org_id'
   AND c.relnamespace = 'public'::regnamespace
 """
 
+from app.config import get_settings  # noqa: E402
 from app.db.session import system_session, tenant_session  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.worker.celery_app import celery_app  # noqa: E402
@@ -230,6 +254,61 @@ async def demo_org_id(demo_auth: dict[str, str], created_orgs: list[str]) -> str
     makes the last entry that login's.
     """
     return created_orgs[-1]
+
+
+@pytest.fixture
+async def limits_on():
+    """Turn the ceilings back on for one test, with numbers of its own.
+
+    **Request this fixture before `client` and before anything that logs in.**
+    `create_app` is not the problem — the limiter reads `get_settings()` per
+    request — but `demo_auth` performs a demo-login, and a login made before
+    the fixture has raised the ceilings is metered against the suite's default
+    settings and against database 0.
+
+    Call it: `limits_on(demo_login_limit=2)`. Each keyword is a `Settings`
+    field; it is exported upper-cased, which is exactly how pydantic-settings
+    names the environment variable for it, so a typo'd field name fails as an
+    unknown setting rather than silently doing nothing.
+
+    Teardown restores every variable it touched and only then clears the
+    settings cache, so the next test cannot observe this one's ceilings. The
+    Redis sweep is scoped to `KEY_PREFIX` on database 1 — never a FLUSHDB, and
+    never database 0, which belongs to the running stack.
+    """
+    saved: dict[str, str | None] = {}
+    configured = False
+
+    def _export(name: str, value: str) -> None:
+        saved.setdefault(name, os.environ.get(name))
+        os.environ[name] = value
+
+    def _configure(**overrides: object) -> None:
+        nonlocal configured
+        configured = True
+        _export("LIMITS_ENABLED", "true")
+        _export("REDIS_URL", LIMITS_TEST_REDIS_URL)
+        for field, value in overrides.items():
+            _export(field.upper(), str(value))
+        get_settings.cache_clear()
+
+    yield _configure
+
+    if configured:
+        import redis.asyncio as aioredis
+
+        from app.limits import KEY_PREFIX
+
+        async with aioredis.from_url(LIMITS_TEST_REDIS_URL) as redis:
+            async for key in redis.scan_iter(match=f"{KEY_PREFIX}*"):
+                await redis.delete(key)
+
+    for name, previous in saved.items():
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
+    get_settings.cache_clear()
 
 
 @pytest.fixture

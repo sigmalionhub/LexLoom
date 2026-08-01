@@ -53,6 +53,11 @@ Every response body below was captured from the running service.
 | `request_id` | — | Also the `X-Request-Id` response header. The join key into the logs. |
 | `errors` | — | **Only on `validation_error`.** Pydantic's own report. |
 
+Two codes also carry a **`Retry-After` response header**: `rate_limited` and
+`capacity_unavailable`. It is a header, not a body member — `Retry-After` is defined by
+RFC 9110 §10.2.3 and RFC 9457 says nothing about it. Both are the only errors here that
+a client should retry unchanged, and the header is how long to wait.
+
 `request_id` is present on every error, including the `500` path, where it is set
 from request state rather than from the context variable — the context variable has
 already been reset by the time the catch-all handler runs.
@@ -71,11 +76,18 @@ already been reset by the time the catch-all handler runs.
 | 405 | [`method_not_allowed`](#method-not-allowed) | The router: path matches, method does not |
 | 409 | [`message_already_answered`](#message-already-answered) | `GET …/stream` on a message that has an answer |
 | 422 | [`validation_error`](#validation-error) | Any endpoint, any malformed input |
+| 429 | [`rate_limited`](#rate-limited) | `POST /auth/demo-login`, too many from one address |
 | 500 | [`internal_error`](#internal-error) | The catch-all |
+| 503 | [`capacity_unavailable`](#capacity-unavailable) | `GET …/stream` at its ceiling; either endpoint when the limiter's Redis is unreachable |
 
 `503` from `GET /health/ready` is **not** in this catalogue: readiness answers with
 its own body (`{"status": "degraded", "checks": {…}}`), not with problem+json,
-because a probe's consumer is a supervisor rather than a client.
+because a probe's consumer is a supervisor rather than a client. It shares a status
+with `capacity_unavailable` and nothing else.
+
+The `429` and the `503` are both off by default in the test suite and on everywhere
+else; see [Admission control](#admission-control) at the end of this file for the
+numbers and for what turns them on.
 
 ---
 
@@ -415,6 +427,108 @@ This is a bug in the client; do not retry unchanged.
 
 ---
 
+<a id="rate-limited"></a>
+## `rate_limited` — 429
+
+Too many throwaway organisations created from one client address inside one window.
+`POST /api/v1/auth/demo-login` is the only endpoint that raises it.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/auth/demo-login \
+    -H 'Content-Type: application/json' -d '{"label":"Acme Legal"}' -D -
+```
+```http
+HTTP/1.1 429 Too Many Requests
+content-type: application/problem+json
+retry-after: 1393
+x-request-id: 582a892f-d2d4-415e-82e4-31165a60b0d5
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#rate-limited",
+  "title": "Too many requests",
+  "status": 429,
+  "code": "rate_limited",
+  "detail": "Too many demo organisations from this address. Retry after Retry-After seconds.",
+  "instance": "/api/v1/auth/demo-login",
+  "request_id": "582a892f-d2d4-415e-82e4-31165a60b0d5"
+}
+```
+
+`detail` carries no numbers: not the limit, not how much of it is spent, not how many
+tenants the address already owns. `Retry-After` says the only thing a client needs in
+order to behave, and the rest is in the log line
+(`demo_login_rate_limited`, with the address and the count).
+
+**Every request counts, including one that would have failed validation.** The limit is
+spent in a route dependency, before the body is parsed, so a client looping on a
+malformed label exhausts its budget exactly as fast as one sending valid ones. That is
+deliberate: the cost this bounds is the request, not the row.
+
+The window is fixed rather than sliding, so an address that spends its budget at the end
+of one window and again at the start of the next makes **up to twice the limit** in a
+short burst. Bounded and cheap; the alternative costs about ten times the memory in a
+Redis capped at 48 MB with `allkeys-lru`, where what gets evicted is the counter itself.
+
+**Client action:** wait `Retry-After` seconds and retry the same request. This is the one
+`4xx` in this catalogue that is a retry signal. If you already hold a demo token, use
+it — it is valid for 3600 s and a second login buys nothing.
+
+---
+
+<a id="capacity-unavailable"></a>
+## `capacity_unavailable` — 503
+
+The service will not *start* this work now. Three triggers, one code, because the client
+action is identical for all three:
+
+1. the caller's organisation already has its maximum number of streams open;
+2. the whole process is at its concurrent-stream ceiling;
+3. Redis is unreachable, so neither ceiling can be consulted — and the limiter refuses
+   rather than proceeding unmetered, which is the outcome it exists to prevent.
+
+```console
+$ curl -s "http://127.0.0.1:8100/api/v1/conversations/75c64440-…/messages/5200239f-…/stream?ticket=$TICKET" -D -
+```
+```http
+HTTP/1.1 503 Service Unavailable
+content-type: application/problem+json
+retry-after: 5
+x-request-id: bd26ed00-23ba-45c9-95f2-d80b00a94d10
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#capacity-unavailable",
+  "title": "Capacity unavailable",
+  "status": 503,
+  "code": "capacity_unavailable",
+  "detail": "The service cannot start this work right now. Retry after Retry-After seconds.",
+  "instance": "/api/v1/conversations/75c64440-…/messages/5200239f-…/stream",
+  "request_id": "bd26ed00-23ba-45c9-95f2-d80b00a94d10"
+}
+```
+
+`Retry-After` is **5** for a ceiling and **30** for an unreachable Redis, which is the
+only outward difference between them. Which one fired is in the log:
+`stream_admission_refused` carries `reason` (`org_ceiling` or `global_ceiling`) with both
+counts, and `limits_backend_unavailable` carries `check`. Telling the caller apart from
+the operator is the same trade [`invalid_token`](#invalid-token) makes: a client
+that could distinguish "your tenant is full" from "the box is full" could measure how
+much of the box it holds.
+
+This is raised **before** the stream opens — a 503 status line, not a `200` with an error
+event inside it — so `EventSource` reports it as a connection failure rather than
+rendering an empty answer.
+
+The ticket is not consumed. A ticket is valid for 60 s, so a retry inside that window can
+reuse it; past that, mint a new one from `POST /auth/stream-tickets`.
+
+**Client action:** wait `Retry-After` seconds and retry. Do not open more streams in the
+meantime — the ceiling is on concurrency, so a client that retries by opening a second
+connection is competing with itself.
+
+---
+
 <a id="internal-error"></a>
 ## `internal_error` — 500
 
@@ -467,3 +581,50 @@ hand them the cause.
 
 **Client action:** show the `request_id` to the user, and stop. A `500` here is not a
 retry signal; nothing about the request will have changed.
+
+---
+
+<a id="admission-control"></a>
+## Admission control — the numbers behind `429` and `503`
+
+Both ceilings live in `backend/app/limits.py` and are counted in Redis, so they mean the
+same thing to every process that serves a request. The defaults are sized for the
+deployment in [deploy/README.md](../deploy/README.md): 2 vCPU, 2.2 GB free, **no swap**,
+where an OOM kill picks its victim by its own scoring and may take a neighbouring
+application rather than this one.
+
+| Setting | Default | Why that number |
+|---|---|---|
+| `DEMO_LOGIN_LIMIT` | 30 | Per address per window. One demo-login writes 31 rows and ~11.7 kB, so 30/hour bounds one address at ~930 rows/hour and ~22k rows (~8 MB) across the 24-hour organisation TTL. A visitor needs one; two demonstrate the isolation thesis in two browsers; 30 still covers a NATed office where thirty people look in the same hour. |
+| `DEMO_LOGIN_WINDOW_SECONDS` | 3600 | |
+| `MAX_CONCURRENT_STREAMS` | 16 | The SQLAlchemy pool is 10 + 10 overflow. A stream holds no connection while generating but takes one at each end, so 16 leaves four connections for everything that is not a stream even if every admitted stream reaches at the same instant. |
+| `MAX_CONCURRENT_STREAMS_PER_ORG` | 4 | A tab, its `EventSource` reconnect and a second tab all fit, and at least four different organisations can always be streaming. |
+| `STREAM_SLOT_TTL_SECONDS` | 600 | A crash backstop. nginx caps a stream at `proxy_read_timeout 300s`, so no live stream reaches 600 s and the sweep can only collect a slot whose process died holding it. |
+| `TRUSTED_PROXIES` | `127.0.0.1,::1` | Whose `X-Forwarded-For` is believed. See below. |
+| `LIMITS_ENABLED` | `true` | |
+
+### Which address a request is metered against
+
+`X-Forwarded-For` is read **only** when the immediate peer is in `TRUSTED_PROXIES`, and
+then the **last** entry is taken, never the first. `deploy/nginx/snippets/lexloom-proxy.conf`
+sets the header to `$remote_addr` rather than `$proxy_add_x_forwarded_for` — overwriting
+rather than appending — so it arrives carrying exactly one value: the address nginx
+accepted the connection from. Reading the last entry is correct under that vhost and
+stays correct under the conventional appending form, where a caller controls every entry
+but the last.
+
+A caller who reaches the port directly is metered on its socket address, whatever it
+claims to forward. IPv6 is bucketed by **/64**, because a customer delegated a /64 would
+otherwise have 2^64 budgets.
+
+The container starts uvicorn with `--no-proxy-headers`. Without it, uvicorn's own
+`ProxyHeadersMiddleware` rewrites `scope["client"]` from the header first, by a second
+trust list configured nowhere in this repository — so the application would meter an
+address uvicorn chose.
+
+### Turning them off
+
+`LIMITS_ENABLED=false` is how the test suite runs: it creates well over a hundred
+organisations from `127.0.0.1`, which is one address and therefore one budget. `Settings`
+**refuses to construct** with `limits_enabled=False` when `ENV=production`, so the
+process does not start rather than starting unprotected.

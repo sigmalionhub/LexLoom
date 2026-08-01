@@ -50,6 +50,19 @@ services:
       # invites them to, sees `type` keep saying localhost and has no way to
       # tell whether the variable or the documentation is wrong.
       ERROR_TYPE_BASE_URL: ${ERROR_TYPE_BASE_URL:-http://localhost:8100}
+      # Whose X-Forwarded-For the demo-login rate limit believes. The code's
+      # default is loopback only, which is the safe default for a process
+      # reached directly — and the wrong one here: the port is published on
+      # 127.0.0.1 of the *host*, so nginx's connection is forwarded in and the
+      # container sees the Compose bridge gateway (172.x) as its peer, never
+      # loopback. Left at the default, every visitor would share one bucket.
+      #
+      # Widening it to the bridge range is safe for this topology specifically:
+      # nothing but the gateway and the sibling containers can present a source
+      # address on that interface, and the API is never published beyond
+      # 127.0.0.1. A deployment that publishes the port more widely has to
+      # narrow this again.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,172.16.0.0/12}
     ports:
       - "127.0.0.1:8100:8100"
     mem_limit: 450m

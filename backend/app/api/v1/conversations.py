@@ -1,11 +1,13 @@
 import json
 import uuid
+from collections.abc import AsyncIterator
 
 import structlog
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sse_starlette.sse import EventSourceResponse
+from starlette.types import Message
 
 from app.auth.deps import CurrentPrincipal
 from app.auth.tickets import TICKET_TTL_SECONDS, mint_stream_ticket, verify_stream_ticket
@@ -16,6 +18,7 @@ from app.chat.stream import SSE_HEADERS, StreamProgress, client_close_handler, g
 from app.config import get_settings
 from app.db.session import TenantSession, tenant_session
 from app.errors import ProblemError
+from app.limits import StreamSlot, acquire_stream_slot
 
 logger = structlog.get_logger(__name__)
 
@@ -244,18 +247,54 @@ async def stream_message(
             )
 
     progress = StreamProgress()
+    # Taken here, after every reason to refuse this request has been ruled out
+    # and immediately before the response exists: a 404 or a 409 then costs no
+    # slot, and nothing between the reservation and the response can raise and
+    # strand one.
+    slot = await acquire_stream_slot(principal.org_id)
+    disconnected = client_close_handler(message_id=str(message_id), progress=progress)
+
+    async def _release_on_disconnect(message: Message) -> None:
+        await disconnected(message)
+        await slot.release()
+
     return EventSourceResponse(
-        generate_events(
-            message_id=str(message_id),
-            provider=FakeProvider(),
-            citations=citations,
-            prompt=prompt,
-            progress=progress,
-            on_complete=store_answer,
+        _releasing(
+            slot,
+            generate_events(
+                message_id=str(message_id),
+                provider=FakeProvider(),
+                citations=citations,
+                prompt=prompt,
+                progress=progress,
+                on_complete=store_answer,
+            ),
         ),
         headers=SSE_HEADERS,
         ping=15,  # keeps idle-timeout proxies from closing the connection
-        client_close_handler_callable=client_close_handler(
-            message_id=str(message_id), progress=progress
-        ),
+        client_close_handler_callable=_release_on_disconnect,
     )
+
+
+async def _releasing(slot: StreamSlot, events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+    """Give the slot back when the stream ends, from both places it can end.
+
+    This `finally` covers the ordinary ending and `aclose()`. It does not cover
+    the one that matters most: `app.chat.stream` documents, from a measurement,
+    that a client which goes away under backpressure leaves this frame
+    suspended in a socket write and never resumed — so the `finally` may not
+    run in observable time. A stream that ends that way would hold its slot
+    until the TTL sweep, and sixteen abandoned streams would close the demo for
+    ten minutes.
+
+    That is why the disconnect path releases too, on the ASGI receive channel,
+    which the same measurement showed is delivered regardless of where the
+    response task is parked. Both paths run on a completed stream — the
+    disconnect message arrives on the happy path as well — and `release` is a
+    ZREM, which is idempotent.
+    """
+    try:
+        async for event in events:
+            yield event
+    finally:
+        await slot.release()

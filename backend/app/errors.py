@@ -14,11 +14,25 @@ logger = structlog.get_logger(__name__)
 class ProblemError(Exception):
     """An error that serialises to RFC 9457 application/problem+json."""
 
-    def __init__(self, *, code: str, status: int, title: str, detail: str) -> None:
+    def __init__(
+        self,
+        *,
+        code: str,
+        status: int,
+        title: str,
+        detail: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.code = code
         self.status = status
         self.title = title
         self.detail = detail
+        # Response headers, for the errors whose answer is partly a header
+        # rather than a body: a 429 or a 503 without `Retry-After` tells the
+        # caller to back off and refuses to say how far, which is how a polite
+        # client turns into a hot loop. Not serialised into the body — these
+        # are HTTP headers (RFC 9110 §10.2.3), not RFC 9457 members.
+        self.headers = headers
         super().__init__(detail)
 
     def to_dict(self, instance: str) -> dict[str, object]:
@@ -49,6 +63,7 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=exc.status,
             content=exc.to_dict(request.url.path),
             media_type="application/problem+json",
+            headers=exc.headers,
         )
 
     @app.exception_handler(StarletteHTTPException)

@@ -18,6 +18,7 @@ services:
       # fails to bind silently — host-side psql reaches the wrong server.
       # The container's internal port stays 5432, so nothing else changes.
       - "127.0.0.1:5433:5432"
+    restart: unless-stopped
     mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lexloom_migrator -d lexloom"]
@@ -30,6 +31,7 @@ services:
     command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
     ports:
       - "127.0.0.1:6379:6379"
+    restart: unless-stopped
     mem_limit: 64m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -81,6 +83,7 @@ services:
       LIMITS_ENABLED: ${LIMITS_ENABLED:-true}
     ports:
       - "127.0.0.1:8100:8100"
+    restart: unless-stopped
     mem_limit: 450m
     depends_on:
       postgres: {condition: service_healthy}
@@ -95,6 +98,29 @@ services:
       DATABASE_URL: postgresql+asyncpg://lexloom_worker:${WORKER_DB_PASSWORD:-worker}@postgres:5432/lexloom
       REDIS_URL: redis://redis:6379/0
       ENV: ${ENV:-local}
+      # A literal `none`, deliberately not ${TRUSTED_PROXIES:-...}. This process
+      # serves no HTTP and never reads a forwarding header, so there is no proxy
+      # for it to trust — and saying so is also what keeps it startable. The
+      # code's default trusts loopback, `Settings` demands TRUSTED_PROXY_SECRET
+      # of any PUBLIC_ENVS deployment that trusts a proxy at all, and this
+      # service is not given that secret because it has no use for one. With
+      # ENV=demo and the default inherited, `get_settings()` at the top of
+      # app/worker/celery_app.py raised and the container exited at import,
+      # while the API next to it stayed up — a stack that looks deployed and has
+      # no background worker. Inheriting the operator's value would restore
+      # exactly that, so this line does not interpolate.
+      TRUSTED_PROXIES: none
+    # `unless-stopped` on every service, not just this one. The box is
+    # unattended between demonstrations, so a reboot, a Docker daemon restart or
+    # an OOM kill of any single container would otherwise leave the stack
+    # silently short a piece. The cost is that a configuration error becomes a
+    # restart loop rather than one clean exit — which is the louder signal, not
+    # the quieter one: `docker compose ps` reports `Restarting` where it used to
+    # report `Exited`, Docker backs the attempts off exponentially, and the
+    # runbook's verification step now reads that column. `unless-stopped` rather
+    # than `always` so a deliberate `docker compose stop` survives a daemon
+    # restart.
+    restart: unless-stopped
     mem_limit: 650m
     depends_on:
       postgres: {condition: service_healthy}

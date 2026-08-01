@@ -27,6 +27,12 @@ dev = [
     # that outlives its own guards, and an unbounded pytest on GitHub Actions
     # runs to the six-hour job default before anyone learns anything.
     "pytest-timeout>=2.3",
+    # docker-compose.yml is read by tests/test_compose_environment.py, which
+    # checks that every containerised process can construct its settings on the
+    # public box. Declared rather than leant on as a transitive dependency of
+    # something else: the one thing that test must not do is fail to import and
+    # be counted as absent.
+    "pyyaml>=6.0",
     "ruff>=0.8",
 ]
 

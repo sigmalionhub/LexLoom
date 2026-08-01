@@ -172,13 +172,35 @@ still present in the snippet include.
 
 ## Verify — and verify the streaming specifically
 
+Start by counting containers, not by calling the API. The API answering proves that the
+API is up and nothing else: each service reads its own environment, so one of them can
+fail to construct its settings and exit while the other three look perfectly healthy.
+That is not a hypothetical — a demo once ran with no worker at all, and every check in
+this section except this one passed.
+
+```bash
+docker compose ps
+```
+
+**All four of `postgres`, `redis`, `api` and `worker` must read `Up`** (postgres and redis
+`Up (healthy)`). Every service is `restart: unless-stopped`, so a container that cannot
+start reads `Restarting` rather than `Exited` — count that as down, and read its reason:
+
+```bash
+docker compose ps --status running --format '{{.Service}}' | sort   # expect all four
+docker compose logs worker | tail -20                               # if one is missing
+```
+
+A settings error names the setting in the last line of the log.
+
 ```bash
 curl -fsS https://lexloom.sigmalion.io/health/ready
 ```
 
 `ready` means the process can reach Postgres and Redis. **It does not mean the schema
 exists** — a fresh database with no migrations also answers `ready`. Trust
-`alembic current` for that.
+`alembic current` for that. It says nothing at all about the worker: nothing the API
+serves touches it, which is why the container count comes first.
 
 Now the part that actually matters. Streaming is what this project is about, and the
 failure mode is that it works locally and buffers in production:
@@ -288,8 +310,10 @@ sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
   the installed nginx snippet. A mismatch is silent in the sense that nothing fails: it
   degrades the rate limit to one shared budget for every visitor. The start-up line and
   the `forwarded_for_without_proxy_secret` warning above are how it is caught.
-- **`docker compose up -d --build` will not start with `ENV=demo` unless
+- **`docker compose up -d --build` will not start the API with `ENV=demo` unless
   `AUTH_JWKS_URL` is HTTPS and `TRUSTED_PROXY_SECRET` is set.** That is the intent — a
   public box that cannot meet those does not belong up — but it means a half-edited
-  `.env` shows as a container that exits rather than as a warning. `docker compose logs
-  api` names the setting.
+  `.env` shows as a container that never reaches `Up` rather than as a warning.
+  `docker compose logs api` names the setting. Read `docker compose ps` first, as above:
+  the check is per service, so a stack can be three-quarters up and answer every request
+  you think to make.

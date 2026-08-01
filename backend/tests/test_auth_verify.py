@@ -11,7 +11,7 @@ ISSUER, AUDIENCE = "https://test-idp", "lexloom-api"
 
 @pytest.fixture
 def idp() -> DevIdp:
-    return DevIdp(issuer=ISSUER, audience=AUDIENCE)
+    return DevIdp(issuer=ISSUER, audience=AUDIENCE, env="local")
 
 
 def test_valid_token_yields_a_principal(idp: DevIdp) -> None:

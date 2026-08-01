@@ -1,5 +1,4 @@
 import base64
-import os
 import time
 import uuid
 
@@ -21,8 +20,26 @@ class DevIdp:
     isolation is this project's entire thesis.
     """
 
-    def __init__(self, issuer: str, audience: str, *, allow_production: bool = False) -> None:
-        if os.getenv("ENV") == "production" and not allow_production:
+    def __init__(
+        self, issuer: str, audience: str, *, env: str, allow_production: bool = False
+    ) -> None:
+        """`env` is passed in, and is required.
+
+        It used to be read here as `os.getenv("ENV")`, which is a *different*
+        source of truth from the one the rest of the application uses:
+        `Settings` also reads `.env`, and the environment variable does not
+        exist for a value that arrives from that file. So with `ENV=production`
+        set only in `.env` — which `.env.example` and the README both describe
+        as the way to refuse this — `Settings.env` was `"production"` while
+        `os.getenv("ENV")` was `None`, and `create_app()` started the dev IdP on
+        a box documented as being behind a real identity provider. Measured, not
+        reasoned about.
+
+        Required rather than defaulted, because a default here is a guard that
+        is silently absent whenever a caller forgets it, which is the shape of
+        the bug being fixed.
+        """
+        if env == "production" and not allow_production:
             raise RuntimeError(
                 "Refusing to start the dev IdP in production. Point AUTH_JWKS_URL at a real "
                 "identity provider, or pass allow_production=True deliberately."

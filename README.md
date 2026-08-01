@@ -188,7 +188,7 @@ finding is real; the risk it describes is not present in what gets deployed.
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 153 passed
+.venv/bin/pytest -q          # 155 passed
 ```
 
 The suite needs the Compose Postgres and Redis running. It is not a mock suite: it
@@ -296,7 +296,7 @@ tool would not have.
 ```
 backend/app/        api/v1/  auth/  chat/  db/  worker/     application
 backend/alembic/    0001…0004                                schema, roles, policies
-backend/tests/      153 tests, real Postgres + real uvicorn
+backend/tests/      155 tests, real Postgres + real uvicorn
 backend/seed/       GDPR excerpts, sourced from EUR-Lex with the reuse basis recorded
 frontend/           Next.js 14, static export: the demo page and its backend panel
 docs/               api-contract.md, errors.md, adr/

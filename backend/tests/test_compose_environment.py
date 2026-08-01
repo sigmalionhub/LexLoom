@@ -28,7 +28,13 @@ import yaml
 
 from app.config import Settings
 
-COMPOSE_FILE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
+ENV_EXAMPLE = REPO_ROOT / ".env.example"
+
+# The service that serves HTTP, and the only one an operator tunes. The worker
+# is deliberately given less — see the `TRUSTED_PROXIES` comment beside it.
+HTTP_SERVICE = "api"
 
 # The image every application process runs. Postgres and Redis are upstream
 # images that never construct `Settings`, so they are not in scope.
@@ -95,4 +101,48 @@ def test_every_application_service_starts_on_the_public_box(service, monkeypatch
     assert settings.env == "demo", (
         f"the {service} service did not receive ENV — a public box would run it "
         "with every PUBLIC_ENVS guard inert"
+    )
+
+
+# `NAME=value` and the commented `# NAME=value` form `.env.example` uses for
+# every optional setting. Both are the file presenting a knob to an operator.
+_ENV_EXAMPLE_ASSIGNMENT = re.compile(r"^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=", re.MULTILINE)
+
+
+def _settings_documented_in_env_example() -> set[str]:
+    named = set(_ENV_EXAMPLE_ASSIGNMENT.findall(ENV_EXAMPLE.read_text(encoding="utf-8")))
+    # Compose-level variables (the database passwords) are interpolated into
+    # other values rather than read by the application, so they are not
+    # `Settings` fields and are not in scope here.
+    return {name for name in named if name.lower() in Settings.model_fields}
+
+
+def test_every_setting_env_example_documents_is_forwarded_by_compose():
+    """A knob `.env.example` presents must reach the container that reads it.
+
+    `.env` sits at the repository root and the build context is `./backend`, so
+    the file is not in the image and `Settings(env_file=".env")` finds nothing
+    inside the container. Compose reads it, interpolates it into the values in
+    the service's `environment:` block, and that block is the entire channel.
+    A setting `.env.example` documents and that block omits is a knob that
+    turns nothing, with no symptom: the operator sets it, restarts, and the
+    default keeps applying.
+
+    That shipped. `docker-compose.yml` had a long comment explaining the trap
+    for `ERROR_TYPE_BASE_URL` and forwarded none of the five admission-control
+    numbers underneath it — so an operator lowering `MAX_CONCURRENT_STREAMS` on
+    a box that was running out of memory would have changed nothing.
+
+    Discovered from the two files rather than listed, so a setting added to
+    either one tomorrow is covered without editing this test.
+    """
+    documented = _settings_documented_in_env_example()
+    assert documented, ".env.example named no Settings field — the parser is broken"
+
+    forwarded = set(_application_services()[HTTP_SERVICE])
+    missing = sorted(documented - forwarded)
+    assert not missing, (
+        f".env.example documents {missing} but the `{HTTP_SERVICE}` service in "
+        f"{COMPOSE_FILE.name} does not forward them. Setting one in .env would reach "
+        "Compose and stop there, and the container would keep using the default."
     )

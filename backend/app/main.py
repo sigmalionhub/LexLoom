@@ -32,7 +32,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
-    app.state.dev_idp = DevIdp(settings.auth_issuer, settings.auth_audience)
+    # `settings.env`, not `os.getenv("ENV")`. The two disagree whenever the
+    # value comes from `.env` rather than from the process environment, and the
+    # disagreement was in the direction that starts the dev IdP on a box
+    # documented as running a real identity provider.
+    app.state.dev_idp = DevIdp(settings.auth_issuer, settings.auth_audience, env=settings.env)
     # PUBLIC_ENVS, not `production` alone. A plaintext JWKS fetch is an
     # on-path opening — a spoofed key set makes every subsequent token verify —
     # and that is true of any box the internet can reach, including the demo,

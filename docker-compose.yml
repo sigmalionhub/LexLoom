@@ -81,6 +81,22 @@ services:
       # construct with this false when ENV is demo or production, so the worst
       # a `false` here can do is stop a public box from starting.
       LIMITS_ENABLED: ${LIMITS_ENABLED:-true}
+      # The numbers behind those ceilings. Forwarded for the same reason as
+      # everything above: `.env.example` presents all five as knobs, and a knob
+      # Compose does not forward is a knob that turns nothing while looking
+      # like it works. The lesson had been learned for ERROR_TYPE_BASE_URL and
+      # not swept for the rest, so an operator lowering MAX_CONCURRENT_STREAMS
+      # on a box that was running out of memory would have changed nothing and
+      # had no way to tell.
+      #
+      # The defaults repeat the ones in app/config.py, which is a duplication
+      # with teeth: tests/test_compose_environment.py fails if `.env.example`
+      # names a setting this block does not.
+      DEMO_LOGIN_LIMIT: ${DEMO_LOGIN_LIMIT:-30}
+      DEMO_LOGIN_WINDOW_SECONDS: ${DEMO_LOGIN_WINDOW_SECONDS:-3600}
+      MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-16}
+      MAX_CONCURRENT_STREAMS_PER_ORG: ${MAX_CONCURRENT_STREAMS_PER_ORG:-4}
+      STREAM_SLOT_TTL_SECONDS: ${STREAM_SLOT_TTL_SECONDS:-600}
     ports:
       - "127.0.0.1:8100:8100"
     restart: unless-stopped

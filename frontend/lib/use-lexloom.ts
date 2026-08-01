@@ -390,12 +390,44 @@ function describe(error: unknown, fallback: string): { code: string; message: st
     if (error.code === 'network_error') {
       return { code: error.code, message: 'The service did not answer. Check that the API is running.' };
     }
+    if (error.status === 429 || error.status === 503) {
+      return { code: error.code, message: refusal(error.status, error.retryAfter) };
+    }
     return { code: error.code, message: error.problem.detail ?? fallback };
   }
   return { code: 'unknown_error', message: fallback };
 }
 
-function explainDiagnosis(diagnosis: { status: number; code: string; detail?: string }): string {
+/** "in 5 seconds", or "in a moment" when the service did not say. */
+function waitFor(seconds?: number): string {
+  if (seconds === undefined) return 'in a moment';
+  if (seconds <= 1) return 'in a second';
+  return `in ${seconds} seconds`;
+}
+
+/**
+ * The two refusals, written for a visitor.
+ *
+ * Neither can render `problem.detail`: for both of them it is literally "Retry
+ * after Retry-After seconds." — the number lives in the header, deliberately,
+ * because prose is not a contract (`docs/api-contract.md` §6.1). Falling
+ * through to `detail`, as this page used to, shows a visitor the words
+ * "Retry-After" and no number. Someone opening a fifth tab in one tenant is
+ * exactly the person who sees this.
+ */
+function refusal(status: number, retryAfter?: number): string {
+  if (status === 429) {
+    return `This address has created as many demo tenants as it is allowed for now — the limit is per address, so other tabs and other browsers on this connection share it. Try again ${waitFor(retryAfter)}.`;
+  }
+  return `The service declined to start this answer: it is at capacity, most often because four answers are already streaming in this tenant. Try again ${waitFor(retryAfter)}.`;
+}
+
+function explainDiagnosis(diagnosis: {
+  status: number;
+  code: string;
+  detail?: string;
+  retryAfter?: number;
+}): string {
   switch (diagnosis.code) {
     case 'message_already_answered':
       return 'The service had already stored an answer for this message, so the replay was refused.';
@@ -403,6 +435,9 @@ function explainDiagnosis(diagnosis: { status: number; code: string; detail?: st
       return 'The connection dropped, but the stream is still there — nothing was consumed.';
     case 'network_error':
       return 'The service could not be reached at all.';
+    case 'capacity_unavailable':
+    case 'rate_limited':
+      return refusal(diagnosis.status, diagnosis.retryAfter);
     default:
       return diagnosis.detail ?? `The stream was refused with ${diagnosis.status} ${diagnosis.code}.`;
   }

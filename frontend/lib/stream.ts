@@ -1,4 +1,4 @@
-import { ApiError, api, streamUrl, type Citation, type Problem } from './api';
+import { ApiError, api, retryAfterSeconds, streamUrl, type Citation, type Problem } from './api';
 
 /**
  * Consuming the answer stream.
@@ -199,6 +199,8 @@ export interface StreamDiagnosis {
   code: string;
   requestId?: string;
   detail?: string;
+  /** Seconds, from `Retry-After`. Present on `429` and `503`. */
+  retryAfter?: number;
 }
 
 /**
@@ -230,6 +232,7 @@ export async function diagnoseStreamFailure(
         code: error.code,
         requestId: error.requestId,
         detail: error.problem.detail,
+        retryAfter: error.retryAfter,
       };
     }
     throw error;
@@ -259,6 +262,9 @@ export async function diagnoseStreamFailure(
       code: problem.code ?? 'unexpected_response',
       requestId: problem.request_id ?? requestId,
       detail: problem.detail,
+      // A stream refused for capacity carries the wait here and nowhere else:
+      // `detail` names the header rather than a number.
+      retryAfter: retryAfterSeconds(response),
     };
   } catch (cause) {
     controller.abort();

@@ -73,19 +73,45 @@ export interface Problem {
   errors?: unknown[];
 }
 
+/**
+ * `Retry-After`, in seconds.
+ *
+ * `429 rate_limited` and `503 capacity_unavailable` are the two refusals this
+ * service sends, and both carry the number here rather than in the body — the
+ * `detail` of each says "Retry after Retry-After seconds." literally, because
+ * prose is not a contract (`docs/api-contract.md` §6.1). A client that renders
+ * `detail` shows a visitor that sentence, so the number has to be read here.
+ *
+ * RFC 9110 also permits an HTTP-date. This service always sends a delta, but a
+ * proxy in front of it need not, so both forms are accepted. `undefined` when
+ * the header is absent or unreadable — say "in a moment", do not invent one.
+ */
+export function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after')?.trim();
+  if (!raw) return undefined;
+  const delta = Number(raw);
+  if (Number.isFinite(delta) && delta >= 0) return Math.ceil(delta);
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
+
 export class ApiError extends Error {
   readonly problem: Problem;
   readonly status: number;
   readonly code: string;
   readonly requestId?: string;
+  /** Present on `429` and `503`. See `retryAfterSeconds`. */
+  readonly retryAfter?: number;
 
-  constructor(problem: Problem) {
+  constructor(problem: Problem, retryAfter?: number) {
     super(problem.detail ?? problem.title ?? `HTTP ${problem.status}`);
     this.name = 'ApiError';
     this.problem = problem;
     this.status = problem.status;
     this.code = problem.code;
     this.requestId = problem.request_id;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -158,7 +184,7 @@ async function request<T>(
       code: problem.code,
       at: Date.now(),
     });
-    throw new ApiError(problem);
+    throw new ApiError(problem, retryAfterSeconds(response));
   }
 
   observer?.({ method, path, status: response.status, ms, requestId, at: Date.now() });

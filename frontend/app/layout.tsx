@@ -22,7 +22,24 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   applicationName: 'LexLoom',
   authors: [{ name: 'Sergey Korkishko' }],
-  robots: { index: true, follow: true },
+  // Not indexed. This is a portfolio demonstration whose link is sent to
+  // specific people, not a product seeking traffic, and a demo answering from a
+  // canned model has no business ranking for legal queries.
+  //
+  // Duplicated with the `X-Robots-Tag` header nginx sets, on purpose: the header
+  // covers the API and the assets, this covers the page even if the page is ever
+  // served by something other than that vhost. Neither is enough alone.
+  //
+  // The Open Graph block below is untouched and must stay. Slack and LinkedIn
+  // read those tags directly and are not search indexers, so the link still
+  // unfurls properly when it is pasted to a client — which is the one job this
+  // page has.
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false, noimageindex: true },
+  },
   openGraph: {
     type: 'website',
     url: SITE,

@@ -181,7 +181,8 @@ deploy), and the export itself is world-readable.
 
 ```bash
 sudo mkdir -p /etc/nginx/snippets
-sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf /etc/nginx/snippets/
+sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf   /etc/nginx/snippets/
+sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-headers.conf /etc/nginx/snippets/
 
 # The shared secret, into the INSTALLED copy — the same string as
 # TRUSTED_PROXY_SECRET in .env. The committed file carries a placeholder that
@@ -204,6 +205,25 @@ sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/site
 sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+**Copying `lexloom.conf` again, later, destroys the TLS configuration.** Step 6 has
+certbot rewrite the installed file in place: it strips `listen 80` from the block it
+converts, adds `listen 443 ssl` with the certificate paths, and appends a second block
+that redirects HTTP. The committed file knows nothing about any of that, so overwriting
+the installed copy silently reverts the site to plain HTTP — `nginx -t` passes, and the
+first symptom is a browser refusing to connect over HTTPS.
+
+Restore it without contacting Let's Encrypt, and do not reload in between:
+
+```bash
+sudo cp $APP/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
+sudo certbot install --nginx --cert-name lexloom.sigmalion.io   # re-adds the :443 block
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+`certbot install` reuses the certificate already on disk. `certbot --nginx` would work
+too, but it is the issuance path, and issuance has rate limits that a config edit has no
+reason to spend.
 
 **Redo the `sed` after every redeploy that copies the snippet again.** A mismatch between
 the two copies does not break the site and does not raise: it makes the application stop

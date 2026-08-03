@@ -106,27 +106,11 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
         </Section>
       </div>
 
-      <footer className="shrink-0 border-t border-slate-rule px-6 py-4 text-[0.8125rem] text-mist">
-        <span className="text-chalk">Sergey Korkishko</span>
-        <span aria-hidden className="px-2 text-slate-rule">
-          ·
-        </span>
-        <a
-          className="underline decoration-slate-rule underline-offset-4 transition-colors hover:text-brass hover:decoration-brass"
-          href="https://github.com/sigmalionhub/LexLoom"
-        >
-          Repository
-        </a>
-        <span aria-hidden className="px-2 text-slate-rule">
-          ·
-        </span>
-        <a
-          className="underline decoration-slate-rule underline-offset-4 transition-colors hover:text-brass hover:decoration-brass"
-          href="https://github.com/sigmalionhub/LexLoom/tree/master/docs/adr"
-        >
-          Decision records
-        </a>
-      </footer>
+      {/* No footer credit here on purpose. It linked to the repository and to
+          docs/adr, and the repository is private — so both links answered a
+          visitor with GitHub's 404 page. A demonstration that offers evidence
+          and then cannot produce it is worse than one that offers none. Restore
+          the links, not the byline, if and when the repository goes public. */}
     </aside>
   );
 }

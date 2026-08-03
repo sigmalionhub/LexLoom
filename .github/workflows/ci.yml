@@ -81,6 +81,36 @@ jobs:
           ENV: ci
         run: pytest -v
 
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # The version the deploy host runs, not the floor in `engines`. The
+          # frontend is built ON that host during a deploy, so a build that
+          # passes on 20 and fails on 24 is a broken deploy that CI called green.
+          # Pin them together and this job fails first, where it is cheap.
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # `next build` type-checks too, but only the files it reaches from a route.
+      # Anything under lib/ that no page imports yet would go unchecked.
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - name: The export must actually contain the page
+        # `next build` succeeds and emits nothing if `output: 'export'` is ever
+        # dropped from next.config.mjs — the deploy would then copy an empty
+        # directory into the web root and nginx would serve 404s for a site the
+        # build called successful.
+        run: test -f out/index.html
+
   compose-smoke:
     runs-on: ubuntu-latest
     # The polling loop below gives up after 60s, but `docker compose up --build`

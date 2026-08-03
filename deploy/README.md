@@ -192,6 +192,14 @@ sudo sed -i "s|REPLACE_ME_WITH_TRUSTED_PROXY_SECRET|$SECRET|" \
   /etc/nginx/snippets/lexloom-proxy.conf
 grep -c REPLACE_ME /etc/nginx/snippets/lexloom-proxy.conf   # must print 0
 
+# This file now holds a secret, and every other file in /etc/nginx is 0644.
+# Left at the default it would be readable by every local account on the box —
+# including whatever runs the neighbouring applications, which is precisely the
+# party the secret exists to tell apart from nginx. nginx parses its config as
+# root before dropping to www-data, so it never needs the read bit for others.
+sudo chown root:root /etc/nginx/snippets/lexloom-proxy.conf
+sudo chmod 640       /etc/nginx/snippets/lexloom-proxy.conf
+
 sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
 sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom
 sudo nginx -t && sudo systemctl reload nginx
@@ -340,6 +348,23 @@ the current schema — downgrading a migration that dropped data does not bring 
 cd /var/www/portfolio/lexloom/app && docker compose down          # keeps the data volume
 sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
 ```
+
+**This box is not ours alone, and Docker on it is not ours alone.** A production
+`marzban` container has been running here since long before this project existed, on the
+same daemon. Every Docker command in this file is run from
+`/var/www/portfolio/lexloom/app` for that reason — Compose then scopes itself to this
+project and cannot touch anything else.
+
+Three commands break that scoping and must not be run on this host:
+
+| Command | What it actually does here |
+|---|---|
+| `docker compose down` outside the project directory | acts on whatever Compose project the current directory resolves to, or none |
+| `docker system prune -a` | deletes the neighbour's image; it is not "unused" merely because our containers do not use it |
+| `docker volume prune` | deletes any volume no *running* container holds — including ours while the stack is stopped |
+
+Removing this project's data is `docker compose down -v`, from this project's directory,
+and nothing else.
 
 ---
 

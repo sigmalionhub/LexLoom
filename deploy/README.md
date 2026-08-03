@@ -95,8 +95,8 @@ docker ps      # must work without sudo
 ## Step 3 — get the code and build
 
 ```bash
-git clone git@github.com:sigmalionhub/LexLoom.git /srv/lexloom/app
-cd /srv/lexloom/app
+git clone git@github.com:sigmalionhub/LexLoom.git /var/www/portfolio/lexloom/app
+cd /var/www/portfolio/lexloom/app
 cp .env.example .env
 ```
 
@@ -165,29 +165,34 @@ will report success and apply nothing.
 ## Step 4 — build the frontend
 
 ```bash
-cd /srv/lexloom/app/frontend
+cd /var/www/portfolio/lexloom/app/frontend
 npm ci
 npm run build            # emits ./out — a directory of files, no server
-sudo mkdir -p /srv/lexloom/web
-sudo cp -r out/. /srv/lexloom/web/
+mkdir -p /var/www/portfolio/lexloom/web
+cp -r out/. /var/www/portfolio/lexloom/web/
 ```
+
+No `sudo` here, unlike the steps either side of it. `/var/www/portfolio` belongs to the
+deploy user, so the export is written by the same account that built it. nginx still reads
+it: every ancestor grants traverse to all (`/var/www` 755 root, `/var/www/portfolio` 755
+deploy), and the export itself is world-readable.
 
 ## Step 5 — nginx (requires sudo)
 
 ```bash
 sudo mkdir -p /etc/nginx/snippets
-sudo cp /srv/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf /etc/nginx/snippets/
+sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf /etc/nginx/snippets/
 
 # The shared secret, into the INSTALLED copy — the same string as
 # TRUSTED_PROXY_SECRET in .env. The committed file carries a placeholder that
 # the application refuses to start with, so forgetting this fails loudly.
-SECRET=$(grep '^TRUSTED_PROXY_SECRET=' /srv/lexloom/app/.env | cut -d= -f2-)
+SECRET=$(grep '^TRUSTED_PROXY_SECRET=' /var/www/portfolio/lexloom/app/.env | cut -d= -f2-)
 test -n "$SECRET" || { echo 'TRUSTED_PROXY_SECRET is not set in .env'; exit 1; }
 sudo sed -i "s|REPLACE_ME_WITH_TRUSTED_PROXY_SECRET|$SECRET|" \
   /etc/nginx/snippets/lexloom-proxy.conf
 grep -c REPLACE_ME /etc/nginx/snippets/lexloom-proxy.conf   # must print 0
 
-sudo cp /srv/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
+sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
 sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -306,12 +311,12 @@ by then the whole host is paying for it.
 ## Redeploying
 
 ```bash
-cd /srv/lexloom/app && git pull
+cd /var/www/portfolio/lexloom/app && git pull
 docker compose up -d --build
 export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # check BEFORE assuming it ran
-cd frontend && npm ci && npm run build && sudo cp -r out/. /srv/lexloom/web/
+cd frontend && npm ci && npm run build && cp -r out/. /var/www/portfolio/lexloom/web/
 ```
 
 A new migration is invisible to a container built before it existed. `alembic upgrade
@@ -320,7 +325,7 @@ head` will then report success and do nothing. Always confirm with `alembic curr
 ## Rolling back
 
 ```bash
-cd /srv/lexloom/app
+cd /var/www/portfolio/lexloom/app
 git checkout <previous-sha>
 docker compose up -d --build
 ```
@@ -332,7 +337,7 @@ the current schema — downgrading a migration that dropped data does not bring 
 ## Turning it off
 
 ```bash
-cd /srv/lexloom/app && docker compose down          # keeps the data volume
+cd /var/www/portfolio/lexloom/app && docker compose down          # keeps the data volume
 sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
 ```
 

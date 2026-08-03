@@ -21,7 +21,10 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   applicationName: 'LexLoom',
-  authors: [{ name: 'Sergey Korkishko' }],
+  // No `authors`. It rendered `<meta name="author">` into the page source, and
+  // the visible byline this page used to carry has already gone for the same
+  // reason: the demo is sent to specific people, who know who sent it, and the
+  // name in the markup only reaches whoever it was not sent to.
   // Not indexed. This is a portfolio demonstration whose link is sent to
   // specific people, not a product seeking traffic, and a demo answering from a
   // canned model has no business ranking for legal queries.

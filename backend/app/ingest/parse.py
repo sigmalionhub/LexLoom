@@ -86,10 +86,19 @@ _LAPARAMS = LAParams(boxes_flow=None)
 # rate was zero, and it was reviewed as one of the two remaining defects in
 # this task (see task-22-report.md, "Fix round 2"). Measured rather than
 # reasoned about before deciding not to fix it — ablating exactly these 15
-# matches and re-packing moves the chunk count from 978 to 979, a wash the
-# packer absorbs by re-merging the fragments back up toward the 500-char
-# target, which is not worth the variable-length lookbehind a real fix would
-# need.
+# matches and re-packing leaves the chunk count at 978, unchanged. The
+# packer absorbs every one of them by re-merging the fragments back up
+# toward the 500-char target, so a real fix would buy a slightly tidier
+# paragraph list and no different output, at the cost of the variable-length
+# lookbehind it would need.
+#
+# That zero is itself twice-measured, and it had to be: this comment first
+# claimed the false-positive rate was zero (wrong), then claimed the ablation
+# moved 978 to 979 (also wrong, by one). Two independent re-packs — the
+# scoped re-review's and the controller's — both return 978. Reproduce with
+# `_paragraphs` monkeypatched to drop these 15 offsets; a delta of anything
+# but zero means the packer's merge behaviour has changed and this paragraph
+# is stale.
 _PARAGRAPH_BOUNDARY = re.compile(
     r"\(\d{1,3}\)\s"  # recitals: "(30) "
     r"|Article\s\d+\s"  # article headers: "Article 4 "

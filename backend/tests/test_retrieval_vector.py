@@ -21,7 +21,7 @@ from sqlalchemy import text
 
 import app.chat.corpus as corpus_module
 from app.chat.corpus import copy_corpus_into, load_excerpts, load_seed_vectors
-from app.chat.embedding import DIMENSIONS
+from app.chat.embedding import DIMENSIONS, MODEL_NAME
 from app.chat.retrieval import SearchMode, search_chunks
 from app.db.session import tenant_session
 
@@ -353,6 +353,49 @@ def test_the_seed_vectors_carry_a_vector_for_every_excerpt_in_file_order(
         with pytest.raises(corpus_module.CorpusUnavailableError) as raised:
             corpus_module.load_seed_vectors()
         assert str(truncated) in str(raised.value)
+    finally:
+        monkeypatch.undo()
+        corpus_module.load_seed_vectors.cache_clear()
+
+
+def test_changing_the_model_without_regenerating_the_vectors_is_refused(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Swapping `MODEL_NAME` alone passes every other check, so it gets its own.
+
+    `corpus_sha256` ties the vectors to the *text*. Nothing ties them to the
+    *weights*: change the model and the hash still matches, the count still
+    matches, the width is still 384 — and the corpus lives in one vector space
+    while the questions are embedded into another. Retrieval does not break, it
+    degrades, and no guard is red.
+
+    The recorded name is edited here rather than `MODEL_NAME`, which is the same
+    comparison from the other side and leaves `app.chat.embedding` alone for the
+    tests that run after this one.
+
+    Deliberately *not* marked `model`: a string comparison needs no weights, so
+    this runs on a cold CI cache — which is exactly the run that happens right
+    after someone changed the model, and exactly when
+    `test_the_committed_vectors_are_what_this_model_produces_today` is skipped.
+    """
+    other_model = tmp_path / "gdpr_excerpts_vectors.json"
+    document = json.loads(corpus_module.SEED_VECTORS_FILE.read_text(encoding="utf-8"))
+    assert document["model"] == MODEL_NAME, (
+        "the committed vectors already disagree with MODEL_NAME — re-run "
+        "scripts/embed_seed_corpus.py rather than editing this test"
+    )
+    document["model"] = "BAAI/bge-small-en-v1.5"
+    other_model.write_text(json.dumps(document), encoding="utf-8")
+
+    corpus_module.load_seed_vectors.cache_clear()
+    try:
+        monkeypatch.setattr(corpus_module, "SEED_VECTORS_FILE", other_model)
+        with pytest.raises(corpus_module.CorpusUnavailableError) as raised:
+            corpus_module.load_seed_vectors()
+        message = str(raised.value)
+        assert "BAAI/bge-small-en-v1.5" in message, "the error does not name the model it found"
+        assert MODEL_NAME in message, "the error does not name the model this process uses"
+        assert str(other_model) in message, "the error does not name the file to regenerate"
     finally:
         monkeypatch.undo()
         corpus_module.load_seed_vectors.cache_clear()

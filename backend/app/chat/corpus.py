@@ -23,7 +23,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.embedding import DIMENSIONS
+from app.chat.embedding import DIMENSIONS, MODEL_NAME
 from app.db.session import tenant_session
 
 # The organisation `scripts/seed_corpus.py` loads the corpus into: permanent
@@ -135,10 +135,15 @@ def load_excerpts() -> tuple[Excerpt, ...]:
 def load_seed_vectors() -> tuple[tuple[float, ...], ...]:
     """Read the precomputed seed embeddings once per process.
 
-    Keyed on the corpus file's own hash, not on trust. The failure this guards
-    is silent: edit `gdpr_excerpts.json`, forget to re-run the generator, and
-    every tenant gets vectors that describe the *previous* text — retrieval
-    keeps working and keeps being wrong, which is worse than not working.
+    Keyed on the corpus file's own hash and on the model's name, not on trust.
+    Both failures this guards are silent and they are different failures.
+
+    Edit `gdpr_excerpts.json`, forget to re-run the generator, and every tenant
+    gets vectors that describe the *previous* text. Edit `MODEL_NAME` instead
+    and the hash still matches, the count still matches, the width is still 384
+    — and the corpus is embedded in one vector space while the questions are
+    embedded in another. Neither raises anything on its own; retrieval keeps
+    working and keeps being wrong, which is worse than not working.
 
     Same error type and same loud-with-the-path style as `load_excerpts`, for
     the same reason: "which file did it actually read" is the first question.
@@ -164,6 +169,7 @@ def load_seed_vectors() -> tuple[tuple[float, ...], ...]:
         ) from error
 
     try:
+        stored_model = str(document["model"])
         stored_sha256 = str(document["corpus_sha256"])
         dimensions = int(document["dim"])
         vectors = tuple(tuple(float(value) for value in vector) for vector in document["vectors"])
@@ -173,6 +179,28 @@ def load_seed_vectors() -> tuple[tuple[float, ...], ...]:
             f"({{'model': str, 'dim': int, 'corpus_sha256': str, 'vectors': [[float, ...]]}}): "
             f"{error!r}"
         ) from error
+
+    # Model drift, checked before anything else because it is the cheapest check
+    # here and the one nothing else can see. `corpus_sha256` ties the vectors to
+    # the *text*; nothing ties them to the *weights*. Change `MODEL_NAME` in
+    # embedding.py — one line — and the hash still matches, the count still
+    # matches and every vector is still 384 wide, while what ships is a corpus
+    # embedded by one model being searched by questions embedded by another.
+    # Retrieval does not break; it degrades, quietly, in a demo whose entire
+    # claim is measurable retrieval quality.
+    #
+    # A string comparison, so it needs no model, no network and no cache and
+    # therefore runs everywhere the loader runs — on a cold CI cache and on the
+    # first demo login on the box. `test_the_committed_vectors_are_what_this_model
+    # _produces_today` checks the stronger property (the numbers really came out
+    # of those weights) but needs the weights to do it, so it is skipped exactly
+    # when the risk is highest: right after someone changed the model.
+    if stored_model != MODEL_NAME:
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} were computed with {stored_model!r}, "
+            f"but this process embeds questions with {MODEL_NAME!r} — the two vector spaces are "
+            f"unrelated. Re-run scripts/embed_seed_corpus.py"
+        )
 
     try:
         corpus_sha256 = hashlib.sha256(SEED_FILE.read_bytes()).hexdigest()

@@ -184,6 +184,7 @@ jobs:
       # `next build` type-checks too, but only the files it reaches from a route.
       # Anything under lib/ that no page imports yet would go unchecked.
       - run: npx tsc --noEmit
+      - run: npm test
       - run: npm run build
       - name: The export must actually contain the page
         # `next build` succeeds and emits nothing if `output: 'export'` is ever

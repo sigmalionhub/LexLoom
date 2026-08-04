@@ -33,6 +33,16 @@ const nextConfig = {
   images: { unoptimized: true },
 
   reactStrictMode: true,
+
+  // `next lint`'s default is `['app', 'pages', 'components', 'lib', 'src']`,
+  // and setting `dirs` *replaces* that list rather than extending it — so
+  // this has to repeat every default dir this project actually has (`app`,
+  // `components`, `lib`; there is no `pages` or `src` here) alongside the
+  // one being added. Without `tests` here, `npm run lint` silently never
+  // looks at `tests/`: verified by planting a real `react-hooks/rules-of-hooks`
+  // violation in a test file — `next lint` reported nothing for it, and
+  // plain `eslint` on the same file caught it immediately.
+  eslint: { dirs: ['app', 'components', 'lib', 'tests'] },
 };
 
 export default nextConfig;

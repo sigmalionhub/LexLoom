@@ -29,13 +29,24 @@ dependencies = [
     # an OOM kill of a neighbour.
     "fastembed>=0.5.1,<0.6",
     # Exact pin, against this file's own >= convention, and for one reason:
-    # pypdf's text extraction output changes between minor releases
-    # (whitespace, ligatures, column order). Every other dependency here is
+    # the extraction output changes between releases (whitespace, ligatures,
+    # column order, reading-order heuristics). Every other dependency here is
     # pinned loosely because its output is an API contract; this one's output
     # *is* the data, and a change to it shifts every chunk boundary and every
     # ordinal the M2.4 gold set keys on. A loose pin would make the eval
     # numbers a function of when the venv was built.
-    "pypdf==5.1.0",
+    #
+    # Not `pypdf`, which this dependency replaced (fix round 1, task-22-report.md):
+    # `pypdf` breaks nearly every word of `gdpr-full.pdf`'s justified-text
+    # typesetting into fragments ("Ha ving regar d to the opinion"), measured
+    # at 0 intact "Article"s and an 8-9% single-letter-token rate over the
+    # first 20 pages, against pdfminer.six's 7 and 2.1% — matching `pdftotext`
+    # (poppler) measured the same way. Chosen over `pdftotext` itself and over
+    # `pypdfium2` (see task-22-report.md, "Fix round 1", for both candidates'
+    # numbers): this one needs no system package in the image, no subprocess
+    # call from the worker, and ties poppler's own measured quality on this
+    # document.
+    "pdfminer.six==20260107",
 ]
 
 [project.optional-dependencies]

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
-from app.api.v1 import auth, conversations, generators, health, status
+from app.api.v1 import auth, conversations, generators, health, ingest, status
 from app.auth.dev_idp import DevIdp
 from app.auth.jwks import JwksCache
 from app.chat.embedding import MODEL_NAME, get_embedder
@@ -77,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router)
     app.include_router(status.router)
     app.include_router(generators.router)
+    app.include_router(ingest.router)
     return app
 
 

@@ -237,7 +237,10 @@ WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
 # (schema, name, identity arguments, prokind, prosecdef). Argument-less and
 # `f` (a plain function, not an aggregate or a procedure) are part of the vetted
 # shape, not incidental: a variant taking an argument could be steered.
-EXPECTED_FUNCTIONS = {("public", "purge_expired_orgs", "", "f", True)}
+EXPECTED_FUNCTIONS = {
+    ("public", "purge_expired_orgs", "", "f", True),
+    ("public", "count_orgs_with_corpus", "", "f", True),
+}
 
 # A third inventory, of a third kind of thing that exists. `plpgsql` is created
 # by initdb; `vector` is what migration 0001 installs. This does not bound the
@@ -1243,6 +1246,51 @@ EXPECTED_ROUTES = {
     # organisation exists after the purge either, since it names none. The
     # argument holds unchanged.
     ("/api/v1/generators", frozenset({"GET"})),
+    # The residual argument (0004:63-72) does NOT hold unchanged for these two,
+    # and re-deriving it — not just re-reading it — is the point of this
+    # comment. Split by half, because the two routes split it differently:
+    #
+    # Half that still holds — no credential minted. Neither route mints
+    # anything a caller could hold onto: `POST /api/v1/ingest` requires an
+    # already-live bearer token and returns only a progress snapshot (stage,
+    # counts, error, started_at); `GET .../status` requires the same token and
+    # returns the same shape. Same conclusion as `/api/v1/status` and
+    # `/api/v1/generators` above for that half.
+    #
+    # Half that does NOT hold, and is new here — "no live token outlives the
+    # organisation" was the whole argument for why a child row cannot be
+    # written after the organisation is gone. That argument is about the API
+    # path, where every write happens under `principal`'s bearer token. The
+    # rows this ingest writes are not written on the API path at all: `POST
+    # /api/v1/ingest` only admits and enqueues, and the actual
+    # `INSERT INTO document_chunks` runs in the Celery worker
+    # (`app.ingest.jobs.run_ingest`), which calls `tenant_session(org_id)`
+    # directly and holds no token, checks no token, and has no TTL of its own
+    # tying it to the organisation's. A job queued for an organisation that
+    # then expires, and picked up by the worker after the purge has already
+    # run, would write chunks for an org_id `organizations` no longer
+    # contains — RLS admits the INSERT (its policy checks `org_id`, not
+    # whether a matching row exists in `organizations`; this schema has no
+    # FK), and those rows would be unreachable forever. Worse than an orphan
+    # row: `count_orgs_with_corpus()` (migration 0007) would keep counting
+    # that organisation, so `INGEST_ORG_CAP` would ratchet down for good with
+    # every job that lost this race — the one-way-latch failure Task 23,
+    # Step 5 exists to close.
+    #
+    # What actually closes the window: `app.ingest.jobs._guard_write_transaction`
+    # re-checks the organisation is alive *inside the same transaction* that
+    # writes the chunks (called twice — once as a fast-path before
+    # parsing/embedding, once authoritatively immediately before the INSERT).
+    # The residual left over is narrower than the one above: an ingest
+    # transaction that committed strictly between `purge_expired_orgs`'s two
+    # statements — the DELETE FROM organizations and the child-table DELETEs
+    # that follow it on a fresh snapshot (0004:45-50) — in the same purge run.
+    # That is a gap between two statements inside one function call, not a gap
+    # between two scheduled runs, and it is exactly what `0004`'s statement 2
+    # already exists to catch on its own next tick regardless. Verified by
+    # `test_ingest_job.py::test_run_ingest_raises_when_the_organisation_has_already_expired`.
+    ("/api/v1/ingest", frozenset({"POST"})),
+    ("/api/v1/ingest/status", frozenset({"GET"})),
 }
 
 

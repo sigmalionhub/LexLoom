@@ -356,6 +356,69 @@
           }
         }
       }
+    },
+    "/api/v1/ingest": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Start Ingest",
+        "description": "Admit, queue and dispatch — in that order, and none of it skipped on\na race. `ensure_ingest_admitted` raises `ProblemError` for both ceilings\n(409 already_ingested, 503 capacity_unavailable with Retry-After); a\ncatalogue miss is checked first, cheaply, before either touches\nPostgres.",
+        "operationId": "start_ingest_api_v1_ingest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingest/status": {
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Get Ingest Status",
+        "operationId": "get_ingest_status_api_v1_ingest_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -525,6 +588,83 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "IngestRequest": {
+        "properties": {
+          "source_key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_key"
+        ],
+        "title": "IngestRequest"
+      },
+      "IngestStage": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "queued",
+          "parsing",
+          "chunking",
+          "embedding",
+          "indexing",
+          "complete",
+          "error"
+        ],
+        "title": "IngestStage",
+        "description": "The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two\nit does not: `idle` (nothing ever queued for this organisation) and\n`error` (the job raised — see `app.worker.tasks.ingest_source`)."
+      },
+      "IngestStatusResponse": {
+        "properties": {
+          "stage": {
+            "$ref": "#/components/schemas/IngestStage"
+          },
+          "chunks_done": {
+            "type": "integer",
+            "title": "Chunks Done"
+          },
+          "chunks_total": {
+            "type": "integer",
+            "title": "Chunks Total"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "Unix seconds. Null until mark_ingest_queued has run for this organisation."
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "chunks_done",
+          "chunks_total",
+          "error",
+          "started_at"
+        ],
+        "title": "IngestStatusResponse"
       },
       "Jwks": {
         "properties": {

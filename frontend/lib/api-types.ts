@@ -212,6 +212,47 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/ingest': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Start Ingest
+     * @description Admit, queue and dispatch — in that order, and none of it skipped on
+     *     a race. `ensure_ingest_admitted` raises `ProblemError` for both ceilings
+     *     (409 already_ingested, 503 capacity_unavailable with Retry-After); a
+     *     catalogue miss is checked first, cheaply, before either touches
+     *     Postgres.
+     */
+    post: operations['start_ingest_api_v1_ingest_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/ingest/status': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Ingest Status */
+    get: operations['get_ingest_status_api_v1_ingest_status_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -298,6 +339,42 @@ export interface components {
     HTTPValidationError: {
       /** Detail */
       detail?: components['schemas']['ValidationError'][];
+    };
+    /** IngestRequest */
+    IngestRequest: {
+      /** Source Key */
+      source_key: string;
+    };
+    /**
+     * IngestStage
+     * @description The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two
+     *     it does not: `idle` (nothing ever queued for this organisation) and
+     *     `error` (the job raised — see `app.worker.tasks.ingest_source`).
+     * @enum {string}
+     */
+    IngestStage:
+      | 'idle'
+      | 'queued'
+      | 'parsing'
+      | 'chunking'
+      | 'embedding'
+      | 'indexing'
+      | 'complete'
+      | 'error';
+    /** IngestStatusResponse */
+    IngestStatusResponse: {
+      stage: components['schemas']['IngestStage'];
+      /** Chunks Done */
+      chunks_done: number;
+      /** Chunks Total */
+      chunks_total: number;
+      /** Error */
+      error: string | null;
+      /**
+       * Started At
+       * @description Unix seconds. Null until mark_ingest_queued has run for this organisation.
+       */
+      started_at: number | null;
     };
     /** Jwks */
     Jwks: {
@@ -691,6 +768,59 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['GeneratorsResponse'];
+        };
+      };
+    };
+  };
+  start_ingest_api_v1_ingest_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['IngestRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['IngestStatusResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  get_ingest_status_api_v1_ingest_status_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['IngestStatusResponse'];
         };
       };
     };

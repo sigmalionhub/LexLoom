@@ -28,6 +28,7 @@ Read this whole file before running anything. Roughly ten minutes, most of it wa
 | Redis | container | `127.0.0.1:6379` only |
 | API (FastAPI) | container | `127.0.0.1:8100` only |
 | Worker (Celery) | container | no ports |
+| Beat (Celery beat) | container | no ports — fires `purge_expired_orgs` once an hour (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`); that one task both enforces the 24-hour demo-organisation TTL and frees the slots `INGEST_ORG_CAP` counts, which would otherwise only grow |
 | Frontend | **files on disk** | statically exported, served by nginx — no Node process |
 | nginx | host, already installed | terminates TLS, serves the files, proxies the API |
 
@@ -136,6 +137,23 @@ Edit `.env` before starting anything:
   server-side request forgery in a neighbouring application — can forge
   `X-Forwarded-For` and create demo tenants without limit. The container refuses to
   start without it under `ENV=demo`.
+- optionally set `GEMINI_API_KEY` to a Google AI Studio key if this deployment should
+  offer a real generator alongside the deterministic one. **Empty is a working state,
+  not a misconfiguration**: with no key, `GET /api/v1/generators` lists only
+  `deterministic`, so the frontend never offers a choice the box cannot honour, and a
+  request that reaches the stream endpoint for a Gemini choice anyway gets
+  `422 generator_unavailable` rather than a raw `500` (`backend/app/api/v1/generators.py`).
+  The key is forwarded to the `api` service only — the worker and beat never generate an
+  answer, so `docker inspect` on either would otherwise show it to anyone in the `docker`
+  group on this shared box (`docker-compose.yml`). It is sent as the `x-goog-api-key`
+  header, never a query parameter, so it never lands in an nginx access log, a proxy in
+  front of this box, or anyone's shell history (`backend/app/chat/gemini.py`) — put it in
+  `.env` the same way as every other secret in this list and nowhere else; `.env` is
+  `.gitignore`d, and pasting the key into a command line or a committed file defeats the
+  point of the header.
+- optionally set `INGEST_ORG_CAP` (default `8`) to change how many organisations may
+  hold an ingested corpus at once — see the comment beside it in `.env.example` for the
+  memory arithmetic behind the default.
 
 The passwords are read **only when the data volume is first created**. Changing them later
 edits nothing inside a Postgres that already exists, so set them now.
@@ -307,6 +325,38 @@ Read the timestamps, not the output. **Tokens must arrive spread over about a se
 If every line shares a timestamp, the answer was buffered and released in one flush —
 which is precisely the bug this project exists to fix, and it means `proxy_buffering off`
 is not in effect on the path that served the request.
+
+Now ingest a real corpus, reusing `$TOK` from above. `POST /api/v1/ingest` only admits
+and enqueues — the parsing, chunking and embedding run in the worker, staged through
+`chunks_done`/`chunks_total`, so polling `GET .../ingest/status` is how you watch it
+finish rather than how you find out it started:
+
+```bash
+curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/ingest \
+  -H "authorization: Bearer $TOK" -H 'content-type: application/json' \
+  -d '{"source_key":"gdpr-full"}' | jq
+# {"stage":"queued", "chunks_done":0, "chunks_total":0, "error":null, "started_at":...}
+
+while :; do
+  S=$(curl -fsS https://lexloom.sigmalion.io/api/v1/ingest/status \
+      -H "authorization: Bearer $TOK" | jq -r .stage)
+  echo "$S"; [ "$S" = complete ] || [ "$S" = error ] && break
+  sleep 1
+done
+```
+
+Expect `stage` to move `queued` → `parsing` → `chunking` → `embedding` → `indexing` →
+`complete`, `chunks_total` to hold once parsing finishes (`978` for `gdpr-full` as this
+file is written — read it back from the response rather than trusting this number, since
+the parser that produces it is exactly the kind of thing a later change moves; this
+sentence said `1027` until the extractor was replaced, which is the caveat proving
+itself), and
+`chunks_done` to climb to meet it. A second `POST` for the same organisation answers `409
+already_ingested` — that is the per-organisation cap doing its job, not a bug. The whole
+job runs against `task_soft_time_limit=300` / `task_time_limit=360`
+(`backend/app/worker/celery_app.py`); the full-catalogue round trip is measured at ~75 s
+wall-clock outside container CPU limits (`backend/tests/test_ingest_job.py`), so give it
+a couple of minutes on this box before treating a `queued`/`parsing` stage as stuck.
 
 Then confirm the ceilings are on and that the proxy secret matches. The application says
 both, once, at start-up:

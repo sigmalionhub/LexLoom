@@ -44,6 +44,10 @@ export type CreateMessageResponse = components['schemas']['CreateMessageResponse
 export type StreamTicketResponse = components['schemas']['StreamTicketResponse'];
 export type GeneratorsResponse = components['schemas']['GeneratorsResponse'];
 
+export type IngestRequest = components['schemas']['IngestRequest'];
+export type IngestStage = components['schemas']['IngestStage'];
+export type IngestStatusResponse = components['schemas']['IngestStatusResponse'];
+
 /** One retrieved chunk, exactly as it arrives in the `citations` frame. */
 export interface Citation {
   chunk_id: string;
@@ -275,6 +279,30 @@ export const api = {
    */
   listGenerators(): Promise<GeneratorsResponse> {
     return request<GeneratorsResponse>('GET', '/api/v1/generators');
+  },
+
+  /**
+   * Admits, queues and dispatches an ingest of one catalogue source into the
+   * caller's organisation. Returns the same shape `ingestStatus` does — the
+   * initial `queued` snapshot, not a job id (see `backend/app/api/v1/ingest.py`
+   * for why `job_id` was deliberately removed). `409 already_ingested` if this
+   * organisation already holds one; there is no second ingest per tenant.
+   */
+  startIngest(token: string, sourceKey: string): Promise<IngestStatusResponse> {
+    return request<IngestStatusResponse>('POST', '/api/v1/ingest', {
+      token,
+      body: { source_key: sourceKey } satisfies IngestRequest,
+    });
+  },
+
+  /**
+   * This organisation's ingest, as it stands right now. Meant to be polled —
+   * see `components/panel/ingest-progress.tsx`, which polls it twice a
+   * second and is the reason this route is excluded from the request
+   * histogram (`app/observability.py`'s `_NOT_MEASURED`).
+   */
+  ingestStatus(token: string): Promise<IngestStatusResponse> {
+    return request<IngestStatusResponse>('GET', '/api/v1/ingest/status', { token });
   },
 };
 

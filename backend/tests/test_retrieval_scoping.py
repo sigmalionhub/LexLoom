@@ -5,7 +5,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, text
 
-from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, load_excerpts, seed_public_corpus
+from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, SEED_SOURCE_KEY, load_excerpts, seed_public_corpus
 from app.chat.retrieval import SearchMode, search_chunks
 from app.db.engine import engine
 from app.db.session import system_session, tenant_session
@@ -277,17 +277,24 @@ async def test_the_seeded_rows_are_the_file_they_came_from() -> None:
     Nothing in the running application reads these rows today (`copy_corpus_into`
     reads the file), so the drift is invisible until M2 computes embeddings over
     them. What is checked here is the half that can be: a run leaves the rows
-    equal to the file, field for field.
+    equal to the file, field for field — and, since branch D, ordinal for
+    ordinal: `chunk_ordinal` is the excerpt's index in `load_excerpts()`, and a
+    reordered `gdpr_excerpts.json` would still pass a check that only compares
+    content, silently devaluing every gold-set reference to the old order.
     """
     await seed_public_corpus()
 
     async with tenant_session(str(PUBLIC_CORPUS_ORG_ID)) as session:
         rows = (
             await session.execute(
-                text("SELECT content, page_from, page_to FROM document_chunks")
+                text(
+                    "SELECT content, page_from, page_to, source_key, chunk_ordinal "
+                    "FROM document_chunks"
+                )
             )
         ).all()
 
     assert sorted(rows) == sorted(
-        (excerpt.content, excerpt.page_from, excerpt.page_to) for excerpt in load_excerpts()
-    ), "the seeded rows are not the excerpts in gdpr_excerpts.json"
+        (excerpt.content, excerpt.page_from, excerpt.page_to, SEED_SOURCE_KEY, ordinal)
+        for ordinal, excerpt in enumerate(load_excerpts())
+    ), "the seeded rows are not the excerpts in gdpr_excerpts.json, in file order"

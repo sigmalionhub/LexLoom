@@ -54,11 +54,29 @@ SEED_FILE = pathlib.Path(__file__).resolve().parents[2] / "seed" / "gdpr_excerpt
 # numbers a measurement of retrieval rather than of which machine ran the model.
 SEED_VECTORS_FILE = SEED_FILE.with_name("gdpr_excerpts_vectors.json")
 
+# The seed corpus is a source like any other and has to say so. M2.4's gold
+# set keys on (source_key, chunk_ordinal); a NULL pair means a question about
+# a seeded chunk scores zero against a corpus that is in fact sitting right
+# there.
+#
+# The value is a literal shared with migration 0007, which subtracts it: an
+# organisation holding only the seed has not "ingested" anything, and counting
+# it would make INGEST_ORG_CAP refuse the very first ingestion. The two are
+# held together by test_a_fresh_demo_org_does_not_count_against_the_ingest_cap;
+# nothing else could notice them drifting apart.
+SEED_SOURCE_KEY = "seed:gdpr-excerpts"
+
 # One statement, both callers — `copy_corpus_into` directly and
 # `seed_public_corpus` through it. That is not tidiness: it is what makes a
 # later edit to the column list reach every tenant's corpus instead of only the
 # public organisation's. A second copy of this INSERT is how one of them ends up
 # writing NULL into a column the other populates, with nothing raised anywhere.
+#
+# Eight columns, not seven. `embedding` is Task 20's; `source_key` and
+# `chunk_ordinal` are this task's. Dropping either back off the list does not
+# raise — SQLAlchemy simply never binds the column that lost its writer — it
+# just writes NULL into it for every tenant, which is the defect this
+# statement is single-owner to prevent.
 #
 # `bindparam(..., type_=Vector(DIMENSIONS))` rather than a raw `list[float]` or
 # a string-interpolated CAST. `register_vector` is called nowhere in this
@@ -72,8 +90,9 @@ SEED_VECTORS_FILE = SEED_FILE.with_name("gdpr_excerpts_vectors.json")
 # sources of truth: change the constant and the guard stays green while this
 # INSERT fails on width, with the error naming neither.
 _INSERT_CHUNK = text(
-    "INSERT INTO document_chunks (id, org_id, content, page_from, page_to, embedding) "
-    "VALUES (:id, :org_id, :content, :page_from, :page_to, :embedding)"
+    "INSERT INTO document_chunks "
+    "(id, org_id, content, page_from, page_to, source_key, chunk_ordinal, embedding) "
+    "VALUES (:id, :org_id, :content, :page_from, :page_to, :source_key, :chunk_ordinal, :embedding)"
 ).bindparams(bindparam("embedding", type_=Vector(DIMENSIONS)))
 
 
@@ -274,9 +293,17 @@ async def copy_corpus_into(session: AsyncSession, org_id: str) -> int:
                 "content": excerpt.content,
                 "page_from": excerpt.page_from,
                 "page_to": excerpt.page_to,
+                # The ordinal is the excerpt's index in load_excerpts(), the
+                # same order the seed vector list is keyed by — reordering
+                # gdpr_excerpts.json silently reassigns every ordinal and
+                # devalues the gold set built against the old order.
+                "source_key": SEED_SOURCE_KEY,
+                "chunk_ordinal": ordinal,
                 "embedding": list(vector),
             }
-            for excerpt, vector in zip(excerpts, load_seed_vectors(), strict=True)
+            for ordinal, (excerpt, vector) in enumerate(
+                zip(excerpts, load_seed_vectors(), strict=True)
+            )
         ],
     )
     return len(excerpts)

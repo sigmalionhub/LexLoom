@@ -7,16 +7,31 @@ stronger requirement than "the same input gives the same output": a pure
 function already has that property whether it is correct or not (see
 `test_the_chunking_is_the_one_the_gold_set_was_built_against` in
 `tests/test_ingest_parse.py`). What can actually change the output from one
-run to the next is the chunk size, the overlap, the paragraph rule, or
-pypdf's own extraction across a version bump — which is exactly why
-`pypdf` is pinned exactly (`pyproject.toml`) and why the chunk boundaries
-are pinned as data in a committed fixture, not re-derived by a test that
-would pass for a broken chunker just as readily as a working one.
+run to the next is the chunk size, the overlap, the paragraph rule, or the
+extractor's own output across a version bump — which is exactly why
+`pdfminer.six` is pinned exactly (`pyproject.toml`) and why the chunk
+boundaries are pinned as data in a committed fixture, not re-derived by a
+test that would pass for a broken chunker just as readily as a working one.
 
 Citations already carry `page_from`/`page_to` and the panel already shows
 them (`frontend/components/sources.tsx`); this parser keeps that contract by
 tracking, for every chunk, which page of the source PDF its first and last
 character came from.
+
+**Why `pdfminer.six` and not `pypdf`.** `pypdf` (both its default extraction
+and its `extraction_mode="layout"`) breaks this specific PDF's text into
+fragments at nearly every glyph run boundary: "Ha ving regar d to the
+opinion" for "Having regard to the opinion", never once producing an intact
+"Article" across the first 20 pages, with 8-9% of extracted tokens a single
+stray letter. That is not a font-rendering quirk visible only in a diff — it
+is the difference between an FTS index that tokenises "regard" as one word
+and one that tokenises it as "regar" and "d", and between an embedding
+computed over readable sentences and one computed over noise wearing the
+shape of sentences. `pdfminer.six` (`LAParams(boxes_flow=None)` — see
+`_LAPARAMS` below) matches `pdftotext`/poppler measured on the same 20 pages:
+7 intact "Article"s (pypdf: 0) and a 2.1% single-letter-token rate (pypdf:
+8-9%). See `task-22-report.md`, "Fix round 1", for the full measurement
+including the two other candidates tried.
 """
 
 from __future__ import annotations
@@ -25,7 +40,8 @@ import re
 from bisect import bisect_right
 from dataclasses import dataclass
 
-import pypdf
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LAParams, LTTextContainer
 
 from app.ingest.catalogue import Source
 
@@ -38,17 +54,51 @@ OVERLAP_CHARS = 50
 
 _WHITESPACE = re.compile(r"\s+")
 
-# What counts as "a paragraph boundary" in this text. pypdf's extraction of
-# this particular PDF carries no blank line between paragraphs — the
-# typesetting is fully justified running text with no paragraph-level markup
-# surviving extraction — so a boundary is defined the way the document itself
-# marks one: the start of a numbered recital ("(30) "), an article header
-# ("Article 4 "), a numbered paragraph within an article ("1. "), or a
-# lettered sub-point ("(a) "). Deliberately excludes footnote markers like
-# "( 1 )": pypdf renders the superscript reference with a line break either
-# side of the digit, which normalises to a space inside the parentheses —
-# "( 1 )", not "(1)" — so the pattern below (no internal space) never matches
-# one.
+# `boxes_flow=None` turns off pdfminer's column-flow heuristic, which — on
+# this PDF's hanging-indent recital numbering (the "(1)" sits in its own
+# narrow left column, the body text in a wider column to its right) — grouped
+# every page's markers together ("(1) (2) The protection ...") ahead of every
+# body paragraph instead of interleaving marker-then-body-then-marker in
+# reading order. `None` falls back to pdfminer's simpler top-to-bottom
+# ordering, which gets this document's actual reading order right: verified
+# against `pdftotext`'s output for the same page, which agrees. The default
+# (`boxes_flow=0.5`) was tried first and reproduces the misordering.
+_LAPARAMS = LAParams(boxes_flow=None)
+
+# What counts as "a paragraph boundary" in this text. This PDF carries no
+# blank line between paragraphs in extracted form — the typesetting is fully
+# justified running text with no paragraph-level markup surviving extraction
+# — so a boundary is defined the way the document itself marks one: the start
+# of a numbered recital ("(30) "), an article header ("Article 4 "), a
+# numbered paragraph within an article ("1. "), or a lettered sub-point
+# ("(a) ").
+#
+# Footnote and cross-reference markers like "(2)," or "Article 22(1) and (4)"
+# mostly do not match, because the closing parenthesis is mostly followed by
+# punctuation rather than by whitespace-then-word — but "mostly" is measured,
+# not absolute: of the 308 "(N) " matches in the production text, 15 sit
+# directly between two lowercase words with nothing but a space either side
+# ("...of the Council (4) seeks to harmonise...", recital 3; "...of the
+# Council (2) applies to the processing...", recital 17; several more in
+# cross-references like "Article 22(1) and (4) and, at least..."). Each of
+# those 15 forces a spurious mid-sentence paragraph split. Left unfiltered,
+# deliberately: an earlier draft of this comment claimed the false positive
+# rate was zero, and it was reviewed as one of the two remaining defects in
+# this task (see task-22-report.md, "Fix round 2"). Measured rather than
+# reasoned about before deciding not to fix it — ablating exactly these 15
+# matches and re-packing leaves the chunk count at 978, unchanged. The
+# packer absorbs every one of them by re-merging the fragments back up
+# toward the 500-char target, so a real fix would buy a slightly tidier
+# paragraph list and no different output, at the cost of the variable-length
+# lookbehind it would need.
+#
+# That zero is itself twice-measured, and it had to be: this comment first
+# claimed the false-positive rate was zero (wrong), then claimed the ablation
+# moved 978 to 979 (also wrong, by one). Two independent re-packs — the
+# scoped re-review's and the controller's — both return 978. Reproduce with
+# `_paragraphs` monkeypatched to drop these 15 offsets; a delta of anything
+# but zero means the packer's merge behaviour has changed and this paragraph
+# is stale.
 _PARAGRAPH_BOUNDARY = re.compile(
     r"\(\d{1,3}\)\s"  # recitals: "(30) "
     r"|Article\s\d+\s"  # article headers: "Article 4 "
@@ -68,9 +118,22 @@ class Chunk:
 def _extract_pages(source: Source) -> list[str]:
     """One normalised string per page: internal whitespace collapsed to single
     spaces, so page text can be concatenated and searched without a stray
-    newline splitting a word pypdf itself kept on one line."""
-    reader = pypdf.PdfReader(str(source.path))
-    return [_WHITESPACE.sub(" ", (page.extract_text() or "")).strip() for page in reader.pages]
+    newline splitting a word the extractor itself kept on one line.
+
+    `extract_pages` + walking each page's `LTTextContainer`s, not
+    `pdfminer.high_level.extract_text` per page: the latter reopens and
+    reparses the whole file once per page (88 parses for an 88-page
+    document), measured at 17.6s for this file; a single pass over
+    `extract_pages`, reading off page boundaries as they come, measured at
+    10.1s for the same file and the same `LAParams`.
+    """
+    pages = []
+    for page_layout in extract_pages(str(source.path), laparams=_LAPARAMS):
+        parts = [
+            element.get_text() for element in page_layout if isinstance(element, LTTextContainer)
+        ]
+        pages.append(_WHITESPACE.sub(" ", "".join(parts)).strip())
+    return pages
 
 
 def _concatenate(pages: list[str]) -> tuple[str, list[int]]:

@@ -5,6 +5,12 @@ import type { RequestRecord } from '@/lib/api';
 import type { IsolationReport, Tenant, Turn } from '@/lib/use-lexloom';
 import type { Frame } from '@/lib/stream';
 import { StreamTimeline } from './stream-timeline';
+import { GeneratorSelector } from './panel/generator-selector';
+import { SearchMode } from './panel/search-mode';
+import { IngestProgress } from './panel/ingest-progress';
+import { ServiceStatus } from './panel/service-status';
+import { EvalsTable } from './panel/evals-table';
+import type { PanelSectionProps } from './panel/types';
 
 /**
  * The instrument half of the page.
@@ -30,6 +36,14 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
     turn?.timings.citations !== undefined && turn.timings.firstToken !== undefined
       ? turn.timings.firstToken - turn.timings.citations
       : null;
+
+  const panelSectionProps: PanelSectionProps = {
+    tenant,
+    turn,
+    requests,
+    isolation,
+    tenantCount,
+  };
 
   return (
     <aside className="on-slate flex min-h-0 flex-col bg-slate text-chalk lg:h-full">
@@ -68,6 +82,12 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
             <p className="font-mono text-data text-mist">Provisioning…</p>
           )}
         </Section>
+
+        <GeneratorSelector {...panelSectionProps} />
+        <SearchMode {...panelSectionProps} />
+        <IngestProgress {...panelSectionProps} />
+        <ServiceStatus {...panelSectionProps} />
+        <EvalsTable {...panelSectionProps} />
 
         <Section label="Sources before the first word">
           {/* Brass means measured, so the placeholder is not brass. */}

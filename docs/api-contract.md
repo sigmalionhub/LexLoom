@@ -26,6 +26,7 @@ Eight routes. That is the entire API.
 | `POST` | `/api/v1/auth/stream-tickets` | bearer | `200` |
 | `GET` | `/api/v1/conversations/{cid}/messages/{mid}/stream` | ticket | `200` (SSE) |
 | `GET` | `/api/v1/status` | none | `200` |
+| `GET` | `/api/v1/generators` | none | `200` |
 
 `GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
 
@@ -256,6 +257,7 @@ no `id:` fields, so this stream does not support `Last-Event-ID` resumption.
 |---|---|---|
 | `message_start` | `{"message_id": "<uuid>", "model": "deterministic"}` | Always first. |
 | `citations` | `{"chunks": [Citation, …]}` | Always second, **before any token**. May be `[]`. |
+| `generator_changed` | `{"model": "deterministic", "reason": "quota_exceeded"}` | At most once, **immediately after `citations`, before any token**, only if the generator named on `message_start` could not answer. |
 | `token` | `{"text": "Under "}` | Zero or more. Concatenate `text` in order; whitespace is included in the token. |
 | `error` | `{"code": "provider_unavailable", "message": "…"}` | At most once, if generation fails part-way. |
 | `message_end` | `{"finish_reason": "stop" \| "error"}` | Always last, on both the success and the failure path. |
@@ -267,6 +269,18 @@ or `"gemini-3.6-flash"` — whichever one actually answered, read back off the s
 body (§3.3), the identical enum, also defaulting to `"deterministic"`. This is the same
 field that used to carry the literal `"fake-1"`, reused rather than duplicated: what it
 may hold changed, the field did not.
+
+A Gemini choice can fail after `message_start` has already named it — today the only
+cause is the free tier's quota (10 requests/minute; this is a public demo running it).
+Rather than end the stream, the server falls back to the deterministic provider and
+says so with `generator_changed`, then continues the same answer on it. The frame's
+position is not incidental: it lands exactly where the failure is discovered, which is
+on the first call to the model — after retrieval has already produced `citations`, and
+before a single token of the (failed) real answer could have gone out. A client that
+only reads `message_start.model` for "who answered" will show the wrong provider for
+the rest of that turn; `generator_changed.model` is the correction, and it is also
+still the last thing on the wire when the answer finishes, so re-deriving "who actually
+answered" from the full event log always gives the right answer.
 
 A `Citation`:
 
@@ -292,10 +306,15 @@ threshold on it across questions.
 2. `citations` arrives before the first `token`, always. Retrieval finishes before
    generation begins, so the sources render while the answer is still typing. This
    is the whole reason the stream is shaped this way.
-3. `error` and `message_end` both arrive; an `error` does not truncate the stream.
+3. `generator_changed`, when it appears at all, arrives immediately after `citations`
+   and before the first `token` — never earlier, never later. It is not a general
+   "the provider changed its mind" signal; it fires at most once, only for a Gemini
+   choice whose first call failed on quota, and the stream still ends `finish_reason:
+   "stop"` afterward, because the visitor did get an answer.
+4. `error` and `message_end` both arrive; an `error` does not truncate the stream.
    The HTTP status is already `200` by then, so a failure mid-generation is reported
    *inside* the stream, and `finish_reason` is `"error"`.
-4. Everything that can fail before the first byte — bad ticket, unknown message,
+5. Everything that can fail before the first byte — bad ticket, unknown message,
    already-answered message — fails as an HTTP status with a problem+json body.
    The stream never opens `200` just to report a `404` in an event.
 
@@ -701,14 +720,29 @@ Stated because a contract with unstated holes is not a contract.
   cancellation and citation machinery is real; the words are not an answer to your
   question. Sending `generator: "gemini-3.5-flash-lite"` or `"gemini-3.6-flash"` routes
   to a real call to Gemini instead (`app.chat.gemini`, over `streamGenerateContent`) —
-  *if* the service has a `GEMINI_API_KEY` configured. Without one, asking for either
-  Gemini choice fails the request rather than silently answering with the fake; nothing
-  in this contract picks a fallback on the caller's behalf. Whichever generator answers,
-  it is never handed the raw question: `app.chat.prompt.build_grounded_prompt` builds
-  a prompt from the same `citations` this response's `citations` event carries,
-  instructing the model to answer only from those sources and say so plainly when
-  they do not contain the answer — a fabricated citation, formatted exactly like a
-  real one, is the one failure mode a legal-research demo cannot afford.
+  *if* the service has a `GEMINI_API_KEY` configured. `GET /api/v1/generators` lists
+  exactly which choices would work right now, and is what a client should build its UI
+  from rather than assuming all three. Whichever generator answers, it is never handed
+  the raw question: `app.chat.prompt.build_grounded_prompt` builds a prompt from the
+  same `citations` this response's `citations` event carries, instructing the model to
+  answer only from those sources and say so plainly when they do not contain the
+  answer — a fabricated citation, formatted exactly like a real one, is the one failure
+  mode a legal-research demo cannot afford.
+- **Picking a real generator is a request, not a guarantee.** Two ways it does not
+  hold, and this contract does not pretend otherwise:
+  - **No key at all.** Asking for a Gemini choice with no `GEMINI_API_KEY` configured
+    fails the request outright, with `422 generator_unavailable` — not the fake, and
+    not a generic `500`. This is the residual path for a caller that bypassed (or is
+    older than) whatever built its choice from `GET /api/v1/generators`; a client
+    built from that endpoint should never reach it.
+  - **Quota exhausted.** Gemini's free tier allows 10 requests/minute, and this is a
+    public demo running it. A `429` from Gemini on the *first* call does not fail the
+    request: the server falls back to the deterministic provider mid-stream, announces
+    the substitution with a `generator_changed` event ([§4.2](#42-events)), and finishes
+    the answer — `finish_reason: "stop"`, not `"error"`. This is the one case where
+    `message_start.model` and the generator that actually answered can disagree, and
+    `generator_changed` exists so a client never has to find that out by comparing the
+    words to what it expected.
 - **`GET /api/v1/status` publishes no stream occupancy and nothing per-organisation.**
   It carries no `active`/`capacity` pair for the sixteen-stream ceiling — the same
   reasoning [§6.1](#61-refusals-429-503-and-retry-after)'s `429`/`503` bodies already

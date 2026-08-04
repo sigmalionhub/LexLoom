@@ -258,6 +258,38 @@ async def stream_message(
         # loudly here rather than reach `build_provider` as an opaque string.
         generator_choice = GeneratorChoice(message["generator"])
 
+    # Built here, before the stream slot is reserved and before the response
+    # exists, for two reasons at once. First, `GET /api/v1/generators` plus
+    # the frontend disabling a Gemini option with no key is what keeps this
+    # unreachable through the UI in the normal case (Task 30) — this is the
+    # residual path for a caller that posted a Gemini choice directly (or
+    # before a key was removed) and now opens the stream anyway. Second, once
+    # `EventSourceResponse` exists the status code is already committed to
+    # 200 and there is no way back to a problem+json body — so the refusal has
+    # to happen before it, not inside `generate_events`. Before this, the
+    # `ValueError` `build_provider` raises here was uncaught, propagated past
+    # `create_app`'s only remaining handler and left as a generic `500
+    # internal_error` that told the visitor nothing — and, built as an
+    # argument to `generate_events(...)` after `acquire_stream_slot`, it also
+    # leaked the slot it had already reserved.
+    try:
+        provider = build_provider(generator_choice)
+    except ValueError as exc:
+        logger.info(
+            "generator_unavailable",
+            message_id=str(message_id),
+            generator=str(generator_choice),
+        )
+        raise ProblemError(
+            code="generator_unavailable",
+            status=422,
+            title="Generator unavailable",
+            detail=(
+                f"{generator_choice} is not available on this server: no Gemini API "
+                "key is configured. GET /api/v1/generators lists what is."
+            ),
+        ) from exc
+
     async def store_answer(answer: str, finish_reason: str) -> None:
         """Persist the answer in a fresh short transaction after generation.
 
@@ -307,7 +339,7 @@ async def stream_message(
             slot,
             generate_events(
                 message_id=str(message_id),
-                provider=build_provider(generator_choice),
+                provider=provider,
                 citations=citations,
                 prompt=prompt,
                 generator=generator_choice,

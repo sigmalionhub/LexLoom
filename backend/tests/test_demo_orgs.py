@@ -1235,6 +1235,14 @@ EXPECTED_ROUTES = {
     # organisation, so it cannot report that an organisation exists after the
     # purge has destroyed it either. The argument holds unchanged.
     ("/api/v1/status", frozenset({"GET"})),
+    # Same argument as `/api/v1/status`, same conclusion. `GET
+    # /api/v1/generators` mints no credential, accepts no request body, takes
+    # no org_id, reads no org-scoped table (it reads `Settings.gemini_api_key`
+    # and nothing from Postgres) and writes no row. It cannot widen the
+    # residual window migration 0004 leaves open, and it cannot report that an
+    # organisation exists after the purge either, since it names none. The
+    # argument holds unchanged.
+    ("/api/v1/generators", frozenset({"GET"})),
 }
 
 

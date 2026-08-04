@@ -9,7 +9,13 @@ import { ApiError, api, retryAfterSeconds, streamUrl, type Citation, type Proble
  * and both are handled below rather than hoped away.
  */
 
-export type FrameName = 'message_start' | 'citations' | 'token' | 'error' | 'message_end';
+export type FrameName =
+  | 'message_start'
+  | 'citations'
+  | 'generator_changed'
+  | 'token'
+  | 'error'
+  | 'message_end';
 
 /** Every named frame, in arrival order, with the offset the panel plots. */
 export interface Frame {
@@ -33,6 +39,14 @@ export interface StreamHandlers {
   onFrame?(frame: Frame): void;
   onStart?(data: { message_id: string; model: string }, at: number): void;
   onCitations?(chunks: Citation[], at: number): void;
+  /**
+   * The provider named on `message_start` could not answer and the server
+   * fell back mid-stream — today that only ever means a Gemini choice hit its
+   * free-tier quota (HTTP 429) and the answer continued on the deterministic
+   * provider. Always arrives after `onCitations` and before the first
+   * `onToken`, matching the wire contract in `docs/api-contract.md` §4.2.
+   */
+  onGeneratorChanged?(data: { model: string; reason: string }, at: number): void;
   onToken?(text: string, at: number): void;
   /** The server's own `event: error` frame. `message_end` still follows it. */
   onServerError?(problem: { code: string; message: string }, at: number): void;
@@ -139,6 +153,12 @@ export function openAnswerStream(
     // An empty array is a normal answer, not a failure: the question's terms
     // are simply not in this tenant's corpus.
     if (data) handlers.onCitations?.(data.chunks ?? [], at);
+  });
+
+  source.addEventListener('generator_changed', (event) => {
+    const at = record('generator_changed');
+    const data = parse<{ model: string; reason: string }>(dataOf(event), 'generator_changed');
+    if (data) handlers.onGeneratorChanged?.(data, at);
   });
 
   source.addEventListener('token', (event) => {

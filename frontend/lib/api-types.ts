@@ -195,6 +195,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/generators': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Generators */
+    get: operations['list_generators_api_v1_generators_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -264,6 +281,17 @@ export interface components {
      * @enum {string}
      */
     GeneratorChoice: 'deterministic' | 'gemini-3.5-flash-lite' | 'gemini-3.6-flash';
+    /** GeneratorOption */
+    GeneratorOption: {
+      value: components['schemas']['GeneratorChoice'];
+      /** Label */
+      label: string;
+    };
+    /** GeneratorsResponse */
+    GeneratorsResponse: {
+      /** Generators */
+      generators: components['schemas']['GeneratorOption'][];
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -620,6 +648,26 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ServiceStatus'];
+        };
+      };
+    };
+  };
+  list_generators_api_v1_generators_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['GeneratorsResponse'];
         };
       };
     };

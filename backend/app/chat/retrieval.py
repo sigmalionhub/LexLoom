@@ -310,9 +310,11 @@ async def search_chunks(
     would not change either, and that promise is now retired: giving `mode` a
     default would let a call site that forgot to read the visitor's stored choice
     keep working in `FTS`, which is the inert switch this milestone removes.
-    All existing call sites pass it explicitly — `grep -rn "await search_chunks("`
-    finds thirty-one today, and a number written here would only be accurate
-    until the next one is added.
+    All existing call sites pass it explicitly — count them yourself with
+    `grep -rn "await search_chunks(" --include=*.py .` rather than trust a
+    number written here: one was already stale within the hour of being
+    written, and an illustrative count is the same decaying claim in a
+    smaller font.
 
     There is deliberately no `WHERE org_id = ...` clause in either statement.
     Row-level security supplies it, and the tests hold that rather than assume

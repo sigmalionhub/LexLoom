@@ -181,7 +181,7 @@ _J = Judgement
 
 # Chunk keys are dense and unmemorable on purpose — they are positions, not
 # names. As an orientation for a reader checking a judgement: `gdpr-full`
-# ordinals 0-439 are the recitals, 440 onward the enacting articles, and the
+# ordinals 0-428 are the recitals, 429 onward the enacting articles, and the
 # `seed:gdpr-excerpts` ordinals are the thirty extracts listed in
 # `backend/seed/gdpr_excerpts.json`, each of which states the article it came
 # from in its own first line.
@@ -202,7 +202,7 @@ QUESTIONS: tuple[Question, ...] = (
         kind="verbatim",
         note="Article 33(1), asked in the article's own words. The floor for lexical search.",
         judgements=(
-            _J("gdpr-full:648", ANSWERS, "Article 33(1) itself: notify the supervisory authority."),
+            _J("gdpr-full:625", ANSWERS, "Article 33(1) itself: notify the supervisory authority."),
             _J(
                 "seed:gdpr-excerpts:23",
                 ANSWERS,
@@ -210,13 +210,13 @@ QUESTIONS: tuple[Question, ...] = (
                 "legitimately arrive as this duplicate rather than as the catalogue copy.",
             ),
             _J(
-                "gdpr-full:649",
+                "gdpr-full:626",
                 SUPPORTS,
                 "Continues 33(1): a notification later than 72 hours must carry reasons for "
                 "the delay. Completes the answer without being it.",
             ),
             _J(
-                "gdpr-full:647",
+                "gdpr-full:624",
                 SUPPORTS,
                 "Carries the Article 33 heading and the run-up to paragraph 1; useful context, "
                 "not the obligation.",
@@ -234,30 +234,34 @@ QUESTIONS: tuple[Question, ...] = (
             "rather than engineered away by trimming judgements."
         ),
         judgements=(
-            _J("gdpr-full:477", ANSWERS, "The Article 5 heading and the opening of 5(1)."),
-            _J("gdpr-full:478", ANSWERS, "5(1)(a): lawfulness, fairness and transparency."),
             _J(
-                "gdpr-full:479",
+                "gdpr-full:464",
+                ANSWERS,
+                "The Article 5 heading and the opening of 5(1). "
+                "5(1)(a): lawfulness, fairness and transparency."
+            ),
+            _J(
+                "gdpr-full:465",
                 SUPPORTS,
                 "5(1)(b): purpose limitation, one of the six principles the question asks for."
             ),
             _J(
-                "gdpr-full:480",
+                "gdpr-full:466",
                 SUPPORTS,
-                "5(1)(c): data minimisation, one of the six principles the question asks for."
-            ),
-            _J(
-                "gdpr-full:481",
-                SUPPORTS,
+                "5(1)(c): data minimisation, one of the six principles the question asks for. "
                 "5(1)(d): accuracy, one of the six principles the question asks for."
             ),
             _J(
-                "gdpr-full:483",
+                "gdpr-full:468",
                 SUPPORTS,
                 "5(1)(e): storage limitation, one of the six principles the question asks for."
             ),
-            _J("gdpr-full:485", SUPPORTS, "5(1)(f): integrity and confidentiality."),
-            _J("gdpr-full:486", SUPPORTS, "5(2): accountability (shares a chunk with Article 6)."),
+            _J(
+                "gdpr-full:470",
+                SUPPORTS,
+                "5(1)(f): integrity and confidentiality. "
+                "5(2): accountability (shares a chunk with Article 6)."
+            ),
             _J(
                 "seed:gdpr-excerpts:4",
                 SUPPORTS,
@@ -287,20 +291,20 @@ QUESTIONS: tuple[Question, ...] = (
         kind="verbatim",
         note="The Article 17 heading, including its parenthetical, used as the question.",
         judgements=(
-            _J("gdpr-full:565", ANSWERS, "Article 17(1): the right and the controller's duty."),
+            _J("gdpr-full:546", ANSWERS, "Article 17(1): the right and the controller's duty."),
             _J("seed:gdpr-excerpts:14", ANSWERS, "Article 17(1) as a seeded excerpt."),
-            _J("gdpr-full:564", SUPPORTS, "Carries the Article 17 heading with the parenthetical."),
+            _J("gdpr-full:545", SUPPORTS, "Carries the Article 17 heading with the parenthetical."),
             _J(
-                "gdpr-full:566",
+                "gdpr-full:547",
                 SUPPORTS,
                 "Grounds 17(1)(a) and (b): when erasure may be demanded."
             ),
             _J(
-                "gdpr-full:567",
+                "gdpr-full:548",
                 SUPPORTS,
                 "Grounds 17(1)(c) to (e): further cases in which erasure may be demanded."
             ),
-            _J("gdpr-full:570", SUPPORTS, "17(3): where the right does not apply."),
+            _J("gdpr-full:551", SUPPORTS, "17(3): where the right does not apply."),
         ),
     ),
     Question(
@@ -313,16 +317,16 @@ QUESTIONS: tuple[Question, ...] = (
         note="Article 83(5)(a), quoting its own phrasing of what falls in the upper tier.",
         judgements=(
             _J(
-                "gdpr-full:979",
+                "gdpr-full:935",
                 ANSWERS,
                 "Article 83(5): 20 000 000 EUR or 4 % of worldwide annual turnover, and point "
                 "(a) is exactly the basic principles and conditions for consent the "
                 "question names.",
             ),
             _J("seed:gdpr-excerpts:29", ANSWERS, "Article 83(5) as a seeded excerpt."),
-            _J("gdpr-full:980", SUPPORTS, "Continues the 83(5) list, points (b) to (d)."),
+            _J("gdpr-full:936", SUPPORTS, "Continues the 83(5) list, points (b) to (d)."),
             _J(
-                "gdpr-full:977",
+                "gdpr-full:933",
                 SUPPORTS,
                 "Article 83(4), the 10 000 000 EUR / 2 % tier. The contrast is what makes the "
                 "answer meaningful rather than a number in isolation.",
@@ -335,20 +339,20 @@ QUESTIONS: tuple[Question, ...] = (
         kind="verbatim",
         note="Article 35(1) and 35(3), in the Regulation's own vocabulary.",
         judgements=(
-            _J("gdpr-full:658", ANSWERS, "Article 35(1): the high-risk trigger."),
+            _J("gdpr-full:635", ANSWERS, "Article 35(1): the high-risk trigger."),
             _J("seed:gdpr-excerpts:25", ANSWERS, "Article 35(1) as a seeded excerpt."),
-            _J("gdpr-full:659", SUPPORTS, "Opens 35(3), the enumerated mandatory cases."),
+            _J("gdpr-full:636", SUPPORTS, "Opens 35(3), the enumerated mandatory cases."),
             _J(
-                "gdpr-full:660",
+                "gdpr-full:637",
                 SUPPORTS,
                 "35(3)(a): systematic and extensive automated evaluation."
             ),
             _J(
-                "gdpr-full:661",
+                "gdpr-full:638",
                 SUPPORTS,
                 "35(3)(b) and (c): special categories, public monitoring."
             ),
-            _J("gdpr-full:657", SUPPORTS, "Carries the Article 35 heading and the section title."),
+            _J("gdpr-full:634", SUPPORTS, "Carries the Article 35 heading and the section title."),
         ),
     ),
     Question(
@@ -360,16 +364,16 @@ QUESTIONS: tuple[Question, ...] = (
         kind="verbatim",
         note="Article 13's heading, almost word for word.",
         judgements=(
-            _J("gdpr-full:533", ANSWERS, "Article 13(1) and its points (a) and (b)."),
-            _J("gdpr-full:534", SUPPORTS, "13(1)(c) to (e): purposes, legal basis, recipients."),
-            _J("gdpr-full:535", SUPPORTS, "13(1)(f): third-country transfers and safeguards."),
+            _J("gdpr-full:517", ANSWERS, "Article 13(1) and its points (a) and (b)."),
+            _J("gdpr-full:518", SUPPORTS, "13(1)(c) to (e): purposes, legal basis, recipients."),
+            _J("gdpr-full:519", SUPPORTS, "13(1)(f): third-country transfers and safeguards."),
             _J(
-                "gdpr-full:536",
+                "gdpr-full:520",
                 SUPPORTS,
                 "13(2)(a): the storage period, part of what must be disclosed at collection."
             ),
-            _J("gdpr-full:537", SUPPORTS, "13(2)(b) and (c): the data subject's rights."),
-            _J("gdpr-full:532", SUPPORTS, "Carries the Article 13 heading and the section title."),
+            _J("gdpr-full:521", SUPPORTS, "13(2)(b) and (c): the data subject's rights."),
+            _J("gdpr-full:516", SUPPORTS, "Carries the Article 13 heading and the section title."),
         ),
     ),
     # ------------------------------------------------------------ paraphrase
@@ -384,13 +388,13 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:648",
+                "gdpr-full:625",
                 ANSWERS,
                 "Article 33(1): the 72-hour deadline the question asks for."
             ),
             _J("seed:gdpr-excerpts:23", ANSWERS, "Article 33(1) as a seeded excerpt."),
             _J(
-                "gdpr-full:649",
+                "gdpr-full:626",
                 SUPPORTS,
                 "Reasons must accompany a notification made after 72 hours."
             ),
@@ -405,16 +409,16 @@ QUESTIONS: tuple[Question, ...] = (
         kind="paraphrase",
         note="Article 17(1) and 17(3), asked without the words 'erasure' or 'data subject'.",
         judgements=(
-            _J("gdpr-full:565", ANSWERS, "Article 17(1): the right to obtain erasure."),
+            _J("gdpr-full:546", ANSWERS, "Article 17(1): the right to obtain erasure."),
             _J("seed:gdpr-excerpts:14", ANSWERS, "Article 17(1) as a seeded excerpt."),
             _J(
-                "gdpr-full:570",
+                "gdpr-full:551",
                 ANSWERS,
                 "Article 17(3): the exceptions. This answers the second half of the question, "
                 "which is the half a real researcher actually needs.",
             ),
-            _J("gdpr-full:566", SUPPORTS, "The grounds on which erasure may be demanded."),
-            _J("gdpr-full:567", SUPPORTS, "Further grounds, 17(1)(c) to (e)."),
+            _J("gdpr-full:547", SUPPORTS, "The grounds on which erasure may be demanded."),
+            _J("gdpr-full:548", SUPPORTS, "Further grounds, 17(1)(c) to (e)."),
         ),
     ),
     Question(
@@ -424,13 +428,13 @@ QUESTIONS: tuple[Question, ...] = (
         note="Article 13, with 'people' for data subject and 'details' for personal data.",
         judgements=(
             _J(
-                "gdpr-full:533",
+                "gdpr-full:517",
                 ANSWERS,
                 "Article 13(1): the information to be provided at collection."
             ),
-            _J("gdpr-full:534", SUPPORTS, "Purposes, legal basis and recipients."),
-            _J("gdpr-full:536", SUPPORTS, "13(2): the further information required."),
-            _J("gdpr-full:537", SUPPORTS, "13(2)(b): the rights that must be mentioned."),
+            _J("gdpr-full:518", SUPPORTS, "Purposes, legal basis and recipients."),
+            _J("gdpr-full:520", SUPPORTS, "13(2): the further information required."),
+            _J("gdpr-full:521", SUPPORTS, "13(2)(b): the rights that must be mentioned."),
         ),
     ),
     Question(
@@ -442,16 +446,16 @@ QUESTIONS: tuple[Question, ...] = (
             "fines' and 'company' rather than 'undertaking'."
         ),
         judgements=(
-            _J("gdpr-full:979", ANSWERS, "The upper tier: 20 000 000 EUR or 4 % of turnover."),
-            _J("gdpr-full:977", ANSWERS, "The lower tier: 10 000 000 EUR or 2 % of turnover."),
+            _J("gdpr-full:935", ANSWERS, "The upper tier: 20 000 000 EUR or 4 % of turnover."),
+            _J("gdpr-full:933", ANSWERS, "The lower tier: 10 000 000 EUR or 2 % of turnover."),
             _J("seed:gdpr-excerpts:29", ANSWERS, "Article 83(5) as a seeded excerpt."),
             _J(
-                "gdpr-full:982",
+                "gdpr-full:937",
                 SUPPORTS,
                 "83(6): the same ceiling for ignoring an authority's order."
             ),
             _J(
-                "gdpr-full:970",
+                "gdpr-full:927",
                 SUPPORTS,
                 "83(1): fines must be effective, proportionate and dissuasive — the qualifier a "
                 "reader needs before quoting a ceiling.",
@@ -468,13 +472,13 @@ QUESTIONS: tuple[Question, ...] = (
         note="Article 35, without the phrase 'data protection impact assessment' anywhere in it.",
         judgements=(
             _J(
-                "gdpr-full:658",
+                "gdpr-full:635",
                 ANSWERS,
                 "Article 35(1): assessment required prior to the processing."
             ),
             _J("seed:gdpr-excerpts:25", ANSWERS, "Article 35(1) as a seeded excerpt."),
-            _J("gdpr-full:660", SUPPORTS, "35(3)(a): one of the cases where it is mandatory."),
-            _J("gdpr-full:661", SUPPORTS, "35(3)(b) and (c): the other mandatory cases."),
+            _J("gdpr-full:637", SUPPORTS, "35(3)(a): one of the cases where it is mandatory."),
+            _J("gdpr-full:638", SUPPORTS, "35(3)(b) and (c): the other mandatory cases."),
         ),
     ),
     Question(
@@ -491,19 +495,19 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:678",
+                "gdpr-full:655",
                 ANSWERS,
                 "Article 37(1): when a data protection officer must be designated."
             ),
             _J("seed:gdpr-excerpts:26", ANSWERS, "Article 37(1) as a seeded excerpt."),
-            _J("gdpr-full:679", SUPPORTS, "37(1)(b): the large-scale monitoring trigger."),
-            _J("gdpr-full:680", SUPPORTS, "37(1)(c): the special-categories trigger."),
+            _J("gdpr-full:656", SUPPORTS, "37(1)(b): the large-scale monitoring trigger."),
+            _J("gdpr-full:657", SUPPORTS, "37(1)(c): the special-categories trigger."),
             _J(
-                "gdpr-full:690",
+                "gdpr-full:665",
                 SUPPORTS,
                 "Article 39(1)(a): to inform and advise — 'what they do'."
             ),
-            _J("gdpr-full:691", SUPPORTS, "Article 39(1)(b): to monitor compliance."),
+            _J("gdpr-full:666", SUPPORTS, "Article 39(1)(b): to monitor compliance."),
         ),
     ),
     Question(
@@ -519,19 +523,19 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:740",
+                "gdpr-full:714",
                 ANSWERS,
                 "Article 44: the general principle governing any transfer."
             ),
             _J("seed:gdpr-excerpts:27", ANSWERS, "Article 44 as a seeded excerpt."),
-            _J("gdpr-full:742", SUPPORTS, "Article 45(1): the adequacy-decision route."),
-            _J("gdpr-full:758", SUPPORTS, "Article 46(1): the appropriate-safeguards route."),
+            _J("gdpr-full:716", SUPPORTS, "Article 45(1): the adequacy-decision route."),
+            _J("gdpr-full:729", SUPPORTS, "Article 46(1): the appropriate-safeguards route."),
             _J(
-                "gdpr-full:759",
+                "gdpr-full:730",
                 SUPPORTS,
                 "46(2): binding corporate rules and the other instruments."
             ),
-            _J("gdpr-full:760", SUPPORTS, "46(2)(c) and (d): standard data protection clauses."),
+            _J("gdpr-full:731", SUPPORTS, "46(2)(c) and (d): standard data protection clauses."),
         ),
     ),
     # --------------------------------------------------------------- synonym
@@ -545,10 +549,10 @@ QUESTIONS: tuple[Question, ...] = (
             "chunk shares almost no content word with the question."
         ),
         judgements=(
-            _J("gdpr-full:457", ANSWERS, "Article 4(7): the definition of controller."),
+            _J("gdpr-full:444", ANSWERS, "Article 4(7): the definition of controller."),
             _J("seed:gdpr-excerpts:0", ANSWERS, "Article 4(7) as a seeded excerpt."),
             _J(
-                "gdpr-full:458",
+                "gdpr-full:445",
                 SUPPORTS,
                 "Article 4(8): the processor, the contrasting role. A reader asking who decides "
                 "needs to know who merely acts on instructions.",
@@ -566,21 +570,21 @@ QUESTIONS: tuple[Question, ...] = (
         note="'Supplier' for processor; the word 'processor' does not appear in the question.",
         judgements=(
             _J(
-                "gdpr-full:615",
+                "gdpr-full:594",
                 ANSWERS,
                 "Article 28(1): sufficient guarantees required of a processor."
             ),
             _J(
-                "gdpr-full:617",
+                "gdpr-full:596",
                 ANSWERS,
                 "Article 28(3): the mandatory contract and what it must set out."
             ),
             _J("seed:gdpr-excerpts:16", ANSWERS, "Article 28(1) as a seeded excerpt."),
             _J("seed:gdpr-excerpts:18", ANSWERS, "Article 28(3) as a seeded excerpt."),
-            _J("gdpr-full:618", SUPPORTS, "28(3)(a): processing only on documented instructions."),
+            _J("gdpr-full:597", SUPPORTS, "28(3)(a): processing only on documented instructions."),
             _J("seed:gdpr-excerpts:19", SUPPORTS, "Article 28(3)(a) as a seeded excerpt."),
             _J(
-                "gdpr-full:458",
+                "gdpr-full:445",
                 SUPPORTS,
                 "Article 4(8): what a processor is, for a reader who does not know the term."
             ),
@@ -600,14 +604,14 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:505",
+                "gdpr-full:489",
                 ANSWERS,
                 "Article 9(1): the prohibition, naming exactly these categories."
             ),
-            _J("gdpr-full:506", SUPPORTS, "9(2)(a): the explicit-consent exception."),
-            _J("gdpr-full:507", SUPPORTS, "9(2)(b): the employment and social security exception."),
+            _J("gdpr-full:490", SUPPORTS, "9(2)(a): the explicit-consent exception."),
+            _J("gdpr-full:491", SUPPORTS, "9(2)(b): the employment and social security exception."),
             _J(
-                "gdpr-full:504",
+                "gdpr-full:488",
                 SUPPORTS,
                 "Carries the Article 9 heading, which names the category the question describes."
             ),
@@ -623,14 +627,14 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:797",
+                "gdpr-full:766",
                 ANSWERS,
                 "Article 51(1): each Member State provides an independent authority."
             ),
-            _J("gdpr-full:834", ANSWERS, "Article 58(1): the investigative powers."),
-            _J("gdpr-full:836", SUPPORTS, "Opens 58(2), the corrective powers."),
-            _J("gdpr-full:835", SUPPORTS, "Further investigative powers, 58(1)(c) to (e)."),
-            _J("gdpr-full:796", SUPPORTS, "Carries the Chapter VI and Article 51 headings."),
+            _J("gdpr-full:800", ANSWERS, "Article 58(1): the investigative powers."),
+            _J("gdpr-full:802", SUPPORTS, "Opens 58(2), the corrective powers."),
+            _J("gdpr-full:801", SUPPORTS, "Further investigative powers, 58(1)(c) to (e)."),
+            _J("gdpr-full:764", SUPPORTS, "Carries the Chapter VI and Article 51 headings."),
         ),
     ),
     Question(
@@ -643,12 +647,12 @@ QUESTIONS: tuple[Question, ...] = (
         note="'Data portability' never appears; the question describes the effect instead.",
         judgements=(
             _J(
-                "gdpr-full:578",
+                "gdpr-full:560",
                 ANSWERS,
                 "Article 20(1): the right to receive and transmit the data."
             ),
-            _J("gdpr-full:579", SUPPORTS, "20(2): direct controller-to-controller transmission."),
-            _J("gdpr-full:577", SUPPORTS, "Carries the Article 20 heading."),
+            _J("gdpr-full:561", SUPPORTS, "20(2): direct controller-to-controller transmission."),
+            _J("gdpr-full:559", SUPPORTS, "Carries the Article 20 heading."),
         ),
     ),
     Question(
@@ -663,15 +667,15 @@ QUESTIONS: tuple[Question, ...] = (
             "shared with the definition is 'separately'."
         ),
         judgements=(
-            _J("gdpr-full:455", ANSWERS, "Article 4(5): the definition of pseudonymisation."),
+            _J("gdpr-full:442", ANSWERS, "Article 4(5): the definition of pseudonymisation."),
             _J("gdpr-full:64", SUPPORTS, "Recital 28: what pseudonymisation is for."),
             _J(
-                "gdpr-full:643",
+                "gdpr-full:620",
                 SUPPORTS,
                 "Article 32(1)(a): pseudonymisation as a security measure."
             ),
             _J(
-                "gdpr-full:603",
+                "gdpr-full:584",
                 SUPPORTS,
                 "Article 25(1): pseudonymisation as a data-protection-by-design measure."
             ),
@@ -692,20 +696,20 @@ QUESTIONS: tuple[Question, ...] = (
             "half the question — which recall@5 sees and MRR does not."
         ),
         judgements=(
-            _J("gdpr-full:648", ANSWERS, "Article 33(1): 72 hours, to the supervisory authority."),
+            _J("gdpr-full:625", ANSWERS, "Article 33(1): 72 hours, to the supervisory authority."),
             _J(
-                "gdpr-full:653",
+                "gdpr-full:630",
                 ANSWERS,
                 "Article 34(1): without undue delay, to the data subject, on high risk."
             ),
             _J("seed:gdpr-excerpts:23", ANSWERS, "Article 33(1) as a seeded excerpt."),
             _J("seed:gdpr-excerpts:24", ANSWERS, "Article 34(1) as a seeded excerpt."),
             _J(
-                "gdpr-full:654",
+                "gdpr-full:631",
                 SUPPORTS,
                 "34(2): what the communication to the individual must say."
             ),
-            _J("gdpr-full:656", SUPPORTS, "34(3): when the individual need not be told."),
+            _J("gdpr-full:633", SUPPORTS, "34(3): when the individual need not be told."),
         ),
     ),
     Question(
@@ -721,20 +725,20 @@ QUESTIONS: tuple[Question, ...] = (
             "answer, which is what makes this a hop rather than a long question."
         ),
         judgements=(
-            _J("gdpr-full:486", ANSWERS, "Article 6(1) opening and point (a)."),
-            _J("gdpr-full:505", ANSWERS, "Article 9(1): the prohibition on health data."),
+            _J("gdpr-full:471", ANSWERS, "Article 6(1) opening and point (a)."),
+            _J("gdpr-full:489", ANSWERS, "Article 9(1): the prohibition on health data."),
             _J(
-                "gdpr-full:506",
+                "gdpr-full:490",
                 ANSWERS,
                 "Article 9(2)(a): the additional ground of explicit consent."
             ),
             _J(
-                "gdpr-full:487",
+                "gdpr-full:472",
                 SUPPORTS,
                 "6(1)(b) to (d): contract, legal obligation, vital interests."
             ),
             _J(
-                "gdpr-full:489",
+                "gdpr-full:473",
                 SUPPORTS,
                 "6(1)(f): legitimate interests, the sixth of the lawful grounds."
             ),
@@ -752,23 +756,23 @@ QUESTIONS: tuple[Question, ...] = (
         note="Article 15 for access, Article 16 for rectification — adjacent but distinct rights.",
         judgements=(
             _J(
-                "gdpr-full:557",
+                "gdpr-full:539",
                 ANSWERS,
                 "Article 15(1): the right of access and what comes with it."
             ),
-            _J("gdpr-full:563", ANSWERS, "Article 16: the right to rectification."),
+            _J(
+                "gdpr-full:545",
+                ANSWERS,
+                "Article 16: the right to rectification. "
+                "Article 16's second sentence: completing incomplete data."
+            ),
             _J("seed:gdpr-excerpts:13", ANSWERS, "Article 15(1) as a seeded excerpt."),
             _J(
-                "gdpr-full:558",
+                "gdpr-full:540",
                 SUPPORTS,
                 "15(1)(b) and (c): the categories and recipients disclosed."
             ),
-            _J("gdpr-full:559", SUPPORTS, "15(1)(d) to (g): retention, rights, complaint, source."),
-            _J(
-                "gdpr-full:564",
-                SUPPORTS,
-                "Article 16's second sentence: completing incomplete data."
-            ),
+            _J("gdpr-full:541", SUPPORTS, "15(1)(d) to (g): retention, rights, complaint, source."),
         ),
     ),
     Question(
@@ -785,14 +789,14 @@ QUESTIONS: tuple[Question, ...] = (
             "the exemption is the half a reader is actually looking for."
         ),
         judgements=(
-            _J("gdpr-full:632", ANSWERS, "Article 30(1): every controller must maintain a record."),
+            _J("gdpr-full:611", ANSWERS, "Article 30(1): every controller must maintain a record."),
             _J(
-                "gdpr-full:640",
+                "gdpr-full:618",
                 ANSWERS,
                 "Article 30(5): the fewer-than-250-persons exemption and its conditions."
             ),
             _J("seed:gdpr-excerpts:21", ANSWERS, "Article 30(1) as a seeded excerpt."),
-            _J("gdpr-full:636", SUPPORTS, "Article 30(2): the processor's parallel obligation."),
+            _J("gdpr-full:614", SUPPORTS, "Article 30(2): the processor's parallel obligation."),
         ),
     ),
     Question(
@@ -809,27 +813,27 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         judgements=(
             _J(
-                "gdpr-full:758",
+                "gdpr-full:729",
                 ANSWERS,
                 "Article 46(1): transfers in the absence of an adequacy decision."
             ),
             _J(
-                "gdpr-full:759",
+                "gdpr-full:730",
                 ANSWERS,
                 "46(2): the instruments that provide appropriate safeguards."
             ),
-            _J("gdpr-full:742", ANSWERS, "Article 45(1): what an adequacy decision is."),
             _J(
-                "gdpr-full:743",
-                SUPPORTS,
+                "gdpr-full:716",
+                ANSWERS,
+                "Article 45(1): what an adequacy decision is. "
                 "45(2): opening of the elements the Commission assesses."
             ),
             _J(
-                "gdpr-full:744",
+                "gdpr-full:717",
                 SUPPORTS,
                 "45(2)(a): the rule of law and access by public authorities."
             ),
-            _J("gdpr-full:760", SUPPORTS, "46(2)(c) and (d): standard data protection clauses."),
+            _J("gdpr-full:731", SUPPORTS, "46(2)(c) and (d): standard data protection clauses."),
         ),
     ),
     # ---------------------------------------------------------- unanswerable

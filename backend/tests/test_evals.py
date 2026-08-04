@@ -8,7 +8,7 @@ in a README.
 
 The file is deliberately almost free of the database and entirely free of the
 embedding model. What needs a real corpus is the manifest guard, and that needs
-only `pypdf`.
+only `pdfminer.six`.
 """
 
 from __future__ import annotations
@@ -571,7 +571,7 @@ def test_the_gold_set_hash_ignores_prose_and_notices_a_grade() -> None:
     assert goldset_sha256((regraded, *QUESTIONS[1:])) != baseline
 
 # ---------------------------------------------------------------------------
-# the gold set against the real corpus (pypdf only: no database, no model)
+# the gold set against the real corpus (pdfminer.six only: no database, no model)
 # ---------------------------------------------------------------------------
 
 def test_the_parsed_corpus_is_the_one_the_manifest_was_written_for() -> None:
@@ -583,17 +583,26 @@ def test_the_parsed_corpus_is_the_one_the_manifest_was_written_for() -> None:
     """
     assert_corpus_matches_manifest(build_corpus(), load_manifest())
 
-def test_the_corpus_is_1057_chunks_from_two_sources() -> None:
-    """1027 catalogue chunks and 30 seeded excerpts, measured rather than
+def test_the_corpus_is_1008_chunks_from_two_sources() -> None:
+    """978 catalogue chunks and 30 seeded excerpts, measured rather than
     estimated. The catalogue's own `expected_chunks` is the other place this
-    number is written down, and they have to agree."""
+    number is written down, and they have to agree.
+
+    Was 1057 (1027 + 30) while the parser used `pypdf`. The catalogue chunk
+    count moved to 978 when `pdfminer.six` replaced it, because pypdf's
+    word-splitting had inflated the extracted text by 13,863 characters of
+    spurious spaces; see `catalogue.py` and `task-22-report.md`. The gold set
+    was re-bound onto the new ordinals in task-26-rebind-report.md — this number
+    changing is what forced that work, and it is asserted here so a future
+    extractor change cannot move it quietly.
+    """
     chunks = build_corpus()
-    assert len(chunks) == 1057
+    assert len(chunks) == 1008
     assert Counter(chunk.source_key for chunk in chunks) == {
-        "gdpr-full": 1027,
+        "gdpr-full": 978,
         "seed:gdpr-excerpts": 30,
     }
-    assert CATALOGUE["gdpr-full"].expected_chunks == 1027
+    assert CATALOGUE["gdpr-full"].expected_chunks == 978
 
 def test_every_chunk_the_gold_set_names_exists_in_the_corpus() -> None:
     """A judgement about a chunk that is not there scores as a permanent miss and
@@ -637,7 +646,7 @@ async def test_every_seeded_chunk_in_a_tenants_corpus_is_addressable(
     purpose: `copy_corpus_into` is the code path that had the defect, it needs no
     embedding model (the vectors come from the committed file), and it finishes
     in milliseconds. The same property is checked against the eval organisation's
-    full 1057-chunk corpus by `run.py`, after seeding and before the first search.
+    full 1008-chunk corpus by `run.py`, after seeding and before the first search.
     """
     org_id = str(uuid.uuid4())
     async with system_session() as session:

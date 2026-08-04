@@ -69,11 +69,11 @@ from app.worker.tasks import EMBED_BATCH
 #
 # Fixed: `--write` and `--check` both start by deleting this organisation's
 # chunks and rewriting them, so a run that died halfway leaves nothing behind to
-# skew the next one. A random id would leave one abandoned ~1057-chunk corpus
+# skew the next one. A random id would leave one abandoned ~1008-chunk corpus
 # per crashed run.
 #
 # Expiring: unlike `PUBLIC_CORPUS_ORG_ID`, which is permanent because the
-# application needs it, this organisation is scaffolding. ~1057 chunks plus
+# application needs it, this organisation is scaffolding. ~1008 chunks plus
 # their 384-float embeddings is a couple of megabytes, and a permanent copy of
 # it would sit in a Postgres container limited to 384 MB forever, for numbers
 # nobody reads out of the database. An hour is longer than any run and shorter
@@ -139,7 +139,7 @@ def content_digest(content: str) -> str:
 def _refuse_on_a_public_box(settings: Settings) -> None:
     """Neither `--write` nor `--check` may ever run against the demo deployment.
 
-    Seeding the eval corpus is ~1057 inserts and ~1027 ONNX inferences. The box
+    Seeding the eval corpus is ~1008 inserts and ~978 ONNX inferences. The box
     has two cores, one of them already someone else's production, and the API
     runs `--workers 1`. Running this there would stall every open SSE stream for
     the duration of a measurement whose whole purpose is to be reproducible
@@ -284,9 +284,11 @@ def assert_corpus_matches_manifest(
     has to stop a measurement, not enter one.
 
     The per-source counts are checked before the hashes because they localise
-    the problem better: "gdpr-full has 1041 chunks, the manifest was written for
+    the problem better: "gdpr-full has 978 chunks, the manifest was written for
     1027" names the source that moved, where a hash mismatch on ordinal 184 only
-    says something moved somewhere before it.
+    says something moved somewhere before it. That is not a hypothetical — it is
+    verbatim what this guard raised when the extractor was replaced, and it is
+    what stopped a measurement from being taken against a renumbered corpus.
     """
     counts: dict[str, int] = {}
     for chunk in chunks:
@@ -377,7 +379,7 @@ async def seed_eval_corpus(session: AsyncSession) -> list[SeededChunk]:
     organisation is refused by Postgres rather than written.
 
     Embedding happens in `embed_corpus`, **before** this is called, and
-    deliberately outside the transaction: ~1027 ONNX inferences is over a minute
+    deliberately outside the transaction: ~978 ONNX inferences is over a minute
     of CPU, and holding a transaction open across it turns a measurement into
     lock contention with anything else using the same database.
     """

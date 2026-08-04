@@ -55,7 +55,12 @@ CATALOGUE: dict[str, Source] = {
         pages=88,
         # Measured against the committed file by parse_source(), not guessed:
         # see task-22-report.md for the run that produced this number.
-        expected_chunks=1027,
+        # Changed from 1027 to 978 in "Fix round 1" — pypdf's extraction of
+        # this PDF was replaced with pdfminer.six after the eval task found it
+        # broke words apart on nearly every line; the paragraph-boundary rule
+        # this parser uses only fires correctly on clean text, so the count
+        # moved along with the extractor, as documented there.
+        expected_chunks=978,
         # The Publications Office's own PDF export for this CELEX number, the
         # same 88-page OJ L 119 typesetting `seed/gdpr_excerpts.json` was taken
         # from (`content_format.extraction` in that file). Fetched, not the

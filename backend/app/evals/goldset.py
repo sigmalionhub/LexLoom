@@ -202,10 +202,17 @@ _J = Judgement
 # rambling.
 #
 # Where the two merged judgements carried **different grades, the higher one is
-# kept**. The merged chunk does contain the answering content, so grading it
-# SUPPORTS would understate it — and `recall_at_k` and `ndcg_at_k` both read the
-# grade, so understating it would depress the metric for a reason that has
-# nothing to do with retrieval. See `task-26-rebind-report.md` §5.
+# kept**, for two reasons. `ndcg_at_k` reads the grade as a value, so grading a
+# chunk that answers the question SUPPORTS would depress nDCG for a reason that
+# has nothing to do with retrieval. And
+# `test_every_answerable_question_has_a_chunk_that_actually_answers_it` requires
+# at least one grade-2 judgement per answerable question, which taking the lower
+# grade could remove outright.
+#
+# Note that `recall_at_k`, `precision_at_k` and `reciprocal_rank` are all binary
+# in the grade (`grade > 0`; see `score.py`) and cannot see this choice at all.
+# `ndcg_at_k` is the only scorer the grade's *value* reaches.
+# See `task-26-rebind-report.md` §5.
 QUESTIONS: tuple[Question, ...] = (
     # -------------------------------------------------------------- verbatim
     Question(
@@ -658,7 +665,18 @@ QUESTIONS: tuple[Question, ...] = (
             _J("gdpr-full:800", ANSWERS, "Article 58(1): the investigative powers."),
             _J("gdpr-full:802", SUPPORTS, "Opens 58(2), the corrective powers."),
             _J("gdpr-full:801", SUPPORTS, "Further investigative powers, 58(1)(c) to (e)."),
-            _J("gdpr-full:764", SUPPORTS, "Carries the Chapter VI and Article 51 headings."),
+            _J(
+                "gdpr-full:764",
+                SUPPORTS,
+                "Carries the Chapter VI heading and the Section 1 title — the run-up to "
+                "Article 51. [Re-bound 2026-08-05: this reason read 'the Chapter VI and "
+                "Article 51 headings' while one chunk held both. The reparse separated them: "
+                "the Article 51 heading is now in the adjacent gdpr-full:765, a 72-character "
+                "fragment that is almost entirely the letter-spaced 'S ect i on 1' damage this "
+                "document's typesetting produces, and again at the head of gdpr-full:766, which "
+                "this question already judges. See task-26-rebind-report.md §4.9 for why this "
+                "chunk is still the right binding.]"
+            ),
         ),
     ),
     Question(

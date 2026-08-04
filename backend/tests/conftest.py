@@ -79,10 +79,35 @@ WHERE a.attname = 'org_id'
   AND c.relnamespace = 'public'::regnamespace
 """
 
+from app.chat.embedding import cache_dir, model_is_cached  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db.session import system_session, tenant_session  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.worker.celery_app import celery_app  # noqa: E402
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip the `model` tests when the ONNX weights are not on disk.
+
+    CI installs dependencies onto a bare runner: there is no image and, on a
+    cold cache, no model. Without this the suite downloads ~90 MB per run to
+    re-establish that 384 is still 384, and goes red for a HuggingFace outage
+    that has nothing to do with the code. `actions/cache` restores the weights
+    when it can; when it cannot, these tests are skipped rather than slow.
+
+    Skipping rather than failing, because an absent model is not a defect in
+    anything — and because the two properties at stake are each also covered
+    without it: the dimension against the ORM column, the loading discipline
+    against the source of `signals.py`. What only the real model can prove is
+    that those two agree with the weights actually shipped, which is worth
+    running where the weights exist and worth nothing where they do not.
+    """
+    if model_is_cached():
+        return
+    skip = pytest.mark.skip(reason=f"ONNX model not cached in {cache_dir()}")
+    for item in items:
+        if "model" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture

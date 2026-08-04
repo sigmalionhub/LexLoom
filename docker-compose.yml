@@ -19,7 +19,16 @@ services:
       # The container's internal port stays 5432, so nothing else changes.
       - "127.0.0.1:5433:5432"
     restart: unless-stopped
+    # `memswap_limit` equal to `mem_limit` on every service, and the equality is
+    # the whole instruction: Docker reads memswap_limit as memory PLUS swap, so
+    # setting them equal leaves zero swap for the container. Without it a
+    # container may take its limit a second time in swap — the 650m worker
+    # becomes 650m of RAM and 650m of swap — and on a box shared with someone
+    # else's production the thrashing is paid by the neighbours, not by the
+    # container that caused it. The host's swap stays what the deployment notes
+    # always claimed it was: a buffer for the system as a whole.
     mem_limit: 384m
+    memswap_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lexloom_migrator -d lexloom"]
       interval: 5s
@@ -33,6 +42,7 @@ services:
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
     mem_limit: 64m
+    memswap_limit: 64m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -105,7 +115,16 @@ services:
     ports:
       - "127.0.0.1:8100:8100"
     restart: unless-stopped
+    # Unchanged at 450m, and that is a measured decision rather than an
+    # oversight. This process now holds the embedding model: measured 216 MiB
+    # resident once loaded, and flat through a batch of eight, which is more
+    # than the request path ever asks for — it embeds one question at a time,
+    # two at a time at the semaphore's ceiling. Against a baseline of ~57 MiB
+    # observed on the running stack that lands near 280 MiB, with real slack
+    # under the existing limit. Raising it would have cost the neighbours
+    # headroom to buy nothing.
     mem_limit: 450m
+    memswap_limit: 450m
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -142,7 +161,17 @@ services:
     # than `always` so a deliberate `docker compose stop` survives a daemon
     # restart.
     restart: unless-stopped
+    # Unchanged at 650m, also measured. The worker embeds in batches, and batch
+    # size — not the model — is what moves this number: 216 MiB resident, flat
+    # to a batch of 8, 253 MiB at 16, 315 MiB at 32, 444 MiB at 64. Against a
+    # baseline of ~68 MiB observed on the running stack, a batch of 32 lands
+    # near 383 MiB and a batch of 64 near 512 MiB. 650m holds the first
+    # comfortably and the second with less room than anyone should want, so
+    # whoever writes the ingest loop in Task 20 is choosing a memory limit when
+    # they choose a batch size. Thirty-two is the size these numbers were taken
+    # at; going past it needs this line revisited, not just a bigger batch.
     mem_limit: 650m
+    memswap_limit: 650m
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

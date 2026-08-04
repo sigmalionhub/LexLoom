@@ -41,6 +41,28 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v4
+      # The ONNX embedding weights, ~90 MB, fetched from HuggingFace on a miss.
+      # This job installs onto a bare runner — there is no image, so nothing has
+      # baked them in the way backend/Dockerfile does for the deployment.
+      # Without this, every run downloads them, and a HuggingFace outage turns
+      # CI red for a reason that has nothing to do with the code. On a miss the
+      # suite does not download either: tests/conftest.py skips the tests marked
+      # `model` when the cache is empty, so a cold run is fast rather than
+      # networked, and the properties those tests hold are covered without the
+      # weights as well.
+      #
+      # `~/.cache/fastembed` is the path app/chat/embedding.py falls back to when
+      # FASTEMBED_CACHE_PATH is unset, which is the case here. The two must not
+      # drift, or this restores into a directory nothing reads.
+      #
+      # This key is written once, here, and copied verbatim by the `evals` job
+      # in Task 27. Two spellings of one key are two keys: the entry silently
+      # stops being shared, each job downloads its own copy, and nothing in
+      # either workflow shows why.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ runner.os }}-${{ hashFiles('backend/app/chat/embedding.py', 'backend/pyproject.toml') }}
       - run: uv pip install --system -e "backend[dev]"
       - name: Create application roles
         # Must grant exactly what deploy/postgres/init/01-roles.sh grants for the

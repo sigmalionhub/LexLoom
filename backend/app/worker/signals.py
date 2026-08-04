@@ -37,4 +37,32 @@ def on_worker_process_init(**_: object) -> None:
         await engine.dispose()
 
     asyncio.run(_check())
-    logger.info("worker_process_initialised")
+
+    # After the database work above, not before it: the connections inherited
+    # across the fork are released first, and only then is ~216 MiB of model
+    # made resident. Doing it the other way round holds both at once for no
+    # reason, on a box where that margin is most of the budget.
+    #
+    # Imported inside the handler, and `app.chat.embedding` in turn imports
+    # fastembed inside `_load()`, so the parent never touches ONNX at all.
+    #
+    # The reason that is *measured* is memory: a model built in the parent is
+    # inherited by every child, and ONNX Runtime writes into its arena on first
+    # inference, so copy-on-write does not save the copy — each child pays
+    # ~216 MiB regardless, at an unpredictable moment instead of at start-up.
+    #
+    # The reason in this module's docstring — that a parent-built
+    # InferenceSession hangs in the child — was probed for this task and did not
+    # reproduce at fastembed 0.5.1: a session built before the fork embedded
+    # correctly afterwards, at OMP_NUM_THREADS=1 and at 4. It remains the
+    # documented hazard of fork() plus a thread pool and the discipline is kept,
+    # but it is not, on this version, a demonstrated one. See the task 19 report.
+    #
+    # Eagerly rather than on first use, so compiling the graph is paid at worker
+    # start-up rather than inside the first task, where it would count against
+    # `task_soft_time_limit`.
+    from app.chat.embedding import get_embedder
+
+    get_embedder()._ensure()
+
+    logger.info("worker_process_initialised", embedding_model_loaded=True)

@@ -16,6 +16,15 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "httpx>=0.28",
     "pgvector>=0.3.6",
+    # The ONNX embedding runtime. Upper-bounded, unlike everything above it,
+    # and the bound is the point: this is the only dependency whose minor
+    # version can change how much memory this process holds. The container
+    # limits are sized against a measured 216 MiB resident and 315 MiB at a
+    # batch of 32 (fastembed 0.5.1, all-MiniLM-L6-v2) on a 2 GB box shared with
+    # someone else's production. A floating minor that bumps ONNX Runtime would
+    # move that number without moving any line in this repository, and the
+    # first symptom would be an OOM kill of a neighbour.
+    "fastembed>=0.5.1,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -71,3 +80,10 @@ testpaths = ["tests"]
 # CI runner while still turning a genuine hang into a reported failure with a
 # traceback pointing at the line that hung.
 timeout = 120
+# Registered rather than left implicit, so `--strict-markers` stays available
+# and a typo in the decorator is an error instead of a test that never runs.
+# conftest.py skips these when the weights are absent; see the hook there for
+# why an absent model is a skip and not a failure.
+markers = [
+    "model: needs the real ONNX embedding weights on disk (~90 MB)",
+]

@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "note": "Thresholds `python -m app.evals.run --check` enforces. Deliberately empty here: a floor is only meaningful once the run-to-run spread of the metric is known, and Task 26 measured one run. Task 27 measures the spread and sets the numbers. An empty `modes` object makes --check report that it enforced nothing, which reads differently from a gate that passed.",
+  "modes": {}
+}

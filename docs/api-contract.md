@@ -13,7 +13,7 @@ Base URL in development: `http://127.0.0.1:8100`.
 
 ## 1. The whole surface
 
-Eight routes. That is the entire API.
+Twelve routes. That is the entire API.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
@@ -39,10 +39,13 @@ caller's organisation has already ingested something and `503` (with `Retry-Afte
 the stream endpoint) when the global cap on organisations holding a corpus is held. See
 [§6.1](#61-refusals-429-503-and-retry-after).
 
-**There are no read endpoints.** No conversation list, no message list, no
-`GET /conversations/{id}`. A client holds the state it created, or it loses it on
+**There is no way to read back a conversation.** No conversation list, no message list,
+no `GET /conversations/{id}`. A client holds the state it created, or it loses it on
 reload. This is a real limitation, not an omission from the document — see
-[§9](#9-what-this-api-does-not-have).
+[§9](#9-what-this-api-does-not-have). It does not mean the surface has no `GET` route
+that returns data: three now do (`GET /api/v1/status`, `GET /api/v1/generators`,
+`GET /api/v1/ingest/status`), and none of them is the exception the paragraph above is
+guarding against — each for a different reason, worked out below.
 
 `GET /api/v1/status` reads back as a read endpoint by shape — it answers `GET` with a
 body and no bearer token — but it is not the exception the sentence above is guarding
@@ -53,6 +56,14 @@ distributions) that exist before and independently of any organisation, so there
 nothing tenant-scoped in it for the missing token to have protected. Compare this with
 the four bearer-token routes above, every one of which reads or writes a specific
 organisation's rows and would be a different kind of hole if it took none.
+
+`GET /api/v1/generators` is the same argument as `GET /api/v1/status`, not a fourth one.
+It takes no token, accepts no `org_id`, and reads nothing tenant-scoped — the only thing
+it consults is `Settings.gemini_api_key`, a process-wide value from configuration, never
+a database row. What varies in its response is not which organisation is asking but
+whether the process was started with a Gemini key at all: with one, the list includes
+the two Gemini choices; without one, it answers `deterministic` alone, so a clone with no
+key still lists a working chat and simply never offers a choice it could not honour.
 
 `GET /api/v1/ingest/status` is not that exception either, for the opposite reason: it
 *is* tenant-scoped — it takes a bearer token and answers with the calling organisation's
@@ -726,9 +737,12 @@ to leak. See [ADR 0003](adr/0003-tenant-isolation.md), including what that does
 
 Stated because a contract with unstated holes is not a contract.
 
-- **No read endpoints.** No listing, no fetching a conversation, no history. Reload
-  the page and the conversation is gone from the UI, though the rows survive in the
-  database until the tenant expires.
+- **No way to read back a conversation.** No listing, no fetching a conversation, no
+  history. Reload the page and it is gone from the UI, though the rows survive in the
+  database until the tenant expires. This is not the same claim as "no `GET` route
+  returns data" — three now do (`GET /api/v1/status`, `GET /api/v1/generators`,
+  `GET /api/v1/ingest/status`) — see [§1](#1-the-whole-surface) for why none of them
+  is an exception to this one.
 - **No pagination**, because there is nothing to page.
 - **No `Idempotency-Key`**, on any endpoint. A retried `POST /conversations` creates
   a second conversation, and a retried `POST /messages` creates a second question.
@@ -741,10 +755,11 @@ Stated because a contract with unstated holes is not a contract.
   in 449 ms). It *is* metered, per client address ([§6.1](#61-refusals-429-503-and-retry-after)).
   What that does not bound is a caller spread across many addresses: nothing limits the
   box as a whole, and the 24-hour tenant TTL is what reclaims the rows.
-- **No delete or update** of anything. The only removal is the 24-hour tenant purge —
-  and that purge is currently declared on a schedule that nothing runs, so today it
-  happens only when invoked by hand. See
-  [ADR 0001](adr/0001-celery-over-arq.md#the-scheduler-is-declared-and-does-not-run).
+- **No delete or update** of anything. The only removal is the 24-hour tenant purge,
+  which a dedicated `beat` container now fires on an hourly schedule
+  (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`, `docker-compose.yml`) rather than waiting to be
+  invoked by hand — see [ADR 0001](adr/0001-celery-over-arq.md#the-scheduler-is-declared-and-does-not-run)
+  for the gap this closed and why it went unnoticed as long as it did.
 - **No `Last-Event-ID` / stream resumption.** Frames carry no `id:`.
 - **No `Retry-After` outside `429` and `503`.** Those two carry it; nothing else does,
   and there is no back-pressure signal on a successful response.

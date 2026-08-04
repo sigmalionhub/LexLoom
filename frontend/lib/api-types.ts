@@ -178,6 +178,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/status': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Status */
+    get: operations['get_status_api_v1_status_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -279,6 +296,44 @@ export interface components {
       n: string;
       /** E */
       e: string;
+    };
+    /** Percentiles */
+    Percentiles: {
+      /** P50 Ms */
+      p50_ms: number | null;
+      /** P95 Ms */
+      p95_ms: number | null;
+      /** P99 Ms */
+      p99_ms: number | null;
+      /** Samples */
+      samples: number;
+      /** Above Ms */
+      above_ms: number;
+      /** Above Count */
+      above_count: number;
+    };
+    /** RequestCounts */
+    RequestCounts: {
+      /** Total */
+      total: number;
+      /** By Class */
+      by_class: {
+        [key: string]: number;
+      };
+    };
+    /** ServiceStatus */
+    ServiceStatus: {
+      /** Commit */
+      commit: string;
+      /** Uptime Seconds */
+      uptime_seconds: number;
+      /** Window Seconds */
+      window_seconds: number;
+      requests: components['schemas']['RequestCounts'];
+      /** @description Time from the start of request handling to the response status line, over every route except the SSE stream, this endpoint and the health probes. */
+      time_to_response_start: components['schemas']['Percentiles'];
+      /** @description How long SSE streams stayed open. Not a latency: it is mostly the model. */
+      stream_duration: components['schemas']['Percentiles'];
     };
     /** StreamTicketRequest */
     StreamTicketRequest: {
@@ -545,6 +600,26 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  get_status_api_v1_status_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ServiceStatus'];
         };
       };
     };

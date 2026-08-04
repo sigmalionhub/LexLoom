@@ -314,6 +314,27 @@
           }
         }
       }
+    },
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Get Status",
+        "operationId": "get_status_api_v1_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -501,6 +522,123 @@
         ],
         "title": "JwksKey",
         "description": "One RSA public key, in the six members RFC 7517 needs to verify with.\n\nNamed rather than left as `dict[str, str]` so the *absence* of the private\nmembers is visible in the schema. `d`, `p` and `q` are not here, and a\nresponse model drops anything not declared — so if a future key source ever\nhanded them over, this endpoint would not pass them on."
+      },
+      "Percentiles": {
+        "properties": {
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Ms"
+          },
+          "p99_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99 Ms"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples"
+          },
+          "above_ms": {
+            "type": "integer",
+            "title": "Above Ms"
+          },
+          "above_count": {
+            "type": "integer",
+            "title": "Above Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "p50_ms",
+          "p95_ms",
+          "p99_ms",
+          "samples",
+          "above_ms",
+          "above_count"
+        ],
+        "title": "Percentiles"
+      },
+      "RequestCounts": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "by_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Class"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "by_class"
+        ],
+        "title": "RequestCounts"
+      },
+      "ServiceStatus": {
+        "properties": {
+          "commit": {
+            "type": "string",
+            "title": "Commit"
+          },
+          "uptime_seconds": {
+            "type": "integer",
+            "title": "Uptime Seconds"
+          },
+          "window_seconds": {
+            "type": "integer",
+            "title": "Window Seconds"
+          },
+          "requests": {
+            "$ref": "#/components/schemas/RequestCounts"
+          },
+          "time_to_response_start": {
+            "$ref": "#/components/schemas/Percentiles",
+            "description": "Time from the start of request handling to the response status line, over every route except the SSE stream, this endpoint and the health probes."
+          },
+          "stream_duration": {
+            "$ref": "#/components/schemas/Percentiles",
+            "description": "How long SSE streams stayed open. Not a latency: it is mostly the model."
+          }
+        },
+        "type": "object",
+        "required": [
+          "commit",
+          "uptime_seconds",
+          "window_seconds",
+          "requests",
+          "time_to_response_start",
+          "stream_duration"
+        ],
+        "title": "ServiceStatus"
       },
       "StreamTicketRequest": {
         "properties": {

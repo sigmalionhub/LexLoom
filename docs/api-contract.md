@@ -25,6 +25,7 @@ Eight routes. That is the entire API.
 | `POST` | `/api/v1/conversations/{conversation_id}/messages` | bearer | `202` |
 | `POST` | `/api/v1/auth/stream-tickets` | bearer | `200` |
 | `GET` | `/api/v1/conversations/{cid}/messages/{mid}/stream` | ticket | `200` (SSE) |
+| `GET` | `/api/v1/status` | none | `200` |
 
 `GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
 
@@ -37,6 +38,16 @@ see [§6.1](#61-refusals-429-503-and-retry-after).
 `GET /conversations/{id}`. A client holds the state it created, or it loses it on
 reload. This is a real limitation, not an omission from the document — see
 [§9](#9-what-this-api-does-not-have).
+
+`GET /api/v1/status` reads back as a read endpoint by shape — it answers `GET` with a
+body and no bearer token — but it is not the exception the sentence above is guarding
+against. It takes no token because it has none to check: it accepts no `org_id`, looks
+up no tenant, and touches no table that carries an `org_id` column. What it returns is
+aggregate, process-wide counters (uptime, request counts by status class, two latency
+distributions) that exist before and independently of any organisation, so there is
+nothing tenant-scoped in it for the missing token to have protected. Compare this with
+the four bearer-token routes above, every one of which reads or writes a specific
+organisation's rows and would be a different kind of hole if it took none.
 
 ---
 
@@ -698,3 +709,15 @@ Stated because a contract with unstated holes is not a contract.
   instructing the model to answer only from those sources and say so plainly when
   they do not contain the answer — a fabricated citation, formatted exactly like a
   real one, is the one failure mode a legal-research demo cannot afford.
+- **`GET /api/v1/status` publishes no stream occupancy and nothing per-organisation.**
+  It carries no `active`/`capacity` pair for the sixteen-stream ceiling — the same
+  reasoning [§6.1](#61-refusals-429-503-and-retry-after)'s `429`/`503` bodies already
+  follow: the limit and how much of it is spent are both information about the ceiling,
+  and an unauthenticated endpoint that hands that back for free turns probing into
+  knowing. It carries no breakdown by organisation either, which would leak which
+  organisations exist — including, for the length of a reporting window, ones the
+  24-hour purge has already destroyed. What it does publish is aggregate and
+  process-wide: the running commit, uptime, request counts by status class, and two
+  latency distributions (ordinary requests and SSE stream duration, kept separate
+  because a stream's duration is mostly the model and would otherwise drag the
+  headline latency figure towards "how long a visitor watched a stream").

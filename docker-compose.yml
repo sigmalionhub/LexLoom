@@ -40,7 +40,16 @@ services:
       retries: 10
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Not a value from `.env`. A SHA written into a file by hand is
+        # correct once and lies at every build after it; computed on the
+        # build command line it cannot drift from what is being built. Unset
+        # means `unknown`, which is the honest reading of "this image was not
+        # built through the runbook" — a plausible wrong SHA is worse than no
+        # SHA, because the field is read as a fact about what is deployed.
+        GIT_SHA: ${GIT_SHA:-unknown}
     environment:
       DATABASE_URL: postgresql+asyncpg://lexloom_app:${APP_DB_PASSWORD:-app}@postgres:5432/lexloom
       REDIS_URL: redis://redis:6379/0

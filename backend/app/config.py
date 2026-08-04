@@ -193,7 +193,7 @@ class Settings(BaseSettings):
     # the function's own docstring explains why the obvious unscoped query
     # returns 0 instead.
     #
-    # 8 x ~1.2 MB (1027 chunks x (~500 chars + a 384-float embedding)) is
+    # 8 x ~1.1 MB (978 chunks x (~500 chars + a 384-float embedding)) is
     # ~10 MB of Postgres held by ingested corpora at once, on a container
     # limited to 384 MB (docker-compose.yml). It also bounds the worker's
     # queue backlog: at most one ingest task per organisation

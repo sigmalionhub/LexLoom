@@ -16,8 +16,8 @@ is what every test below does instead.
 Tests that need the real ONNX weights carry `@pytest.mark.model`; conftest
 skips them when the cache is cold. The full-corpus round trip
 (`test_ingest_source_embeds_and_writes_the_full_catalogue_source`) is the
-slow one — measured at ~75 s wall-clock for 1027 chunks outside container CPU
-limits (see the task 23 report) — hence its own `@pytest.mark.timeout`,
+slow one — measured at ~75 s wall-clock outside container CPU limits (see the
+task 23 report) — hence its own `@pytest.mark.timeout`,
 above the suite's 120 s default (`pyproject.toml`).
 """
 
@@ -254,8 +254,11 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
     body calls `asyncio.run()`, which refuses to start inside the loop
     pytest-asyncio already has running.
 
-    Measured at ~75 s wall-clock for all 1027 chunks against the real
-    catalogue PDF, well inside `task_soft_time_limit=300` — see the task 23
+    Measured at ~75 s wall-clock against the real catalogue PDF, well inside
+    `task_soft_time_limit=300`. That figure was taken when the corpus was
+    1027 chunks and the parser was pypdf; it is now 978 chunks and a parser
+    that costs ~7 s more, so treat 75 s as the right order of magnitude
+    rather than a current reading — see the task 23
     report for the full docker-stats run (peak worker memory 452.7 MiB
     against the 650m container limit).
     """

@@ -346,9 +346,11 @@ done
 ```
 
 Expect `stage` to move `queued` → `parsing` → `chunking` → `embedding` → `indexing` →
-`complete`, `chunks_total` to hold once parsing finishes (`1027` for `gdpr-full` as this
+`complete`, `chunks_total` to hold once parsing finishes (`978` for `gdpr-full` as this
 file is written — read it back from the response rather than trusting this number, since
-the parser that produces it is exactly the kind of thing a later change moves), and
+the parser that produces it is exactly the kind of thing a later change moves; this
+sentence said `1027` until the extractor was replaced, which is the caveat proving
+itself), and
 `chunks_done` to climb to meet it. A second `POST` for the same organisation answers `409
 already_ingested` — that is the per-organisation cap doing its job, not a bug. The whole
 job runs against `task_soft_time_limit=300` / `task_time_limit=360`

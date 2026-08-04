@@ -100,7 +100,13 @@ async def test_the_stream_endpoint_hands_the_provider_a_grounded_prompt_not_the_
     instruction clauses.
     """
     _RecordingProvider.received_prompts.clear()
-    monkeypatch.setattr("app.api.v1.conversations.FakeProvider", _RecordingProvider)
+    # `conversations.py` now builds its provider through `build_provider`
+    # (Task 29), not by constructing `FakeProvider` directly — patch that
+    # factory instead, ignoring the `GeneratorChoice` it is called with, since
+    # this test is about prompt assembly, not selection.
+    monkeypatch.setattr(
+        "app.api.v1.conversations.build_provider", lambda _choice: _RecordingProvider()
+    )
 
     conversation_id = (
         await client.post("/api/v1/conversations", json={"title": "t"}, headers=demo_auth)

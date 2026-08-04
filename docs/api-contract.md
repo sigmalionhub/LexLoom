@@ -166,6 +166,14 @@ x-request-id: 472f68ef-e44a-4af9-9aea-eef6a1d8dd48
 has been generated, and the answer arrives over the stream. The message is stored
 with `status: "pending"` and stays that way until a stream completes for it.
 
+The body also takes an optional `generator`, the `GeneratorChoice` enum —
+`"deterministic"` (the default), `"gemini-3.5-flash-lite"` or `"gemini-3.6-flash"` — for
+which `LLMProvider` should answer. Omit it and you get `"deterministic"`, same as before
+this field existed. Send anything outside the enum and the request never reaches
+storage: `422`, not a `500` three requests later when the stream tries to build a
+provider for a model that does not exist. See §4.2 for how the choice comes back on
+`message_start`.
+
 ### 3.4 Mint a ticket and open the stream
 
 ```console
@@ -235,11 +243,19 @@ no `id:` fields, so this stream does not support `Last-Event-ID` resumption.
 
 | `event` | `data` | When |
 |---|---|---|
-| `message_start` | `{"message_id": "<uuid>", "model": "fake-1"}` | Always first. |
+| `message_start` | `{"message_id": "<uuid>", "model": "deterministic"}` | Always first. |
 | `citations` | `{"chunks": [Citation, …]}` | Always second, **before any token**. May be `[]`. |
 | `token` | `{"text": "Under "}` | Zero or more. Concatenate `text` in order; whitespace is included in the token. |
 | `error` | `{"code": "provider_unavailable", "message": "…"}` | At most once, if generation fails part-way. |
 | `message_end` | `{"finish_reason": "stop" \| "error"}` | Always last, on both the success and the failure path. |
+
+`message_start.model` is the `GeneratorChoice` enum, not a free string:
+`"deterministic"` (the canned demo answer, and the default), `"gemini-3.5-flash-lite"`
+or `"gemini-3.6-flash"` — whichever one actually answered, read back off the same row
+`GET .../stream` already selects. It is set by `generator` on the `POST .../messages`
+body (§3.3), the identical enum, also defaulting to `"deterministic"`. This is the same
+field that used to carry the literal `"fake-1"`, reused rather than duplicated: what it
+may hold changed, the field did not.
 
 A `Citation`:
 
@@ -668,12 +684,15 @@ Stated because a contract with unstated holes is not a contract.
   rows for one question. The `409` guard is a replay guard, not a lock — it fires
   only once an answer has been stored. Harmless with the bundled provider; double
   billing with a metered one.
-- **The model is a fake.** `model: "fake-1"` is a canned, deterministic generator
-  behind the same async-iterator interface a real provider implements. The streaming,
+- **The default model is a fake, and callers can ask for a real one.** With no
+  `generator` on the request, `model: "deterministic"` is a canned generator behind the
+  same async-iterator interface a real provider implements — the streaming,
   cancellation and citation machinery is real; the words are not an answer to your
-  question. A real implementation of that interface exists (Gemini, over
-  `streamGenerateContent`), but no endpoint offers it yet — every stream still runs
-  the fake generator regardless of what a caller sends. Whichever generator answers,
+  question. Sending `generator: "gemini-3.5-flash-lite"` or `"gemini-3.6-flash"` routes
+  to a real call to Gemini instead (`app.chat.gemini`, over `streamGenerateContent`) —
+  *if* the service has a `GEMINI_API_KEY` configured. Without one, asking for either
+  Gemini choice fails the request rather than silently answering with the fake; nothing
+  in this contract picks a fallback on the caller's behalf. Whichever generator answers,
   it is never handed the raw question: `app.chat.prompt.build_grounded_prompt` builds
   a prompt from the same `citations` this response's `citations` event carries,
   instructing the model to answer only from those sources and say so plainly when

@@ -1,4 +1,5 @@
 import type { components } from './api-types';
+import type { GeneratorChoice } from './generator-choice';
 
 /**
  * The API is same-origin. In production nginx serves this bundle and proxies
@@ -228,11 +229,23 @@ export const api = {
     });
   },
 
-  /** 202: the question is stored, nothing is generated yet. The answer arrives on the stream. */
-  postMessage(token: string, conversationId: string, content: string): Promise<CreateMessageResponse> {
+  /**
+   * 202: the question is stored, nothing is generated yet. The answer arrives on the stream.
+   *
+   * `options` is a bag, not a positional parameter: `probeCrossTenant` below calls this with
+   * three positional arguments, and CI runs `tsc --noEmit` — a required fourth positional
+   * parameter would break that call site. Task 21 adds `mode` to this same bag in a sibling
+   * branch; both keys are optional so neither caller has to know about the other's field.
+   */
+  postMessage(
+    token: string,
+    conversationId: string,
+    content: string,
+    options: { generator?: GeneratorChoice } = {},
+  ): Promise<CreateMessageResponse> {
     return request<CreateMessageResponse>('POST', `/api/v1/conversations/${conversationId}/messages`, {
       token,
-      body: { content } satisfies CreateMessageRequest,
+      body: { content, ...options } satisfies CreateMessageRequest,
     });
   },
 

@@ -56,41 +56,46 @@ class FakeProvider:
 class GeneratorChoice(StrEnum):
     """Which `LLMProvider` a request asked for.
 
-    Not read by any endpoint yet — `conversations.py` still always builds a
-    `FakeProvider` (Task 28's brief is explicit that those two lines are the
-    only ones this task touches there). This exists so the value has one
-    definition that a later task (Task 30, which owns the request shape and
-    `main.py`) imports rather than inventing its own string literal — and so
-    the OpenAPI schema it generates gets a real enum instead of a bare `str`.
+    Read on the `POST /messages` request body and stored on the row (migration
+    0005's `generator` column); `stream_message` reads it back and hands it to
+    `build_provider`. The value that comes back out is also what the
+    `message_start` SSE frame carries as `model` — see `app.chat.stream`.
+
+    The two Gemini members carry the model id as their value rather than a
+    short label like the old `GEMINI` member did: `build_provider` below reads
+    the model straight off `choice.value`, so there is exactly one place that
+    knows the mapping from a visitor's choice to a Gemini model name, and it
+    is this enum. A short label plus a separate lookup table would be two
+    things that have to agree with each other and nothing enforcing it.
     """
 
-    FAKE = "fake"
-    GEMINI = "gemini"
+    DETERMINISTIC = "deterministic"
+    FLASH_LITE = "gemini-3.5-flash-lite"
+    FLASH = "gemini-3.6-flash"
 
 
-# Hardcoded rather than a `Settings` field: nothing in this task's scope lets
-# an operator choose a different Gemini model, and `.env.example` only grew a
-# key for the credential (Step 5) — a model knob with no reader would be a
-# knob that turns nothing. `gemini-3.6-flash` is also the model the SSE
-# parsing in `app.chat.gemini` was measured against on 2026-08-04.
-_DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+# Not "the first member of the enum": member order is display/declaration
+# order, not a contract, and reordering the class body must not silently
+# change which provider a request with no opinion gets.
+# test_default_generator_is_deterministic pins this to the literal choice.
+DEFAULT_GENERATOR = GeneratorChoice.DETERMINISTIC
 
 
-def build_provider(choice: GeneratorChoice = GeneratorChoice.FAKE) -> LLMProvider:
+def build_provider(choice: GeneratorChoice = DEFAULT_GENERATOR) -> LLMProvider:
     """Construct the provider a request asked for.
 
-    Raises `ValueError` for `GEMINI` when `GEMINI_API_KEY` is unset rather than
-    silently falling back to `FakeProvider` — a caller who asked for a real
-    model and silently got the canned demo answer would have no way to notice.
-    Whoever offers `GEMINI` as a choice (Task 30) is responsible for not
+    Raises `ValueError` for a Gemini choice when `GEMINI_API_KEY` is unset
+    rather than silently falling back to `FakeProvider` — a caller who asked
+    for a real model and silently got the canned demo answer would have no way
+    to notice. Whoever offers a Gemini choice in the UI is responsible for not
     offering it when the key is absent; this function only refuses to
     misrepresent what it built.
     """
-    if choice is GeneratorChoice.FAKE:
+    if choice is GeneratorChoice.DETERMINISTIC:
         return FakeProvider()
     settings = get_settings()
     if not settings.gemini_api_key:
         raise ValueError(
-            "GeneratorChoice.GEMINI was requested but GEMINI_API_KEY is not configured"
+            f"GeneratorChoice.{choice.name} was requested but GEMINI_API_KEY is not configured"
         )
-    return GeminiProvider(model=_DEFAULT_GEMINI_MODEL)
+    return GeminiProvider(model=choice.value)

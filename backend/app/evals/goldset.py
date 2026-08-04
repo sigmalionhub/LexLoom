@@ -191,6 +191,21 @@ _J = Judgement
 # often hold the same sentence. Marking only the catalogue copy would score a
 # correct answer as a miss whenever it arrived as the (cleaner, shorter) seeded
 # duplicate — a defect in the gold set that would read as a defect in retrieval.
+#
+# **Five judgements below carry two reasons and a `[Merged at the 2026-08-05
+# re-bind …]` marker.** Those are the places where replacing `pypdf` with
+# `pdfminer.six` joined two chunks the old parse had separated, so two
+# judgements of one question came to name one chunk. Both reasons are kept
+# verbatim, because the merged chunk genuinely satisfies both and dropping one
+# would lose a reason a sceptic is entitled to check; the marker is there so
+# that two reasons in one string reads as a merge rather than as one author
+# rambling.
+#
+# Where the two merged judgements carried **different grades, the higher one is
+# kept**. The merged chunk does contain the answering content, so grading it
+# SUPPORTS would understate it — and `recall_at_k` and `ndcg_at_k` both read the
+# grade, so understating it would depress the metric for a reason that has
+# nothing to do with retrieval. See `task-26-rebind-report.md` §5.
 QUESTIONS: tuple[Question, ...] = (
     # -------------------------------------------------------------- verbatim
     Question(
@@ -229,16 +244,20 @@ QUESTIONS: tuple[Question, ...] = (
         kind="verbatim",
         note=(
             "The heading of Article 5, used verbatim. Deliberately broad: the answer is spread "
-            "over thirteen chunks, so recall@5 cannot exceed 5/13 here however good retrieval "
+            "over ten chunks, so recall@5 cannot exceed 5/10 here however good retrieval "
             "is. That ceiling is a property of scoring 500-character chunks and is reported "
-            "rather than engineered away by trimming judgements."
+            "rather than engineered away by trimming judgements. (It read thirteen and 5/13 "
+            "until the 2026-08-05 re-bind: three pairs of the chunks named here merged when "
+            "the corpus was reparsed, which lowers the count and raises the ceiling.)"
         ),
         judgements=(
             _J(
                 "gdpr-full:464",
                 ANSWERS,
                 "The Article 5 heading and the opening of 5(1). "
-                "5(1)(a): lawfulness, fairness and transparency."
+                "5(1)(a): lawfulness, fairness and transparency. "
+                "[Merged at the 2026-08-05 re-bind: the reparse joined the two chunks these "
+                "reasons named.]"
             ),
             _J(
                 "gdpr-full:465",
@@ -249,7 +268,9 @@ QUESTIONS: tuple[Question, ...] = (
                 "gdpr-full:466",
                 SUPPORTS,
                 "5(1)(c): data minimisation, one of the six principles the question asks for. "
-                "5(1)(d): accuracy, one of the six principles the question asks for."
+                "5(1)(d): accuracy, one of the six principles the question asks for. "
+                "[Merged at the 2026-08-05 re-bind: the reparse joined the two chunks these "
+                "reasons named.]"
             ),
             _J(
                 "gdpr-full:468",
@@ -260,7 +281,10 @@ QUESTIONS: tuple[Question, ...] = (
                 "gdpr-full:470",
                 SUPPORTS,
                 "5(1)(f): integrity and confidentiality. "
-                "5(2): accountability (shares a chunk with Article 6)."
+                "5(2): accountability (shares a chunk with Article 6). "
+                "[Merged at the 2026-08-05 re-bind: the reparse joined the two chunks these "
+                "reasons named. The parenthetical still holds — this chunk ends on the "
+                "Article 6 heading.]"
             ),
             _J(
                 "seed:gdpr-excerpts:4",
@@ -764,7 +788,9 @@ QUESTIONS: tuple[Question, ...] = (
                 "gdpr-full:545",
                 ANSWERS,
                 "Article 16: the right to rectification. "
-                "Article 16's second sentence: completing incomplete data."
+                "Article 16's second sentence: completing incomplete data. "
+                "[Merged at the 2026-08-05 re-bind: the reparse joined the two chunks these "
+                "reasons named. Graded ANSWERS, the higher of the two grades that merged.]"
             ),
             _J("seed:gdpr-excerpts:13", ANSWERS, "Article 15(1) as a seeded excerpt."),
             _J(
@@ -826,7 +852,9 @@ QUESTIONS: tuple[Question, ...] = (
                 "gdpr-full:716",
                 ANSWERS,
                 "Article 45(1): what an adequacy decision is. "
-                "45(2): opening of the elements the Commission assesses."
+                "45(2): opening of the elements the Commission assesses. "
+                "[Merged at the 2026-08-05 re-bind: the reparse joined the two chunks these "
+                "reasons named. Graded ANSWERS, the higher of the two grades that merged.]"
             ),
             _J(
                 "gdpr-full:717",

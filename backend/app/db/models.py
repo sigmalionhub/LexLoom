@@ -80,3 +80,11 @@ class DocumentChunk(Base):
     page_from: Mapped[int] = mapped_column(Integer(), nullable=False)
     page_to: Mapped[int] = mapped_column(Integer(), nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    # Stable chunk identity the M2.4 gold set keys on, added by migration
+    # 0006. Nullable for the reason that migration documents: existing rows
+    # have no per-row ordinal to backfill. `source_key` names the catalogue
+    # document (`app.ingest.catalogue.CATALOGUE`) or the seed corpus
+    # (`app.chat.corpus.SEED_SOURCE_KEY`); `chunk_ordinal` is the chunk's
+    # position within that source's parse.
+    source_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chunk_ordinal: Mapped[int | None] = mapped_column(Integer(), nullable=True)

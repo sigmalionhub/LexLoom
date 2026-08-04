@@ -28,6 +28,14 @@ dependencies = [
     # without moving any line in this repository, and the first symptom would be
     # an OOM kill of a neighbour.
     "fastembed>=0.5.1,<0.6",
+    # Exact pin, against this file's own >= convention, and for one reason:
+    # pypdf's text extraction output changes between minor releases
+    # (whitespace, ligatures, column order). Every other dependency here is
+    # pinned loosely because its output is an API contract; this one's output
+    # *is* the data, and a change to it shifts every chunk boundary and every
+    # ordinal the M2.4 gold set keys on. A loose pin would make the eval
+    # numbers a function of when the venv was built.
+    "pypdf==5.1.0",
 ]
 
 [project.optional-dependencies]

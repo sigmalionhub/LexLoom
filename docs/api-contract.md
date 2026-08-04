@@ -27,13 +27,17 @@ Eight routes. That is the entire API.
 | `GET` | `/api/v1/conversations/{cid}/messages/{mid}/stream` | ticket | `200` (SSE) |
 | `GET` | `/api/v1/status` | none | `200` |
 | `GET` | `/api/v1/generators` | none | `200` |
+| `POST` | `/api/v1/ingest` | bearer | `202` |
+| `GET` | `/api/v1/ingest/status` | bearer | `200` |
 
 `GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
 
-Two of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
-is metered per client address and answers `429`, and the stream endpoint has a
-concurrency ceiling and answers `503`. Both carry `Retry-After` —
-see [§6.1](#61-refusals-429-503-and-retry-after).
+Three of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
+is metered per client address and answers `429`; the stream endpoint has a
+concurrency ceiling and answers `503`; and `POST /api/v1/ingest` answers `409` when the
+caller's organisation has already ingested something and `503` (with `Retry-After`, like
+the stream endpoint) when the global cap on organisations holding a corpus is held. See
+[§6.1](#61-refusals-429-503-and-retry-after).
 
 **There are no read endpoints.** No conversation list, no message list, no
 `GET /conversations/{id}`. A client holds the state it created, or it loses it on
@@ -49,6 +53,16 @@ distributions) that exist before and independently of any organisation, so there
 nothing tenant-scoped in it for the missing token to have protected. Compare this with
 the four bearer-token routes above, every one of which reads or writes a specific
 organisation's rows and would be a different kind of hole if it took none.
+
+`GET /api/v1/ingest/status` is not that exception either, for the opposite reason: it
+*is* tenant-scoped — it takes a bearer token and answers with the calling organisation's
+own ingest progress — but it is not a general-purpose read. There is no parameter that
+selects which organisation's status comes back (the token's own `org_id` is the only
+input), no way to list past ingests, and nothing it returns was not already implied by
+the `202` its own `POST /api/v1/ingest` returned. It is the progress meter for a write
+the client just made, not a way to read back data the client did not just create — the
+same distinction `POST /api/v1/conversations/{id}/messages` and its stream already draw
+between "accept the write" and "watch it happen."
 
 ---
 
@@ -589,10 +603,21 @@ work on a shared box with 2.2 GB of RAM.
 |---|---|---|
 | `429` | `rate_limited` | `POST /api/v1/auth/demo-login` — too many tenants from one address |
 | `503` | `capacity_unavailable` | `GET …/stream` at its concurrency ceiling, or either endpoint when the limiter cannot reach Redis |
+| `503` | `capacity_unavailable` | `POST /api/v1/ingest` — `INGEST_ORG_CAP` organisations already hold a corpus |
 
 Both carry a **`Retry-After` response header**, in seconds. It is a header rather than
 a body member because RFC 9457 defines no field for it and `Retry-After` is already
 defined by RFC 9110.
+
+`POST /api/v1/ingest`'s `503` is admission control too, but a different backend from
+the two above: it counts organisations holding a corpus in Postgres
+(`public.count_orgs_with_corpus()`, `backend/app/ingest/jobs.py`), not concurrent
+streams in Redis. `Retry-After` on this one is `300` — a floor for a polite client, not
+a forecast: the cap only actually relaxes on the hourly purge, and telling a client to
+wait an hour invites it to give up. The same endpoint also answers `409
+already_ingested` when the *caller's own* organisation already holds a non-seed
+corpus — not a ceiling and not paired with `Retry-After`, because retrying changes
+nothing until the organisation itself is gone.
 
 **Read the header, not the sentence.** The `detail` of both says *"Retry after
 Retry-After seconds."* literally — the number is in the header and deliberately not in

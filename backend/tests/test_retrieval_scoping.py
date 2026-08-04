@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, text
 
 from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, load_excerpts, seed_public_corpus
-from app.chat.retrieval import search_chunks
+from app.chat.retrieval import SearchMode, search_chunks
 from app.db.engine import engine
 from app.db.session import system_session, tenant_session
 
@@ -25,7 +25,7 @@ async def test_search_returns_only_the_caller_org_chunks(two_orgs) -> None:
     """
     org_a, org_b = two_orgs
     async with tenant_session(org_a) as session:
-        citations = await search_chunks(session, "secret", limit=10)
+        citations = await search_chunks(session, "secret", mode=SearchMode.FTS, limit=10)
 
     assert citations, "org A must see its own chunk"
     assert {citation["org_id"] for citation in citations} == {org_a}
@@ -59,7 +59,7 @@ async def test_search_chunks_adds_no_org_id_filter_of_its_own(two_orgs) -> None:
     event.listen(engine.sync_engine, "before_cursor_execute", record)
     try:
         async with tenant_session(org_a) as session:
-            await search_chunks(session, "secret", limit=10)
+            await search_chunks(session, "secret", mode=SearchMode.FTS, limit=10)
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", record)
 
@@ -95,7 +95,7 @@ async def test_search_finds_nothing_for_an_org_with_no_chunks(created_orgs: list
     created_orgs.append(empty_org)
 
     async with tenant_session(empty_org) as session:
-        assert await search_chunks(session, "secret", limit=10) == []
+        assert await search_chunks(session, "secret", mode=SearchMode.FTS, limit=10) == []
 
 
 async def _demo_org(client: AsyncClient, created_orgs: list[str], label: str = "Acme") -> str:
@@ -118,7 +118,7 @@ async def test_a_demo_tenant_has_a_corpus_before_it_has_uploaded_anything(
     org_id = await _demo_org(client, created_orgs)
 
     async with tenant_session(org_id) as session:
-        citations = await search_chunks(session, "processor", limit=10)
+        citations = await search_chunks(session, "processor", mode=SearchMode.FTS, limit=10)
 
     assert citations, "a fresh demo tenant has nothing to cite, so its first answer has no sources"
     assert {citation["org_id"] for citation in citations} == {org_id}
@@ -180,7 +180,7 @@ async def test_the_public_corpus_organisation_is_invisible_to_a_demo_tenant(
             text("SELECT count(*) FROM document_chunks WHERE org_id = :o"),
             {"o": str(PUBLIC_CORPUS_ORG_ID)},
         )
-        citations = await search_chunks(session, "processor", limit=50)
+        citations = await search_chunks(session, "processor", mode=SearchMode.FTS, limit=50)
 
     assert visible == 0, "a demo tenant can read the public corpus organisation's own rows"
     assert str(PUBLIC_CORPUS_ORG_ID) not in {citation["org_id"] for citation in citations}

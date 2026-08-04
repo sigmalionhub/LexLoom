@@ -11,16 +11,19 @@ the one table a visitor actually reads. A copy costs a few dozen rows per
 visitor and the 24-hour purge takes them away again.
 """
 
+import hashlib
 import json
 import pathlib
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 
-from sqlalchemy import text
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chat.embedding import DIMENSIONS
 from app.db.session import tenant_session
 
 # The organisation `scripts/seed_corpus.py` loads the corpus into: permanent
@@ -39,10 +42,34 @@ PUBLIC_CORPUS_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 # returning an empty corpus.
 SEED_FILE = pathlib.Path(__file__).resolve().parents[2] / "seed" / "gdpr_excerpts.json"
 
+# The excerpts' embeddings, computed once by `scripts/embed_seed_corpus.py` and
+# committed next to the text they describe. Next to it and not derived at
+# runtime, because the alternative is thirty ONNX inferences on the demo-login
+# path: `copy_corpus_into` is called from `provision_demo_org` inside an open
+# transaction, on an API running `--workers 1`, so every concurrent SSE stream
+# would pause for the 0.6-2 s that costs on a shared vCPU.
+#
+# A second benefit that only shows up later: every tenant gets the *same*
+# vector for the same excerpt, byte for byte, which is what makes the M2.4 eval
+# numbers a measurement of retrieval rather than of which machine ran the model.
+SEED_VECTORS_FILE = SEED_FILE.with_name("gdpr_excerpts_vectors.json")
+
+# One statement, both callers — `copy_corpus_into` directly and
+# `seed_public_corpus` through it. That is not tidiness: it is what makes a
+# later edit to the column list reach every tenant's corpus instead of only the
+# public organisation's. A second copy of this INSERT is how one of them ends up
+# writing NULL into a column the other populates, with nothing raised anywhere.
+#
+# `bindparam(..., type_=Vector(384))` rather than a raw `list[float]` or a
+# string-interpolated CAST. `register_vector` is called nowhere in this
+# repository, so asyncpg holds no codec for `vector` and rejects a bare list
+# outright: "invalid input for query argument $1: [...] (expected str, got
+# list)". The typed bindparam hands the driver what it understands and keeps the
+# value a bound parameter, with no SQL built by string construction.
 _INSERT_CHUNK = text(
-    "INSERT INTO document_chunks (id, org_id, content, page_from, page_to) "
-    "VALUES (:id, :org_id, :content, :page_from, :page_to)"
-)
+    "INSERT INTO document_chunks (id, org_id, content, page_from, page_to, embedding) "
+    "VALUES (:id, :org_id, :content, :page_from, :page_to, :embedding)"
+).bindparams(bindparam("embedding", type_=Vector(384)))
 
 
 class CorpusUnavailableError(RuntimeError):
@@ -104,6 +131,77 @@ def load_excerpts() -> tuple[Excerpt, ...]:
     return excerpts
 
 
+@lru_cache(maxsize=1)
+def load_seed_vectors() -> tuple[tuple[float, ...], ...]:
+    """Read the precomputed seed embeddings once per process.
+
+    Keyed on the corpus file's own hash, not on trust. The failure this guards
+    is silent: edit `gdpr_excerpts.json`, forget to re-run the generator, and
+    every tenant gets vectors that describe the *previous* text — retrieval
+    keeps working and keeps being wrong, which is worse than not working.
+
+    Same error type and same loud-with-the-path style as `load_excerpts`, for
+    the same reason: "which file did it actually read" is the first question.
+    Both paths are named when the two disagree, because the answer is always
+    "re-run `scripts/embed_seed_corpus.py`" and that only helps if the reader
+    can see which pair drifted.
+
+    Cached for the same reason `load_excerpts` is — this runs on every demo
+    login — and cleared the same way in tests, which is load-bearing: a
+    substituted `SEED_FILE` changes nothing while a previous test's value is
+    still memoised, and the "proof" then proves only that the cache works.
+    """
+    try:
+        document = json.loads(SEED_VECTORS_FILE.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise CorpusUnavailableError(
+            f"cannot read the seed embeddings at {SEED_VECTORS_FILE} — "
+            f"run scripts/embed_seed_corpus.py"
+        ) from error
+    except json.JSONDecodeError as error:
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} are not valid JSON"
+        ) from error
+
+    try:
+        stored_sha256 = str(document["corpus_sha256"])
+        dimensions = int(document["dim"])
+        vectors = tuple(tuple(float(value) for value in vector) for vector in document["vectors"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} do not have the expected shape "
+            f"({{'model': str, 'dim': int, 'corpus_sha256': str, 'vectors': [[float, ...]]}}): "
+            f"{error!r}"
+        ) from error
+
+    try:
+        corpus_sha256 = hashlib.sha256(SEED_FILE.read_bytes()).hexdigest()
+    except OSError as error:
+        raise CorpusUnavailableError(f"cannot read the seed corpus at {SEED_FILE}") from error
+
+    if corpus_sha256 != stored_sha256:
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} were computed over a different "
+            f"{SEED_FILE} (recorded {stored_sha256}, found {corpus_sha256}) — "
+            f"re-run scripts/embed_seed_corpus.py"
+        )
+
+    excerpts = load_excerpts()
+    if len(vectors) != len(excerpts):
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} carry {len(vectors)} vectors for the "
+            f"{len(excerpts)} excerpts in {SEED_FILE} — re-run scripts/embed_seed_corpus.py"
+        )
+
+    if dimensions != DIMENSIONS or any(len(vector) != DIMENSIONS for vector in vectors):
+        raise CorpusUnavailableError(
+            f"the seed embeddings at {SEED_VECTORS_FILE} are not {DIMENSIONS}-dimensional, "
+            f"which document_chunks.embedding requires — re-run scripts/embed_seed_corpus.py"
+        )
+
+    return vectors
+
+
 async def copy_corpus_into(session: AsyncSession, org_id: str) -> int:
     """Give `org_id` its own copy of the corpus. Returns the number of chunks.
 
@@ -116,6 +214,22 @@ async def copy_corpus_into(session: AsyncSession, org_id: str) -> int:
     That is what `provision_demo_org` does, and it is the difference between
     "a demo organisation has a corpus" and "a demo organisation has a corpus
     unless the second statement failed".
+
+    The rows arrive with their embeddings already on them, read from the file
+    beside the corpus rather than computed here. No inference happens on this
+    path — see `SEED_VECTORS_FILE` for why that matters on an API that runs one
+    worker and holds this call inside `provision_demo_org`'s transaction.
+
+    Not an `INSERT ... SELECT` from the public corpus organisation, which is the
+    obvious way to avoid the file read and is silently wrong: `document_chunks`
+    has FORCE row-level security and this session is scoped to `org_id`, so the
+    source rows do not exist in this context. Every demo tenant would get an
+    empty corpus and nothing would raise.
+
+    `strict=True` on the zip even though `load_seed_vectors` has already checked
+    the lengths against `load_excerpts`. It costs nothing and it catches a
+    divergence introduced *after* that check — a substituted file, a cleared
+    cache on one side only — which would otherwise write a short corpus.
     """
     excerpts = load_excerpts()
     await session.execute(
@@ -127,8 +241,9 @@ async def copy_corpus_into(session: AsyncSession, org_id: str) -> int:
                 "content": excerpt.content,
                 "page_from": excerpt.page_from,
                 "page_to": excerpt.page_to,
+                "embedding": list(vector),
             }
-            for excerpt in excerpts
+            for excerpt, vector in zip(excerpts, load_seed_vectors(), strict=True)
         ],
     )
     return len(excerpts)
@@ -167,10 +282,11 @@ async def seed_public_corpus() -> int:
     because nothing reads these rows. `copy_corpus_into` reads the file, so
     every demo tenant gets the current corpus whatever this organisation holds;
     the drift is invisible precisely because the seed organisation is not yet
-    used for anything. It stops being invisible at M2, which is when embeddings
-    get computed over these rows — so re-running this belongs in the deployment
-    that ships a changed corpus, and `test_the_seeded_rows_are_the_file_they_came_from`
-    is what proves a run leaves the two in agreement.
+    used for anything. It stops being invisible at M2, when these rows start
+    carrying embeddings and the M2.4 eval keys on them — so re-running this
+    belongs in the deployment that ships a changed corpus, and
+    `test_the_seeded_rows_are_the_file_they_came_from` is what proves a run
+    leaves the two in agreement.
     """
     org_id = str(PUBLIC_CORPUS_ORG_ID)
     async with tenant_session(org_id) as session:

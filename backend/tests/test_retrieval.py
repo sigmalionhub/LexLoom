@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import text
 
-from app.chat.retrieval import search_chunks
+from app.chat.retrieval import SearchMode, search_chunks
 from app.db.session import system_session, tenant_session
 
 _CLAUSE = "The processor shall notify the controller within 72 hours."
@@ -51,7 +51,9 @@ async def test_a_question_written_as_a_question_finds_the_clause_that_answers_it
     org = await _new_org(created_orgs)
     await _seed_chunk(org, _CLAUSE)
     async with tenant_session(org) as session:
-        hits = await search_chunks(session, "What are the processor's obligations?")
+        hits = await search_chunks(
+            session, "What are the processor's obligations?", mode=SearchMode.FTS
+        )
     assert len(hits) == 1
     assert "notify the controller" in hits[0]["content"]
 
@@ -70,7 +72,9 @@ async def test_a_question_matches_on_any_of_its_terms_rather_than_all_of_them(
     await _seed_chunk(org, "The processor acts only on documented instructions.", page=1)
     await _seed_chunk(org, "The supervisory authority must be told within 72 hours.", page=2)
     async with tenant_session(org) as session:
-        hits = await search_chunks(session, "must the processor tell the supervisory authority?")
+        hits = await search_chunks(
+            session, "must the processor tell the supervisory authority?", mode=SearchMode.FTS
+        )
     assert {hit["page_from"] for hit in hits} == {1, 2}
 
 
@@ -88,7 +92,7 @@ async def test_the_best_match_comes_first_and_carries_the_higher_score(
     await _seed_chunk(org, "Encryption and pseudonymisation of personal data.", page=1)
     await _seed_chunk(org, "Encryption of backup media is required.", page=2)
     async with tenant_session(org) as session:
-        hits = await search_chunks(session, "encryption and pseudonymisation")
+        hits = await search_chunks(session, "encryption and pseudonymisation", mode=SearchMode.FTS)
 
     assert len(hits) == 2
     assert hits[0]["page_from"] == 1, "the chunk matching both terms should rank first"
@@ -107,7 +111,7 @@ async def test_a_question_finds_a_chunk_that_uses_a_different_form_of_the_word(
     org = await _new_org(created_orgs)
     await _seed_chunk(org, "The obligations of the processor survive termination.")
     async with tenant_session(org) as session:
-        assert len(await search_chunks(session, "processor obligation")) == 1
+        assert len(await search_chunks(session, "processor obligation", mode=SearchMode.FTS)) == 1
 
 
 async def test_a_word_whose_stem_would_stem_again_is_still_found(
@@ -130,8 +134,10 @@ async def test_a_word_whose_stem_would_stem_again_is_still_found(
     await _seed_chunk(org, "Pseudonymisation of personal data is required.", page=1)
     await _seed_chunk(org, "The erasure of personal data must be without undue delay.", page=2)
     async with tenant_session(org) as session:
-        assert len(await search_chunks(session, "pseudonymisation")) == 1
-        assert len(await search_chunks(session, "when is erasure required?")) == 2
+        assert len(await search_chunks(session, "pseudonymisation", mode=SearchMode.FTS)) == 1
+        assert len(
+            await search_chunks(session, "when is erasure required?", mode=SearchMode.FTS)
+        ) == 2
 
 
 async def test_a_question_of_nothing_but_stop_words_matches_nothing(
@@ -148,9 +154,9 @@ async def test_a_question_of_nothing_but_stop_words_matches_nothing(
     org = await _new_org(created_orgs)
     await _seed_chunk(org, _CLAUSE)
     async with tenant_session(org) as session:
-        assert await search_chunks(session, "the and or of") == []
-        assert await search_chunks(session, "") == []
-        assert await search_chunks(session, "%") == []
+        assert await search_chunks(session, "the and or of", mode=SearchMode.FTS) == []
+        assert await search_chunks(session, "", mode=SearchMode.FTS) == []
+        assert await search_chunks(session, "%", mode=SearchMode.FTS) == []
 
 
 async def test_tsquery_operators_in_the_question_are_words_and_not_operators(
@@ -171,9 +177,13 @@ async def test_tsquery_operators_in_the_question_are_words_and_not_operators(
     org = await _new_org(created_orgs)
     await _seed_chunk(org, _CLAUSE)
     async with tenant_session(org) as session:
-        assert len(await search_chunks(session, "processor & !controller")) == 1
-        assert len(await search_chunks(session, "notify <-> controller | (((")) == 1
-        assert len(await search_chunks(session, "processor controller")) == 1
+        assert len(
+            await search_chunks(session, "processor & !controller", mode=SearchMode.FTS)
+        ) == 1
+        assert len(
+            await search_chunks(session, "notify <-> controller | (((", mode=SearchMode.FTS)
+        ) == 1
+        assert len(await search_chunks(session, "processor controller", mode=SearchMode.FTS)) == 1
 
 
 async def test_a_question_that_looks_like_sql_is_still_only_a_question(
@@ -191,9 +201,12 @@ async def test_a_question_that_looks_like_sql_is_still_only_a_question(
     async with tenant_session(org) as session:
         # 'drop', 'tabl' and 'document'/'chunk' are lexemes here, and none of
         # them is in the seeded clause — so nothing matches, and nothing runs.
-        assert await search_chunks(session, "'; DROP TABLE document_chunks; --") == []
+        assert (
+            await search_chunks(session, "'; DROP TABLE document_chunks; --", mode=SearchMode.FTS)
+            == []
+        )
         # The table is still there, and still holds its row.
-        assert len(await search_chunks(session, "notify the controller")) == 1
+        assert len(await search_chunks(session, "notify the controller", mode=SearchMode.FTS)) == 1
 
 
 async def test_a_question_longer_than_the_limit_still_finds_its_chunk(
@@ -209,7 +222,7 @@ async def test_a_question_longer_than_the_limit_still_finds_its_chunk(
     question = "processor notify controller " + "padding " * 60
     assert len(question) > 200, "the question has to exceed the cut for this to test anything"
     async with tenant_session(org) as session:
-        assert len(await search_chunks(session, question)) == 1
+        assert len(await search_chunks(session, question, mode=SearchMode.FTS)) == 1
 
 
 async def test_the_limit_bounds_what_comes_back(created_orgs: list[str]) -> None:
@@ -219,8 +232,10 @@ async def test_the_limit_bounds_what_comes_back(created_orgs: list[str]) -> None
     for page in range(1, 8):
         await _seed_chunk(org, f"The processor has an obligation on page {page}.", page=page)
     async with tenant_session(org) as session:
-        assert len(await search_chunks(session, "processor obligation")) == 5
-        assert len(await search_chunks(session, "processor obligation", limit=3)) == 3
+        assert len(await search_chunks(session, "processor obligation", mode=SearchMode.FTS)) == 5
+        assert len(
+            await search_chunks(session, "processor obligation", mode=SearchMode.FTS, limit=3)
+        ) == 3
 
 
 async def test_search_chunks_never_sees_another_tenants_chunk(
@@ -235,6 +250,6 @@ async def test_search_chunks_never_sees_another_tenants_chunk(
     await _seed_chunk(theirs, "Globex obligations under clause 4.")
 
     async with tenant_session(mine) as session:
-        hits = await search_chunks(session, "obligations under clause 4")
+        hits = await search_chunks(session, "obligations under clause 4", mode=SearchMode.FTS)
 
     assert [hit["org_id"] for hit in hits] == [mine]

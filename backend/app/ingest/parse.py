@@ -71,11 +71,25 @@ _LAPARAMS = LAParams(boxes_flow=None)
 # — so a boundary is defined the way the document itself marks one: the start
 # of a numbered recital ("(30) "), an article header ("Article 4 "), a
 # numbered paragraph within an article ("1. "), or a lettered sub-point
-# ("(a) "). Deliberately excludes footnote markers like "(1),": every
-# footnote reference in this document is followed by punctuation (a comma or
-# a full stop), never directly by a space and the next word, so the pattern
-# below (which requires whitespace right after the closing parenthesis)
-# never matches one.
+# ("(a) ").
+#
+# Footnote and cross-reference markers like "(2)," or "Article 22(1) and (4)"
+# mostly do not match, because the closing parenthesis is mostly followed by
+# punctuation rather than by whitespace-then-word — but "mostly" is measured,
+# not absolute: of the 308 "(N) " matches in the production text, 15 sit
+# directly between two lowercase words with nothing but a space either side
+# ("...of the Council (4) seeks to harmonise...", recital 3; "...of the
+# Council (2) applies to the processing...", recital 17; several more in
+# cross-references like "Article 22(1) and (4) and, at least..."). Each of
+# those 15 forces a spurious mid-sentence paragraph split. Left unfiltered,
+# deliberately: an earlier draft of this comment claimed the false positive
+# rate was zero, and it was reviewed as one of the two remaining defects in
+# this task (see task-22-report.md, "Fix round 2"). Measured rather than
+# reasoned about before deciding not to fix it — ablating exactly these 15
+# matches and re-packing moves the chunk count from 978 to 979, a wash the
+# packer absorbs by re-merging the fragments back up toward the 500-char
+# target, which is not worth the variable-length lookbehind a real fix would
+# need.
 _PARAGRAPH_BOUNDARY = re.compile(
     r"\(\d{1,3}\)\s"  # recitals: "(30) "
     r"|Article\s\d+\s"  # article headers: "Article 4 "

@@ -55,11 +55,21 @@ CATALOGUE: dict[str, Source] = {
         pages=88,
         # Measured against the committed file by parse_source(), not guessed:
         # see task-22-report.md for the run that produced this number.
-        # Changed from 1027 to 978 in "Fix round 1" — pypdf's extraction of
-        # this PDF was replaced with pdfminer.six after the eval task found it
-        # broke words apart on nearly every line; the paragraph-boundary rule
-        # this parser uses only fires correctly on clean text, so the count
-        # moved along with the extractor, as documented there.
+        #
+        # Changed from 1027 to 978 in "Fix round 1" (pypdf -> pdfminer.six,
+        # after the eval task found pypdf broke words apart on nearly every
+        # line). An earlier version of this comment attributed the change to
+        # the `Article\s\d+\s` paragraph-boundary rule going from dead code
+        # (pypdf never left "Article" intact) to firing as designed. That
+        # explanation was wrong and was corrected after review: ablating that
+        # one alternative from the boundary regex and re-packing the same
+        # (clean) text moves the count from 978 to 980 — the rule accounts for
+        # 2 chunks, not 49. The real driver is that pypdf's word-splitting
+        # inflated the extracted text by 13,863 characters (369,860 ->
+        # 355,997) purely as spurious spaces; divided by this document's
+        # measured ~364 characters of new content per chunk, that alone
+        # predicts ~38 of the 49-chunk difference. See task-22-report.md,
+        # "Fix round 2", for the full measurement.
         expected_chunks=978,
         # The Publications Office's own PDF export for this CELEX number, the
         # same 88-page OJ L 119 typesetting `seed/gdpr_excerpts.json` was taken

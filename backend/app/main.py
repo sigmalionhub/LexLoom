@@ -1,10 +1,13 @@
+import asyncio
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 
 from app.api.v1 import auth, conversations, health, status
 from app.auth.dev_idp import DevIdp
 from app.auth.jwks import JwksCache
+from app.chat.embedding import MODEL_NAME, get_embedder
 from app.config import PUBLIC_ENVS, get_settings
 from app.db.engine import assert_unprivileged_role, engine
 from app.errors import install_error_handlers
@@ -12,11 +15,32 @@ from app.limits import report_configuration
 from app.logging import configure_logging
 from app.middleware import RequestContextMiddleware
 
+logger = structlog.get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.connect() as conn:
         await assert_unprivileged_role(conn)
+
+    # Warm the embedder before the port starts serving. The first inference
+    # compiles the ONNX graph and takes noticeably longer than every one after
+    # it; without this, that cost is paid by the first visitor, on the stream
+    # path, where the entire design promise is that tokens start arriving
+    # quickly.
+    #
+    # `to_thread` because loading holds the GIL for the whole of that time and
+    # uvicorn is already running this loop.
+    #
+    # Deliberately not wrapped in try/except. If the weights are missing this
+    # raises and the container fails to start, which is the loud failure. The
+    # quiet one is a container that comes up, answers /health/live, and then
+    # stalls on every search while it tries to reach the network. With
+    # `unless-stopped` the loud version shows up as a restart loop, which
+    # `docker compose ps` reports and the runbook already reads.
+    await asyncio.to_thread(get_embedder()._ensure)
+    logger.info("embedding_model_ready", model=MODEL_NAME)
+
     yield
     await engine.dispose()
 

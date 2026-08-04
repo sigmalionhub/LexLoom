@@ -41,7 +41,79 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v4
+      # The ONNX embedding weights, 91 334 718 bytes, fetched over the network on
+      # a miss. This job installs onto a bare runner — there is no image, so
+      # nothing has baked them in the way backend/Dockerfile does for the
+      # deployment, and without this every run downloads them again.
+      #
+      # fastembed tries HuggingFace first and a Google Cloud Storage tarball
+      # second, so a HuggingFace outage alone is survivable — verified, it falls
+      # back and succeeds. It is the loss of both, or of egress generally, that
+      # turns CI red for a reason unconnected to the code.
+      #
+      # `~/.cache/fastembed` is the path app/chat/embedding.py falls back to when
+      # FASTEMBED_CACHE_PATH is unset, which is the case here. The two must not
+      # drift, or this restores into a directory nothing reads.
+      #
+      # This key is written once, here, and copied verbatim by the `evals` job
+      # in Task 27. Two spellings of one key are two keys: the entry silently
+      # stops being shared, each job downloads its own copy, and nothing in
+      # either workflow shows why.
+      #
+      # `restore-keys` is additive: it changes neither what `key` hashes nor
+      # what a new entry is saved under, it only lets a run that misses the
+      # exact key fall back to the newest older entry with the same prefix.
+      # Without it, editing a *comment* in embedding.py changes the hash and
+      # makes the next run fully cold — which is what turns the step below from
+      # a formality into the thing standing between CI and a 90 MB download.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ runner.os }}-${{ hashFiles('backend/app/chat/embedding.py', 'backend/pyproject.toml') }}
+          restore-keys: fastembed-${{ runner.os }}-
       - run: uv pip install --system -e "backend[dev]"
+      # Fetch the weights HERE, in a step that names itself, rather than letting
+      # the first test that needs them do it.
+      #
+      # Not an optimisation. tests/test_stream_cancellation.py starts a real
+      # uvicorn and gives it 30 s to answer /health/live, and the lifespan in
+      # app/main.py warms the embedder BEFORE the port opens. On a cold cache the
+      # download eats that whole budget and the suite fails with "uvicorn never
+      # became live" — a message pointing at the server, at asyncio, at anything
+      # except a missing 90 MB file. Reproduced deterministically; with this step
+      # the suite never races the download, and an unreachable network instead
+      # produces a red step that says "could not fetch the embedding model".
+      #
+      # The lifespan warm-up stays unconditional and is not the thing to fix: a
+      # deployed image whose Dockerfile download silently failed must fail loudly
+      # at start-up rather than reach for HuggingFace on a visitor's first
+      # question. This is the environment that has no image, so the fix lives
+      # here.
+      #
+      # The step also refuses to leave a partial cache behind. An interrupted
+      # download leaves a fraction of the weights (measured: 714 687 bytes of
+      # 91 334 718), `actions/cache` would save that under this run's key, and
+      # cache entries are immutable — so every later run would restore a broken
+      # cache and re-download while the key looked like a hit. Wiping the
+      # directory on failure is what stops that from ever being saved.
+      - name: Fetch the embedding model
+        run: |
+          python - <<'PY'
+          import shutil, sys
+
+          from app.chat.embedding import cache_dir, get_embedder, model_is_cached
+
+          target = cache_dir()
+          try:
+              get_embedder()._ensure()
+          except BaseException as exc:
+              shutil.rmtree(target, ignore_errors=True)
+              sys.exit(f"could not fetch the embedding model: {exc!r}")
+          if not model_is_cached():
+              shutil.rmtree(target, ignore_errors=True)
+              sys.exit(f"model cache in {target} is incomplete after a fetch that reported success")
+          print(f"embedding model ready in {target}")
+          PY
       - name: Create application roles
         # Must grant exactly what deploy/postgres/init/01-roles.sh grants for the
         # local Compose stack, or a permission drift here surfaces as a false RLS

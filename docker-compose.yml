@@ -19,7 +19,16 @@ services:
       # The container's internal port stays 5432, so nothing else changes.
       - "127.0.0.1:5433:5432"
     restart: unless-stopped
+    # `memswap_limit` equal to `mem_limit` on every service, and the equality is
+    # the whole instruction: Docker reads memswap_limit as memory PLUS swap, so
+    # setting them equal leaves zero swap for the container. Without it a
+    # container may take its limit a second time in swap — the 650m worker
+    # becomes 650m of RAM and 650m of swap — and on a box shared with someone
+    # else's production the thrashing is paid by the neighbours, not by the
+    # container that caused it. The host's swap stays what the deployment notes
+    # always claimed it was: a buffer for the system as a whole.
     mem_limit: 384m
+    memswap_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lexloom_migrator -d lexloom"]
       interval: 5s
@@ -33,6 +42,7 @@ services:
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
     mem_limit: 64m
+    memswap_limit: 64m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -114,7 +124,17 @@ services:
     ports:
       - "127.0.0.1:8100:8100"
     restart: unless-stopped
+    # Unchanged at 450m, and that is a measured decision rather than an
+    # oversight. This process now holds the embedding model. Measured in this
+    # image, under this limit, whole process: 88 MiB with the app constructed,
+    # 264 MiB once the model is warm, and 264 MiB still after eight query
+    # embeds queued at once — the request path embeds one question at a time,
+    # two at a time at the semaphore's ceiling, and a single-string batch sits
+    # in the flat region of the batch curve, so concurrency adds nothing
+    # measurable here. That leaves ~186 MiB of headroom. Raising the limit
+    # would have cost the neighbours margin to buy room nothing needs.
     mem_limit: 450m
+    memswap_limit: 450m
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -151,7 +171,19 @@ services:
     # than `always` so a deliberate `docker compose stop` survives a daemon
     # restart.
     restart: unless-stopped
+    # Unchanged at 650m, also measured. The worker embeds in batches, and batch
+    # size — not the model — is what moves this number. Measured in this image,
+    # under this limit, whole process: 52 MiB with the task module imported,
+    # 222 MiB once the model is loaded, 301 MiB after a batch of 32, 432 MiB
+    # after a batch of 64. 650m holds a batch of 32 with ~349 MiB to spare and
+    # a batch of 64 with less room than anyone should want.
+    #
+    # So whoever writes the ingest loop in Task 20 is choosing a memory limit
+    # when they choose a batch size. **The batch may not exceed 32 without
+    # re-measuring and revisiting this line** — that is a ratified constraint,
+    # not a preference, and the curve behind it has no cliff warning.
     mem_limit: 650m
+    memswap_limit: 650m
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

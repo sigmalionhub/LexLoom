@@ -30,8 +30,8 @@ export function IsolationBlock({ isolation, tenantCount }: { isolation: Isolatio
         {probe ? (
           <>
             <p className="font-mono text-data leading-relaxed text-mist">
-              <span className="text-chalk">{probe.intruder}</span>&apos;s token, posting to{' '}
-              <span className="text-chalk">{probe.target}</span>&apos;s conversation
+              <span className="text-chalk">{probe.intruder}</span>’s token, posting to{' '}
+              <span className="text-chalk">{probe.target}</span>’s conversation
             </p>
             <p className="mt-1.5 font-mono text-data">
               <span className={probe.result.status === 404 ? 'text-brass' : 'text-alarm'}>
@@ -52,8 +52,8 @@ export function IsolationBlock({ isolation, tenantCount }: { isolation: Isolatio
         ) : (
           <p className="font-mono text-data leading-relaxed text-mist">
             {tenantCount < 2
-              ? "Add a second tenant to send one tenant's token at the other tenant's data."
-              : "Ask a question first, so there is something for the other tenant to fail to reach."}
+              ? 'Add a second tenant to send one tenant’s token at the other tenant’s data.'
+              : 'Ask a question first, so there is something for the other tenant to fail to reach.'}
           </p>
         )}
       </div>

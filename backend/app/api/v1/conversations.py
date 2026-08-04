@@ -13,7 +13,7 @@ from app.auth.deps import CurrentPrincipal
 from app.auth.tickets import TICKET_TTL_SECONDS, mint_stream_ticket, verify_stream_ticket
 from app.auth.verify import InvalidTokenError
 from app.chat.prompt import build_grounded_prompt
-from app.chat.providers import FakeProvider
+from app.chat.providers import DEFAULT_GENERATOR, GeneratorChoice, build_provider
 from app.chat.retrieval import search_chunks
 from app.chat.stream import SSE_HEADERS, StreamProgress, client_close_handler, generate_events
 from app.config import get_settings
@@ -42,6 +42,13 @@ class CreateConversationRequest(BaseModel):
 
 class CreateMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
+    # Which `LLMProvider` should answer this question. Optional and defaulted
+    # so every existing caller (and every earlier test) that posts only
+    # `content` keeps working unchanged. Validated as the enum, not a bare
+    # `str`: a caller who sends `"gemini-3.7-flash"` gets a `422` here, not a
+    # 500 three requests later when the stream tries to build a provider for a
+    # model that does not exist.
+    generator: GeneratorChoice = DEFAULT_GENERATOR
 
 
 class StreamTicketRequest(BaseModel):
@@ -120,8 +127,8 @@ async def create_message(
     message_id = uuid.uuid4()
     await session.execute(
         text(
-            "INSERT INTO messages (id, org_id, conversation_id, role, content, status) "
-            "VALUES (:i, :o, :c, 'user', :content, :status)"
+            "INSERT INTO messages (id, org_id, conversation_id, role, content, status, generator) "
+            "VALUES (:i, :o, :c, 'user', :content, :status, :generator)"
         ),
         {
             "i": str(message_id),
@@ -129,6 +136,9 @@ async def create_message(
             "c": str(conversation_id),
             "content": payload.content,
             "status": _PENDING,
+            # `.value`, not the `StrEnum` member itself: the driver binds this
+            # as a parameter, and the plain string is what the column expects.
+            "generator": payload.generator.value,
         },
     )
     return CreateMessageResponse(message_id=message_id)
@@ -199,7 +209,7 @@ async def stream_message(
         message = (
             await session.execute(
                 text(
-                    "SELECT content, status FROM messages "
+                    "SELECT content, status, generator FROM messages "
                     "WHERE id = :i AND conversation_id = :c AND role = 'user'"
                 ),
                 {"i": str(message_id), "c": str(conversation_id)},
@@ -233,14 +243,20 @@ async def stream_message(
 
         # Order matters: the prompt is built FROM the citations, so retrieval
         # has to run first. `search_chunks` here takes no `mode` yet — that
-        # parameter and the `search_mode` column arrive from Task 21 and
-        # Task 29, neither merged in this worktree — but the ordering change
-        # is this task's whole point: Task 28 rev 1 built the prompt from the
-        # raw question, which would have sent a visitor's question to Google
-        # under the owner's key with no grounding in the corpus at all.
+        # parameter and the `search_mode` column arrive from Task 21, not
+        # merged in this worktree — but the ordering change is this task's
+        # whole point: Task 28 rev 1 built the prompt from the raw question,
+        # which would have sent a visitor's question to Google under the
+        # owner's key with no grounding in the corpus at all.
         question = message["content"]
         citations = await search_chunks(session, question)
         prompt = build_grounded_prompt(question, citations)
+        # Read from the same row the question came from — no second query.
+        # `GeneratorChoice(...)` re-validates rather than trusting the column:
+        # the value was written by this same enum at POST time, but a value
+        # written before a member was renamed, or poked in by hand, must fail
+        # loudly here rather than reach `build_provider` as an opaque string.
+        generator_choice = GeneratorChoice(message["generator"])
 
     async def store_answer(answer: str, finish_reason: str) -> None:
         """Persist the answer in a fresh short transaction after generation.
@@ -291,9 +307,10 @@ async def stream_message(
             slot,
             generate_events(
                 message_id=str(message_id),
-                provider=FakeProvider(),
+                provider=build_provider(generator_choice),
                 citations=citations,
                 prompt=prompt,
+                generator=generator_choice,
                 progress=progress,
                 on_complete=store_answer,
             ),

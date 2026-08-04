@@ -52,6 +52,10 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text(), nullable=False, server_default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    # `search_mode` is Task 21's column (branch B); `generator` is this one's.
+    # Both are added by migration 0005 — see that file for why they share it.
+    search_mode: Mapped[str] = mapped_column(String(16), nullable=False, server_default="fts")
+    generator: Mapped[str] = mapped_column(String(32), nullable=False, server_default="deterministic")
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     citations: Mapped[list] = mapped_column(JSONB(), nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -11,6 +11,7 @@ import {
   type ProbeResult,
   type RequestRecord,
 } from './api';
+import { readGenerator } from './generator-choice';
 import { diagnoseStreamFailure, openAnswerStream, type Frame, type StreamHandle } from './stream';
 
 /**
@@ -200,7 +201,12 @@ export function useLexloom() {
 
       try {
         const conversationId = tenant.conversationId ?? (await createConversation(tenant));
-        const { message_id: messageId } = await api.postMessage(tenant.token, conversationId, trimmed);
+        // Read here, in the event handler, at the moment of asking — not at
+        // render time, where `window` would not exist on the prerendered
+        // first paint of this static export.
+        const { message_id: messageId } = await api.postMessage(tenant.token, conversationId, trimmed, {
+          generator: readGenerator(),
+        });
         // Minted here rather than earlier: the ticket is bound to this message
         // and its clock is already running.
         const { ticket, expires_in: lifetime } = await api.streamTicket(tenant.token, messageId);

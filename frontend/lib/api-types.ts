@@ -199,6 +199,8 @@ export interface components {
     CreateMessageRequest: {
       /** Content */
       content: string;
+      /** @default deterministic */
+      generator?: components['schemas']['GeneratorChoice'];
     };
     /** CreateMessageResponse */
     CreateMessageResponse: {
@@ -227,6 +229,24 @@ export interface components {
       /** Expires In */
       expires_in: number;
     };
+    /**
+     * GeneratorChoice
+     * @description Which `LLMProvider` a request asked for.
+     *
+     *     Read on the `POST /messages` request body and stored on the row (migration
+     *     0005's `generator` column); `stream_message` reads it back and hands it to
+     *     `build_provider`. The value that comes back out is also what the
+     *     `message_start` SSE frame carries as `model` — see `app.chat.stream`.
+     *
+     *     The two Gemini members carry the model id as their value rather than a
+     *     short label like the old `GEMINI` member did: `build_provider` below reads
+     *     the model straight off `choice.value`, so there is exactly one place that
+     *     knows the mapping from a visitor's choice to a Gemini model name, and it
+     *     is this enum. A short label plus a separate lookup table would be two
+     *     things that have to agree with each other and nothing enforcing it.
+     * @enum {string}
+     */
+    GeneratorChoice: 'deterministic' | 'gemini-3.5-flash-lite' | 'gemini-3.6-flash';
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */

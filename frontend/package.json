@@ -12,7 +12,7 @@
     "preview": "next build && node scripts/serve.mjs --static",
     "lint": "next lint",
     "format": "prettier --write \"{app,components,lib,scripts}/**/*.{ts,tsx,mjs,css}\" \"*.{ts,mjs}\"",
-    "gen:types": "openapi-typescript openapi.json -o lib/api-types.ts && prettier --write lib/api-types.ts",
+    "gen:types": "openapi-typescript openapi.json --default-non-nullable false -o lib/api-types.ts && prettier --write lib/api-types.ts",
     "snapshot:openapi": "node scripts/snapshot-openapi.mjs"
   },
   "dependencies": {

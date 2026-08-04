@@ -5,12 +5,10 @@ from dataclasses import dataclass
 import structlog
 from starlette.types import Message
 
-from app.chat.providers import LLMProvider
+from app.chat.providers import DEFAULT_GENERATOR, GeneratorChoice, LLMProvider
 from app.chat.retrieval import Citation
 
 logger = structlog.get_logger(__name__)
-
-MODEL_NAME = "fake-1"
 
 # Only what sse-starlette does not already decide for us, which is one header.
 #
@@ -92,6 +90,7 @@ async def generate_events(
     provider: LLMProvider,
     citations: list[Citation],
     prompt: str,
+    generator: GeneratorChoice = DEFAULT_GENERATOR,
     progress: StreamProgress | None = None,
     on_complete: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> AsyncIterator[dict]:
@@ -104,12 +103,24 @@ async def generate_events(
     answer nobody waited for is not an answer, and a write attempted from a
     cancelled task is itself cancelled, so there is nothing to salvage by
     trying.
+
+    `generator` defaults so the tests in `test_stream_cancellation.py` that
+    only care about cancellation, not selection, do not have to name a choice.
+    `conversations.py` always passes the one it actually built `provider` from
+    — the two must agree, since `model` below is what tells the client which
+    generator answered.
     """
     progress = progress if progress is not None else StreamProgress()
 
     yield {
         "event": "message_start",
-        "data": json.dumps({"message_id": message_id, "model": MODEL_NAME}),
+        # `model` is reused for the generator choice rather than growing a
+        # second field: it is the same concept ("what generated this
+        # answer"), and two fields for one fact is two sources of truth that
+        # can disagree. `str(generator)` rather than the bare `StrEnum` member
+        # only to keep the json.dumps output unambiguous about the type — the
+        # characters on the wire are identical either way.
+        "data": json.dumps({"message_id": message_id, "model": str(generator)}),
     }
     yield {"event": "citations", "data": json.dumps({"chunks": citations})}
 

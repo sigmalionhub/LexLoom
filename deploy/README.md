@@ -246,7 +246,7 @@ still present in the snippet include.
 
 Start by counting containers, not by calling the API. The API answering proves that the
 API is up and nothing else: each service reads its own environment, so one of them can
-fail to construct its settings and exit while the other three look perfectly healthy.
+fail to construct its settings and exit while the other four look perfectly healthy.
 That is not a hypothetical — a demo once ran with no worker at all, and every check in
 this section except this one passed.
 
@@ -254,12 +254,13 @@ this section except this one passed.
 docker compose ps
 ```
 
-**All four of `postgres`, `redis`, `api` and `worker` must read `Up`** (postgres and redis
-`Up (healthy)`). Every service is `restart: unless-stopped`, so a container that cannot
-start reads `Restarting` rather than `Exited` — count that as down, and read its reason:
+**All five of `postgres`, `redis`, `api`, `worker` and `beat` must read `Up`** (postgres
+and redis `Up (healthy)`). Every service is `restart: unless-stopped`, so a container
+that cannot start reads `Restarting` rather than `Exited` — count that as down, and read
+its reason:
 
 ```bash
-docker compose ps --status running --format '{{.Service}}' | sort   # expect all four
+docker compose ps --status running --format '{{.Service}}' | sort   # expect all five
 docker compose logs worker | tail -20                               # if one is missing
 ```
 
@@ -323,14 +324,14 @@ docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}'
 free -h
 ```
 
-Budget: postgres 384 MB, redis 64 MB, api 450 MB, worker 650 MB — about **1.55 GB**
-ceiling against 2.2 GB free. The margin is thin on purpose; if something sits near its
-limit, lower it rather than raising the total.
+Budget: postgres 384 MB, redis 64 MB, api 450 MB, worker 650 MB, beat 96 MB — about
+**1.64 GB** ceiling against 2.2 GB free. The margin is thin on purpose; if something sits
+near its limit, lower it rather than raising the total.
 
 These are RAM figures and they stay RAM figures after Step 2. `mem_limit` maps to
 Docker's `--memory`, which caps a container's resident memory; the swapfile lets a
 container that reaches its limit spill into swap instead of being killed there and then,
-but it does not raise the 1.55 GB. Read `docker stats` for the per-container number and
+but it does not raise the 1.64 GB. Read `docker stats` for the per-container number and
 `free -h` for the box — and treat a *growing* `Swap: used` as the signal it is, because
 by then the whole host is paying for it.
 
@@ -390,10 +391,6 @@ and nothing else.
 
 ## Known gaps, stated rather than discovered
 
-- **Nothing runs `celery beat`.** The hourly purge of expired demo tenants is registered
-  on a schedule that no process reads, so the 24-hour TTL is currently enforced by
-  nothing. Until a beat service exists, run it by hand when the row count grows:
-  `docker compose exec worker celery -A app.worker.celery_app call lexloom.purge_expired_orgs`
 - **Demo tenants are not free.** Each one copies a 30-chunk corpus: about 31 rows and
   11.7 kB per anonymous `demo-login`. Watch the row count for the first days after this
   goes public.

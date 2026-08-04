@@ -147,5 +147,35 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
 
+  beat:
+    build: ./backend
+    # --schedule points celery's last-run bookkeeping at /tmp rather than its
+    # default of the working directory. The image's WORKDIR (/app) is created
+    # by Dockerfile's WORKDIR instruction, which runs as root before the
+    # `--chown=lexloom:lexloom` COPY, so the directory itself stays
+    # root-owned even though the files copied into it are not — `beat`, which
+    # runs as `lexloom` and is the only service that writes into its working
+    # directory at runtime, fails at startup with a plain "Permission denied"
+    # otherwise. /tmp is not a volume, so this file does not survive a
+    # restart; that only costs beat re-scheduling from "now" instead of from
+    # its last tick, which is one wakeup, not a correctness problem.
+    command: celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lexloom_worker:${WORKER_DB_PASSWORD:-worker}@postgres:5432/lexloom
+      REDIS_URL: redis://redis:6379/0
+      ENV: ${ENV:-local}
+      TRUSTED_PROXIES: none   # same reason as the worker: serves no HTTP
+      # How often the purge schedule fires, in seconds. Read directly from the
+      # environment by app/worker/celery_app.py, not through Settings — see the
+      # comment there. Left unset in production, so the default (3600, one
+      # hour) is what actually runs; a test can override it to prove the purge
+      # fires without waiting an hour for it.
+      PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS: ${PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS:-3600}
+    restart: unless-stopped
+    mem_limit: 96m
+    memswap_limit: 96m   # equal to mem_limit means: no swap for this container
+    depends_on:
+      redis: {condition: service_healthy}
+
 volumes:
   pgdata:

@@ -27,6 +27,8 @@ import pytest
 import yaml
 
 from app.config import Settings
+from app.worker.celery_app import _parse_purge_schedule_seconds, celery_app
+from app.worker.tasks import purge_expired_orgs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
@@ -146,3 +148,59 @@ def test_every_setting_env_example_documents_is_forwarded_by_compose():
         f"{COMPOSE_FILE.name} does not forward them. Setting one in .env would reach "
         "Compose and stop there, and the container would keep using the default."
     )
+
+
+# --- The `beat` service actually schedules the purge ------------------------
+#
+# `test_every_application_service_starts_on_the_public_box[beat]` above proves
+# `beat` can construct `Settings` and start — the same thing the compose-smoke
+# job in ci.yml proves by watching `docker compose ps`. Neither one proves
+# anything about what `beat` schedules: a typo in
+# `PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`, a broken task-name string inside
+# `beat_schedule`, or the schedule-reading code losing its wiring would all
+# leave the container running and every HTTP check green, with nothing ever
+# scheduled. `test_demo_orgs.py` already covers the purge SQL itself
+# (`test_purge_removes_expired_orgs_only` and neighbours) by calling the task
+# directly; what is untested there is the scheduling mechanism between
+# `docker-compose.yml`'s environment block and a firing task, which is what
+# the tests below are for.
+
+def test_purge_schedule_default_is_hourly():
+    assert _parse_purge_schedule_seconds("3600") == 3600.0
+
+
+def test_purge_schedule_honours_a_small_valid_override():
+    assert _parse_purge_schedule_seconds("5") == 5.0
+
+
+@pytest.mark.parametrize("raw", ["0", "0.0", "-1", "-0.5", "-3600"])
+def test_purge_schedule_rejects_zero_and_negative(raw):
+    """The regression the reviewer measured directly: `celery.schedules.schedule`
+    treats a non-positive `run_every` as always due, which would fire
+    `purge_expired_orgs` in a tight loop against a Postgres shared with other
+    applications on this box, rather than crash the container the way a
+    non-numeric value already does.
+    """
+    with pytest.raises(ValueError):
+        _parse_purge_schedule_seconds(raw)
+
+
+@pytest.mark.parametrize("raw", ["not-a-number", "", "nan", "inf", "-inf"])
+def test_purge_schedule_rejects_non_numeric_and_non_finite(raw):
+    with pytest.raises(ValueError):
+        _parse_purge_schedule_seconds(raw)
+
+
+def test_beat_schedule_names_the_task_that_is_actually_registered():
+    """Catches a typo in the task-name string inside `beat_schedule`.
+
+    `beat` schedules a task name freely — it does not check that any worker
+    owns it, so a typo here does not crash `beat` either; it schedules a task
+    that fires into the void and is discovered only when someone notices the
+    row count growing. Compared against `purge_expired_orgs.name`, the
+    decorated task's own registered name, rather than a second copy of the
+    string literal, so the two cannot drift apart silently.
+    """
+    entry = celery_app.conf.beat_schedule["purge-expired-demo-orgs"]
+    assert entry["task"] == purge_expired_orgs.name
+    assert purge_expired_orgs.name in celery_app.tasks

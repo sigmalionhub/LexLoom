@@ -32,6 +32,14 @@ export interface Turn {
   question: string;
   messageId?: string;
   model?: string;
+  /**
+   * Set when the server itself fell back mid-stream, via the
+   * `generator_changed` frame — today that only ever means a Gemini choice
+   * hit its free-tier quota. `model` above is updated to the frame's value
+   * as soon as it arrives, so it always names what actually answered;
+   * `degradedFrom` is what remembers that a substitution happened and why.
+   */
+  degradedFrom?: { model: string; reason: string };
   citations: Citation[] | null;
   answer: string;
   tokens: number;
@@ -223,6 +231,11 @@ export function useLexloom() {
             patchTurn(turnId, (turn) => ({
               citations: chunks,
               timings: { ...turn.timings, citations: at },
+            })),
+          onGeneratorChanged: (data) =>
+            patchTurn(turnId, (turn) => ({
+              degradedFrom: { model: turn.model ?? 'unknown', reason: data.reason },
+              model: data.model,
             })),
           onToken: (text, at) =>
             patchTurn(turnId, (turn) => ({

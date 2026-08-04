@@ -41,6 +41,7 @@ export type DemoLoginResponse = components['schemas']['DemoLoginResponse'];
 export type CreateConversationResponse = components['schemas']['CreateConversationResponse'];
 export type CreateMessageResponse = components['schemas']['CreateMessageResponse'];
 export type StreamTicketResponse = components['schemas']['StreamTicketResponse'];
+export type GeneratorsResponse = components['schemas']['GeneratorsResponse'];
 
 /** One retrieved chunk, exactly as it arrives in the `citations` frame. */
 export interface Citation {
@@ -259,6 +260,17 @@ export const api = {
       token,
       body: { message_id: messageId } satisfies StreamTicketRequest,
     });
+  },
+
+  /**
+   * Which generators would actually work right now — not all three with a
+   * flag, only the ones that would. With no `GEMINI_API_KEY` on the server
+   * this is `[{ value: 'deterministic', ... }]`, which is what lets a clone
+   * with zero API keys still offer a working chat and simply not offer a
+   * Gemini option to click. No token: this route is public, like `/status`.
+   */
+  listGenerators(): Promise<GeneratorsResponse> {
+    return request<GeneratorsResponse>('GET', '/api/v1/generators');
   },
 };
 

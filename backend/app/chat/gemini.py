@@ -28,6 +28,25 @@ _URL = (
 # hang the whole admission-controlled slot it is running under.
 _TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 
+# HTTP status Gemini answers with once the free tier's per-minute quota is
+# spent. Checked on the response before `raise_for_status()` runs, not caught
+# as an `httpx.HTTPStatusError` afterwards: the caller (`app.chat.stream`) has
+# to tell "the model is temporarily out of quota, keep the demo going on the
+# deterministic provider" apart from every other way this call can fail, and a
+# bare `HTTPStatusError` carries no such distinction on its own.
+_QUOTA_EXHAUSTED_STATUS = 429
+
+
+class GeminiQuotaExceededError(Exception):
+    """Gemini refused the request with HTTP 429 — the free tier's rate limit.
+
+    Expected, not exceptional: the free tier allows 10 requests a minute and
+    this is a public demo. `app.chat.stream.generate_events` catches this
+    specific type and falls back to `FakeProvider` rather than ending the
+    stream in an `error` frame, which is what happens to every other
+    exception this class raises.
+    """
+
 
 class GeminiProvider:
     """`LLMProvider` backed by a live call to the Gemini API.
@@ -61,6 +80,14 @@ class GeminiProvider:
         }
         async with httpx.AsyncClient(timeout=_TIMEOUT, transport=self._transport) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as response:
+                if response.status_code == _QUOTA_EXHAUSTED_STATUS:
+                    # Raised before `raise_for_status()` sees it: that call
+                    # would raise `httpx.HTTPStatusError` too, but the caller
+                    # needs this one case named so it can degrade instead of
+                    # failing the stream.
+                    raise GeminiQuotaExceededError(
+                        f"Gemini quota exhausted for model {self._model!r} (HTTP 429)"
+                    )
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     text = _text_from_sse_line(line)

@@ -335,6 +335,27 @@
           }
         }
       }
+    },
+    "/api/v1/generators": {
+      "get": {
+        "tags": [
+          "generators"
+        ],
+        "summary": "List Generators",
+        "operationId": "list_generators_api_v1_generators_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratorsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -454,6 +475,39 @@
         ],
         "title": "GeneratorChoice",
         "description": "Which `LLMProvider` a request asked for.\n\nRead on the `POST /messages` request body and stored on the row (migration\n0005's `generator` column); `stream_message` reads it back and hands it to\n`build_provider`. The value that comes back out is also what the\n`message_start` SSE frame carries as `model` — see `app.chat.stream`.\n\nThe two Gemini members carry the model id as their value rather than a\nshort label like the old `GEMINI` member did: `build_provider` below reads\nthe model straight off `choice.value`, so there is exactly one place that\nknows the mapping from a visitor's choice to a Gemini model name, and it\nis this enum. A short label plus a separate lookup table would be two\nthings that have to agree with each other and nothing enforcing it."
+      },
+      "GeneratorOption": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/GeneratorChoice"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "GeneratorOption"
+      },
+      "GeneratorsResponse": {
+        "properties": {
+          "generators": {
+            "items": {
+              "$ref": "#/components/schemas/GeneratorOption"
+            },
+            "type": "array",
+            "title": "Generators"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generators"
+        ],
+        "title": "GeneratorsResponse"
       },
       "HTTPValidationError": {
         "properties": {

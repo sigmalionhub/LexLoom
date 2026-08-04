@@ -5,7 +5,8 @@ from dataclasses import dataclass
 import structlog
 from starlette.types import Message
 
-from app.chat.providers import DEFAULT_GENERATOR, GeneratorChoice, LLMProvider
+from app.chat.gemini import GeminiQuotaExceededError
+from app.chat.providers import DEFAULT_GENERATOR, FakeProvider, GeneratorChoice, LLMProvider
 from app.chat.retrieval import Citation
 
 logger = structlog.get_logger(__name__)
@@ -109,6 +110,14 @@ async def generate_events(
     `conversations.py` always passes the one it actually built `provider` from
     — the two must agree, since `model` below is what tells the client which
     generator answered.
+
+    A `GeminiQuotaExceededError` on the first call to `provider.stream()` is
+    not treated as failure: it yields an extra `generator_changed` frame —
+    always immediately after `citations`, never before, since the error
+    surfaces before any token has gone out — and continues the same answer on
+    `FakeProvider`. Every other exception still ends the stream with an
+    `error` frame and `finish_reason: "error"`, unchanged from before this
+    existed.
     """
     progress = progress if progress is not None else StreamProgress()
 
@@ -130,6 +139,46 @@ async def generate_events(
         async for token in provider.stream(prompt):
             spoken.append(token)
             yield {"event": "token", "data": json.dumps({"text": token})}
+    except GeminiQuotaExceededError:
+        # Quota exhaustion is expected, not exceptional: the free tier allows
+        # 10 requests a minute and this is a public demo. Falling back to the
+        # deterministic provider keeps the answer coming; saying so in the
+        # stream is what keeps it honest. A silent substitution would show the
+        # visitor a canned answer they believe came from a model.
+        #
+        # `httpx` raises this from the first line of the response (the status
+        # code arrives before any body), so it always lands here with `spoken`
+        # still empty — `generator_changed` therefore always lands exactly
+        # where the contract puts it: right after `citations`, before the
+        # first `token`. Saboteur check: delete this `except` clause and
+        # test_provider_degradation.py goes red on a bare `error` frame
+        # instead of a completed, fallen-back answer.
+        logger.warning(
+            "provider_quota_exceeded", message_id=message_id, generator=str(generator)
+        )
+        fallback_generator = DEFAULT_GENERATOR
+        yield {
+            "event": "generator_changed",
+            "data": json.dumps(
+                {"model": str(fallback_generator), "reason": "quota_exceeded"}
+            ),
+        }
+        try:
+            async for token in FakeProvider().stream(prompt):
+                spoken.append(token)
+                yield {"event": "token", "data": json.dumps({"text": token})}
+        except Exception:
+            logger.exception("fallback_provider_failed", message_id=message_id)
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": "provider_unavailable",
+                        "message": "Generation failed; sources are above.",
+                    }
+                ),
+            }
+            finish_reason = "error"
     except Exception:
         logger.exception("provider_failed", message_id=message_id)
         yield {

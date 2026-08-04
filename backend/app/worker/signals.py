@@ -13,22 +13,33 @@ def on_worker_process_init(**_: object) -> None:
     not the threads themselves. In M2 this is also where the ONNX embedding
     model is loaded.
 
-    The measured reason to build the model here rather than in the parent is
-    memory. A parent-built model is inherited by every child, and fork() shares
-    those pages copy-on-write — but ONNX Runtime writes into its own arena on
-    the first inference, so the sharing does not survive it and each child pays
-    for its own ~216 MiB regardless. Building it in the parent therefore buys
-    nothing and moves the cost to an unpredictable moment instead of to worker
-    start-up, with a fresh child arriving every `--max-tasks-per-child=50`.
+    For the model the reason is a documented caution, and it is worth being
+    exact about that, because two stronger reasons were tested for task 19 and
+    NEITHER of them held.
 
-    A second reason is a caution rather than a finding: fork() plus a thread
-    pool is the documented way to inherit a pool whose threads do not exist on
-    the other side, leaving the first use to block with no error and no
-    traceback. That was probed for task 19 and did NOT reproduce — a
-    parent-built InferenceSession embedded correctly in the child at fastembed
-    0.5.1, at OMP_NUM_THREADS=1 and at 4. The discipline is kept anyway,
-    because it costs nothing and the memory reason above stands on its own.
-    See the comment beside the model load below.
+    The caution that stands: building an InferenceSession is what makes this
+    process multi-threaded, and CPython warns that `fork()` in a multi-threaded
+    process may deadlock in the child. Celery forks after loading the
+    application, so a model built at import is a model built before that fork.
+    Loading in this handler is what keeps the parent single-threaded on our
+    account.
+
+    What was NOT reproduced, recorded here so nobody re-derives it from the
+    comment history:
+
+    * The hang. A parent-built session embedded correctly in the child at
+      fastembed 0.5.1, at OMP_NUM_THREADS=1 and at 4.
+    * Memory duplication. An earlier revision of this docstring claimed each
+      child pays for its own ~216 MiB because ONNX writes into its arena.
+      Measured directly, that is false: a forked child shows 2 MiB private
+      against 147 MiB shared immediately after the fork, and 4 MiB private
+      after its first inference — copy-on-write holds for the weights. What is
+      private is batch activation memory, 119 MiB at a batch of 32, and the
+      child pays that wherever the model was built.
+
+    So this is a conservative default rather than a fix for a demonstrated
+    failure, and it is cheap: one load per child, and children are recycled
+    only every `--max-tasks-per-child=50`. See the task 19 report.
     """
     import asyncio
 
@@ -55,9 +66,9 @@ def on_worker_process_init(**_: object) -> None:
     asyncio.run(_check())
 
     # After the database work above, not before it: the connections inherited
-    # across the fork are released first, and only then is ~216 MiB of model
-    # made resident. Doing it the other way round holds both at once for no
-    # reason, on a box where that margin is most of the budget.
+    # across the fork are released first, and only then does the model become
+    # resident. Doing it the other way round holds both at once for no reason,
+    # on a box where that margin is most of the budget.
     #
     # Imported inside the handler, and `app.chat.embedding` in turn imports
     # fastembed inside `_load()`, so the parent never touches ONNX at all. Why

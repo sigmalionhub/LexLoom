@@ -77,26 +77,22 @@ def model_is_cached() -> bool:
 
 
 def _load():
-    # Imported here, not at module top, and the worker builds the model from
-    # `worker_process_init` — i.e. after the fork. Two reasons, one measured and
-    # one precautionary; they are recorded separately because they are not
-    # equally certain.
+    # Imported here, not at module top, so that importing this module never
+    # pulls in ONNX Runtime. The worker then builds the model from
+    # `worker_process_init`, i.e. after the fork.
     #
-    # Measured: a model built in the Celery parent is inherited by every child.
-    # fork() shares those pages copy-on-write, but ONNX Runtime writes into its
-    # own arena on the first inference, so each child ends up paying for its own
-    # copy of ~216 MiB anyway — on a 2 GB box shared with someone else's
-    # production, at an unpredictable moment rather than at start-up.
+    # The reason is precautionary, and this says so because the two stronger
+    # reasons were tested for task 19 and neither survived. Building an
+    # InferenceSession is what makes a process multi-threaded, and CPython warns
+    # that fork() in a multi-threaded process may deadlock in the child; the
+    # deferred import is what keeps the Celery parent clear of that.
     #
-    # Precautionary: fork() copies a thread pool's bookkeeping but not its
-    # threads, which is the classic way a child inherits a pool it can never
-    # use and blocks on first use with no error and no traceback. That is what
-    # the docstring in app/worker/signals.py warns about. It did NOT reproduce
-    # here — with fastembed 0.5.1 a parent-built session survived the fork and
-    # embedded correctly in the child, at OMP_NUM_THREADS=1 and at 4 (see the
-    # task 19 report for the probe). The discipline is kept anyway: it costs
-    # nothing, the memory reason above stands on its own, and "this version of
-    # ONNX Runtime happens to tolerate fork" is not a property to build on.
+    # Not reproduced, recorded so it is not re-derived later: the hang itself (a
+    # parent-built session embedded correctly in the child at fastembed 0.5.1,
+    # at OMP_NUM_THREADS=1 and at 4), and memory duplication (a forked child
+    # measured 2 MiB private against 147 MiB shared, and 4 MiB private after its
+    # first inference — copy-on-write does hold for the weights). See the
+    # docstring in app/worker/signals.py and the task 19 report.
     from fastembed import TextEmbedding
 
     # `cache_dir` passed explicitly rather than relying on fastembed reading
@@ -110,9 +106,9 @@ class Embedder:
     """A handle on the process-wide model.
 
     Cheap to construct and safe to hold; the model itself is the module-level
-    `_model`, so two handles never mean two InferenceSessions — which on this
-    box would mean two resident copies of ~216 MiB against a container limit
-    sized for one.
+    `_model`, so two handles never mean two InferenceSessions. A second session
+    would be a second ~180 MiB of private memory in one process — no fork, no
+    page sharing to soften it — against a container limit sized for one.
     """
 
     def _ensure(self):

@@ -116,13 +116,14 @@ services:
       - "127.0.0.1:8100:8100"
     restart: unless-stopped
     # Unchanged at 450m, and that is a measured decision rather than an
-    # oversight. This process now holds the embedding model: measured 216 MiB
-    # resident once loaded, and flat through a batch of eight, which is more
-    # than the request path ever asks for — it embeds one question at a time,
-    # two at a time at the semaphore's ceiling. Against a baseline of ~57 MiB
-    # observed on the running stack that lands near 280 MiB, with real slack
-    # under the existing limit. Raising it would have cost the neighbours
-    # headroom to buy nothing.
+    # oversight. This process now holds the embedding model. Measured in this
+    # image, under this limit, whole process: 88 MiB with the app constructed,
+    # 264 MiB once the model is warm, and 264 MiB still after eight query
+    # embeds queued at once — the request path embeds one question at a time,
+    # two at a time at the semaphore's ceiling, and a single-string batch sits
+    # in the flat region of the batch curve, so concurrency adds nothing
+    # measurable here. That leaves ~186 MiB of headroom. Raising the limit
+    # would have cost the neighbours margin to buy room nothing needs.
     mem_limit: 450m
     memswap_limit: 450m
     depends_on:
@@ -162,14 +163,16 @@ services:
     # restart.
     restart: unless-stopped
     # Unchanged at 650m, also measured. The worker embeds in batches, and batch
-    # size — not the model — is what moves this number: 216 MiB resident, flat
-    # to a batch of 8, 253 MiB at 16, 315 MiB at 32, 444 MiB at 64. Against a
-    # baseline of ~68 MiB observed on the running stack, a batch of 32 lands
-    # near 383 MiB and a batch of 64 near 512 MiB. 650m holds the first
-    # comfortably and the second with less room than anyone should want, so
-    # whoever writes the ingest loop in Task 20 is choosing a memory limit when
-    # they choose a batch size. Thirty-two is the size these numbers were taken
-    # at; going past it needs this line revisited, not just a bigger batch.
+    # size — not the model — is what moves this number. Measured in this image,
+    # under this limit, whole process: 52 MiB with the task module imported,
+    # 222 MiB once the model is loaded, 301 MiB after a batch of 32, 432 MiB
+    # after a batch of 64. 650m holds a batch of 32 with ~349 MiB to spare and
+    # a batch of 64 with less room than anyone should want.
+    #
+    # So whoever writes the ingest loop in Task 20 is choosing a memory limit
+    # when they choose a batch size. **The batch may not exceed 32 without
+    # re-measuring and revisiting this line** — that is a ratified constraint,
+    # not a preference, and the curve behind it has no cliff warning.
     mem_limit: 650m
     memswap_limit: 650m
     depends_on:

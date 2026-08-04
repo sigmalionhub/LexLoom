@@ -83,15 +83,15 @@ def test_the_declared_dimension_matches_the_database_column():
 def test_importing_the_module_does_not_import_fastembed():
     """The loading discipline, asserted rather than trusted.
 
-    Importing `app.chat.embedding` must not pull in ONNX Runtime. That keeps
-    the Celery parent free of it, so every child builds its own model after the
-    fork — which is what stops a ~216 MiB session from being inherited and then
-    duplicated by the arena writes of each child's first inference.
+    Importing `app.chat.embedding` must not pull in ONNX Runtime. That is what
+    keeps the Celery parent single-threaded, so the fork it performs is not the
+    fork-from-a-multi-threaded-process that CPython warns may deadlock a child.
 
-    It is also the guard against the fork-plus-thread-pool hang described in
-    `app/worker/signals.py`, which did not reproduce at fastembed 0.5.1 and is
-    kept as precaution rather than as a demonstrated failure. This test is worth
-    having on the memory argument alone.
+    Two stronger justifications are deliberately NOT claimed here, because
+    neither reproduced when they were probed for task 19: the hang itself, and
+    per-child memory duplication. See the docstring in `app/worker/signals.py`.
+    What this test pins is the discipline, which is cheap and which a single
+    stray top-level import would silently undo.
 
     In a subprocess because the assertion is about `sys.modules`, and any
     earlier test in this process may already have loaded fastembed for its own
@@ -143,8 +143,8 @@ def test_the_worker_loads_the_model_after_the_fork_not_at_import():
     }
     assert not any("embedding" in name or "fastembed" in name for name in named), (
         f"signals.py imports the embedder at module level ({sorted(named)}) — "
-        "that puts the model in the Celery parent, where every child inherits "
-        "it and then pays for its own ~216 MiB copy on first inference anyway"
+        "that builds the model in the Celery parent, which makes the parent "
+        "multi-threaded before it forks"
     )
 
     handler = next(
@@ -181,8 +181,8 @@ def test_encode_query_embeds_one_text_and_unwraps_it(stub_model):
 def test_the_model_is_loaded_once_even_under_concurrent_first_calls(monkeypatch):
     """Two threads racing `_ensure` must not build two InferenceSessions.
 
-    Not a tidiness point on a 2 vCPU box: a second session is a second copy of
-    a 216 MiB resident model, and the container limit is sized for one.
+    Not a tidiness point on a 2 vCPU box: a second session is a second ~180 MiB
+    of private memory in one process, and the container limit is sized for one.
     """
     monkeypatch.setattr(embedding, "_model", None)
     loads = []

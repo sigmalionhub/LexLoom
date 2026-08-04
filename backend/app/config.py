@@ -185,6 +185,25 @@ class Settings(BaseSettings):
     # slack over the 150s refresh period.
     stream_slot_ttl_seconds: int = Field(default=600, ge=1)
 
+    # How many organisations may hold an ingested corpus (from
+    # app.ingest.catalogue, not the seed) at once. Read in
+    # app.ingest.jobs.ensure_ingest_admitted via the SECURITY DEFINER
+    # public.count_orgs_with_corpus() (migration 0007) - an ordinary tenant
+    # session cannot answer "how many organisations" across every tenant, and
+    # the function's own docstring explains why the obvious unscoped query
+    # returns 0 instead.
+    #
+    # 8 x ~1.2 MB (1027 chunks x (~500 chars + a 384-float embedding)) is
+    # ~10 MB of Postgres held by ingested corpora at once, on a container
+    # limited to 384 MB (docker-compose.yml). It also bounds the worker's
+    # queue backlog: at most one ingest task per organisation
+    # (app.ingest.jobs, the per-org duplicate guard) and at most this many
+    # organisations between two runs of the hourly purge, so the worst-case
+    # delay the purge itself can suffer is INGEST_ORG_CAP x task_time_limit -
+    # see app/worker/celery_app.py and the worked arithmetic in the task 23
+    # report.
+    ingest_org_cap: int = Field(default=8, ge=1)
+
     @field_validator("trusted_proxies")
     @classmethod
     def _trusted_proxies_parse(cls, value: str) -> str:

@@ -190,3 +190,74 @@ def embed_org_corpus(self, org_id: str) -> int:
         if not is_deadlock(exc):
             raise
         raise self.retry(exc=exc, countdown=5) from exc
+
+
+@celery_app.task(
+    bind=True,
+    name="lexloom.ingest_source",
+    max_retries=0,
+    # Against celery_app.py's own task_acks_late=True, and this override is
+    # the whole reason it exists. With acks_late, a task killed *with its
+    # worker* is redelivered — and the way this task kills a worker is by
+    # exhausting its memory limit while embedding (650m today; see
+    # app/ingest/jobs.py's EMBED_BATCH comment for the measured curve).
+    # Redelivery would then re-run the job that just OOMed, on a 2-vCPU box
+    # shared with someone else's production, for as long as the queue
+    # survives — an OOM loop with no exit. Losing an ingest costs the visitor
+    # one click; retrying a job whose own size is what killed the worker
+    # costs the box. max_retries=0 for the same reason: nothing about this
+    # task is safe to redeliver automatically.
+    acks_late=False,
+)
+def ingest_source(self, org_id: str, source_key: str) -> int:
+    """Ingest one catalogue source into `org_id`'s corpus. Returns chunk count.
+
+    The job body lives in `app.ingest.jobs.run_ingest`; this task is only the
+    Celery wrapper, following the same `asyncio.run()` /
+    `await engine.dispose()` *inside that same loop* convention as
+    `purge_expired_orgs` and `embed_org_corpus` above. A task written without
+    that discipline leaves a closed event loop owning pooled connections,
+    which then fails a *later*, unrelated task with a traceback pointing at
+    the wrong code.
+
+    `SoftTimeLimitExceeded` is caught and turned into `stage=error` in the
+    progress hash before re-raising. Without this, a job that hits
+    `task_soft_time_limit` (celery_app.py) leaves the panel showing whatever
+    stage it was on — typically `embedding`, the longest one — forever, and a
+    visitor polls the status endpoint every 500 ms until their patience runs
+    out rather than their timeout. Re-raised after recording it, so Celery
+    still marks the task failed and this worker's own logs still show why.
+
+    Any other exception gets the same treatment for the same reason: an
+    organisation that expired mid-job (`IngestAbandoned`) or lost a
+    same-organisation race (`IngestAlreadyComplete`) would otherwise also
+    leave the panel stuck on whatever stage the job reached, with nothing to
+    explain why it stopped moving.
+    """
+    import asyncio
+
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from app.db.engine import engine
+    from app.ingest.jobs import _write_progress, run_ingest
+
+    async def _run() -> int:
+        try:
+            return await run_ingest(org_id, source_key)
+        finally:
+            # Dispose inside the same loop that opened the connections, for
+            # the reason spelled out in signals.py and repeated by every task
+            # above.
+            await engine.dispose()
+
+    async def _mark_error(message: str) -> None:
+        await _write_progress(org_id, stage="error", error=message)
+
+    try:
+        return asyncio.run(_run())
+    except SoftTimeLimitExceeded:
+        asyncio.run(_mark_error("ingest exceeded its time limit"))
+        raise
+    except Exception as exc:
+        asyncio.run(_mark_error(str(exc) or type(exc).__name__))
+        raise

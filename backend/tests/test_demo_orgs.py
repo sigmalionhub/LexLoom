@@ -237,7 +237,10 @@ WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
 # (schema, name, identity arguments, prokind, prosecdef). Argument-less and
 # `f` (a plain function, not an aggregate or a procedure) are part of the vetted
 # shape, not incidental: a variant taking an argument could be steered.
-EXPECTED_FUNCTIONS = {("public", "purge_expired_orgs", "", "f", True)}
+EXPECTED_FUNCTIONS = {
+    ("public", "purge_expired_orgs", "", "f", True),
+    ("public", "count_orgs_with_corpus", "", "f", True),
+}
 
 # A third inventory, of a third kind of thing that exists. `plpgsql` is created
 # by initdb; `vector` is what migration 0001 installs. This does not bound the

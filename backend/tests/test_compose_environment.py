@@ -67,12 +67,23 @@ def _interpolate(value: object, host_env: dict[str, str]) -> str:
     return _INTERPOLATION.sub(substitute, str(value))
 
 
+def _build_context(service: dict) -> object | None:
+    """`build: ./backend` and `build: {context: ./backend, args: ...}` are the
+    same image. Comparing the raw value to a string meant that the first
+    service to need a build argument dropped out of this set — and the
+    parametrised test above would have gone on passing while covering one
+    service fewer.
+    """
+    build = service.get("build")
+    return build.get("context") if isinstance(build, dict) else build
+
+
 def _application_services() -> dict[str, dict[str, str]]:
     compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     services = {
         name: service.get("environment") or {}
         for name, service in compose["services"].items()
-        if service.get("build") == APPLICATION_BUILD_CONTEXT
+        if _build_context(service) == APPLICATION_BUILD_CONTEXT
     }
     assert services, (
         f"no service in {COMPOSE_FILE.name} builds {APPLICATION_BUILD_CONTEXT!r} — "

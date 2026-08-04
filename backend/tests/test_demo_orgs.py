@@ -1227,6 +1227,14 @@ EXPECTED_ROUTES = {
         "/api/v1/conversations/{conversation_id}/messages/{message_id}/stream",
         frozenset({"GET"}),
     ),
+    # The residual argument turns on credentials outliving the organisation
+    # they name. `/api/v1/status` mints nothing, accepts nothing, takes no
+    # org_id and no token, reads no org-scoped table and writes no row. It
+    # cannot widen the window, and — see the payload inventory in
+    # test_status.py — it deliberately publishes nothing keyed per
+    # organisation, so it cannot report that an organisation exists after the
+    # purge has destroyed it either. The argument holds unchanged.
+    ("/api/v1/status", frozenset({"GET"})),
 }
 
 

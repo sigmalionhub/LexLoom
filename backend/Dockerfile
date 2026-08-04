@@ -24,5 +24,11 @@ EXPOSE 8100
 # caller controls under an appending proxy. Two components deriving the client
 # address is one too many; this leaves exactly one, and TRUSTED_PROXIES is the
 # only place it is configured.
+# Last in the runtime stage, immediately before CMD. An ARG invalidates every
+# layer below it, so declared any higher this would rebuild the dependency
+# layers on every commit. Unset means "unknown" — see `_commit()` in
+# app/observability.py for why a plausible wrong SHA would be worse than none.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1", \
      "--no-proxy-headers"]

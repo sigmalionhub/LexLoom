@@ -141,8 +141,14 @@ The passwords are read **only when the data volume is first created**. Changing 
 edits nothing inside a Postgres that already exists, so set them now.
 
 ```bash
-docker compose up -d --build
+GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
 ```
+
+`GIT_SHA` is not a line in `.env` — a value written there once is correct once and lies at
+every build after it. Computed on the command line it cannot drift from what is actually
+being built, and it is the only fact `GET /api/v1/status` reports about the deployment
+(see "Metrics" below). Left unset it builds as `unknown`, which is the honest answer for a
+container not built through this runbook.
 
 Then apply migrations. **The API container cannot do this**, by design — it connects as an
 unprivileged role that owns nothing, which is what makes the tenant isolation claim
@@ -336,11 +342,37 @@ by then the whole host is paying for it.
 
 ---
 
+## Metrics — `GET /api/v1/status`
+
+No Prometheus and no `/metrics` on this box, and that is deliberate: the target is
+another operator's shared host, and a Prometheus exposition endpoint publishes queue
+depth, connection-pool internals and every other figure this deployment has decided not
+to hand a stranger. Instead there is one public, unauthenticated endpoint:
+
+```bash
+curl -fsS https://lexloom.sigmalion.io/api/v1/status | jq
+```
+
+It answers with the commit running (`GIT_SHA`, set above), process uptime, request
+counts by status class, and two separate percentile distributions — one for ordinary
+requests, one for how long SSE streams stayed open, because a stream is timed by the
+model and counting it as latency would report "the slowest route" as the fastest one.
+Both distributions are process-local: they live in the memory of the one uvicorn worker
+this Dockerfile runs, reset on every restart, and are read straight off that number
+rather than out of Redis — see the comment beside `Registry` in
+`backend/app/observability.py` for why.
+
+What it deliberately does **not** report: how many of the sixteen stream slots are in
+use, anything broken out per organisation, queue depth, or any host-level figure such as
+load average or free memory — the same box-is-shared reasoning as everywhere else in
+this file. `docs/api-contract.md` §9 has the full list and the reasoning behind each
+omission.
+
 ## Redeploying
 
 ```bash
 cd /var/www/portfolio/lexloom/app && git pull
-docker compose up -d --build
+GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
 export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # check BEFORE assuming it ran
@@ -355,7 +387,7 @@ head` will then report success and do nothing. Always confirm with `alembic curr
 ```bash
 cd /var/www/portfolio/lexloom/app
 git checkout <previous-sha>
-docker compose up -d --build
+GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
 ```
 
 Migrations are **not** rolled back automatically. Every migration in this repository has

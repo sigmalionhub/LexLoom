@@ -186,6 +186,14 @@ storage: `422`, not a `500` three requests later when the stream tries to build 
 provider for a model that does not exist. See §4.2 for how the choice comes back on
 `message_start`.
 
+It also takes an optional `mode`, the `SearchMode` enum — `"fts"` (the default),
+`"vector"` or `"hybrid"` — for which retrieval path answers the question. Omit it and
+you get `"fts"`, the same value `messages.search_mode` defaults to at the column, so an
+omitted field and an explicit `"fts"` store the same row. `"vector"` embeds the
+question and ranks by cosine similarity; `"hybrid"` runs both and fuses the rankings by
+reciprocal rank fusion rather than by score, because `ts_rank` and cosine similarity
+are not on the same scale. See §4.2 for how the choice comes back on `citations`.
+
 ### 3.4 Mint a ticket and open the stream
 
 ```console
@@ -256,7 +264,7 @@ no `id:` fields, so this stream does not support `Last-Event-ID` resumption.
 | `event` | `data` | When |
 |---|---|---|
 | `message_start` | `{"message_id": "<uuid>", "model": "deterministic"}` | Always first. |
-| `citations` | `{"chunks": [Citation, …]}` | Always second, **before any token**. May be `[]`. |
+| `citations` | `{"chunks": [Citation, …], "mode": "fts"}` | Always second, **before any token**. `chunks` may be `[]`. `mode` is the `SearchMode` retrieval path this answer's sources were actually fetched with — `"fts"`, `"vector"` or `"hybrid"` — read back off the stored question, not off whatever a client believes it sent. |
 | `generator_changed` | `{"model": "deterministic", "reason": "quota_exceeded"}` | At most once, **immediately after `citations`, before any token**, only if the generator named on `message_start` could not answer. |
 | `token` | `{"text": "Under "}` | Zero or more. Concatenate `text` in order; whitespace is included in the token. |
 | `error` | `{"code": "provider_unavailable", "message": "…"}` | At most once, if generation fails part-way. |
@@ -295,10 +303,16 @@ A `Citation`:
 }
 ```
 
-At most five chunks, ranked. `content` is truncated at 400 characters. `score` is a
-raw Postgres `ts_rank` value: **comparable within one response and nowhere else.**
-It is not normalised to `0..1`, so do not render it as a percentage and do not
-threshold on it across questions.
+At most five chunks, ranked. `content` is truncated at 400 characters. `score`'s
+**unit depends on `mode`**, the sibling field on the `citations` frame: a raw Postgres
+`ts_rank` in `"fts"`, cosine similarity in `"vector"`, a reciprocal-rank-fusion value in
+`"hybrid"`. In no mode is it normalised to `0..1` in a way that is meaningful across
+questions — `ts_rank` is unbounded and grows with document length, and even the two
+bounded ones (`vector`'s cosine similarity, `hybrid`'s RRF value) are **comparable
+within one response and nowhere else.** Do not render any of them as a percentage and
+do not threshold on any of them across questions, and do not compare a `score` from one
+`mode` against a `score` from another — reading `score` without reading `mode` first is
+reading a number with no declared unit.
 
 ### 4.3 Ordering guarantees
 

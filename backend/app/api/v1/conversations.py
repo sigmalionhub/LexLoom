@@ -49,6 +49,11 @@ class CreateMessageRequest(BaseModel):
     # 500 three requests later when the stream tries to build a provider for a
     # model that does not exist.
     generator: GeneratorChoice = DEFAULT_GENERATOR
+    # The Pydantic default and the column's server default are the same value in
+    # two files, so a test pins them together (test_search_mode_carrier.py). Two
+    # values that must agree are one value and a latent lie — the same reason
+    # TICKET_TTL_SECONDS is not a second literal 60 at conversations.py:151-153.
+    mode: SearchMode = SearchMode.FTS
 
 
 class StreamTicketRequest(BaseModel):
@@ -127,8 +132,9 @@ async def create_message(
     message_id = uuid.uuid4()
     await session.execute(
         text(
-            "INSERT INTO messages (id, org_id, conversation_id, role, content, status, generator) "
-            "VALUES (:i, :o, :c, 'user', :content, :status, :generator)"
+            "INSERT INTO messages "
+            "(id, org_id, conversation_id, role, content, status, generator, search_mode) "
+            "VALUES (:i, :o, :c, 'user', :content, :status, :generator, :search_mode)"
         ),
         {
             "i": str(message_id),
@@ -139,6 +145,7 @@ async def create_message(
             # `.value`, not the `StrEnum` member itself: the driver binds this
             # as a parameter, and the plain string is what the column expects.
             "generator": payload.generator.value,
+            "search_mode": payload.mode.value,
         },
     )
     return CreateMessageResponse(message_id=message_id)
@@ -209,7 +216,7 @@ async def stream_message(
         message = (
             await session.execute(
                 text(
-                    "SELECT content, status, generator FROM messages "
+                    "SELECT content, status, generator, search_mode FROM messages "
                     "WHERE id = :i AND conversation_id = :c AND role = 'user'"
                 ),
                 {"i": str(message_id), "c": str(conversation_id)},
@@ -246,15 +253,15 @@ async def stream_message(
         # question, which would have sent a visitor's question to Google under
         # the owner's key with no grounding in the corpus at all.
         #
-        # `SearchMode.FTS` is written out rather than defaulted, and that is the
-        # point of `mode` having no default: this line is *not yet* reading the
-        # visitor's choice out of `messages.search_mode`, and the explicit
-        # literal says so where a missing argument would have hidden it. Task 21
-        # replaces it with `SearchMode(message["search_mode"])` — the column
-        # already exists (migration 0005) and the row is already loaded here, so
-        # that change is this one line and no new query.
+        # `SearchMode(...)` and not `message["search_mode"]` raw: the value
+        # crosses a text column, and letting a plain string reach the SQL
+        # assembler is choosing a branch on database content. If a future
+        # migration ever writes a value this enum does not know, this raises
+        # loudly on one stream — which beats the alternative, falling back to
+        # FTS and shipping an inert toggle for the second time.
         question = message["content"]
-        citations = await search_chunks(session, question, mode=SearchMode.FTS)
+        mode = SearchMode(message["search_mode"])
+        citations = await search_chunks(session, question, mode=mode)
         prompt = build_grounded_prompt(question, citations)
         # Read from the same row the question came from — no second query.
         # `GeneratorChoice(...)` re-validates rather than trusting the column:
@@ -346,6 +353,7 @@ async def stream_message(
                 message_id=str(message_id),
                 provider=provider,
                 citations=citations,
+                mode=mode,
                 prompt=prompt,
                 generator=generator_choice,
                 progress=progress,

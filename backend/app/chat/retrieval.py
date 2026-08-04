@@ -1,3 +1,4 @@
+import uuid
 from enum import StrEnum
 
 from pgvector.sqlalchemy import Vector
@@ -30,6 +31,34 @@ class SearchMode(StrEnum):
 
     FTS = "fts"
     VECTOR = "vector"
+    HYBRID = "hybrid"
+
+
+# Each leg is run to `_RUN_DEPTH`, not to `limit`. Fusing two top-5 lists gives
+# at most ten candidates, and a chunk that is sixth lexically and first
+# semantically can never surface — which makes the hybrid mode a re-ordering of
+# the lexical five rather than a different answer. Twenty per leg costs
+# nothing: a tenant owns tens of chunks today and ~600 after M2.2, and both
+# legs are exact scans of its own rows either way.
+_RUN_DEPTH = 20
+
+
+def reciprocal_rank_fusion(runs: list[list[uuid.UUID]], k: int = 60) -> list[uuid.UUID]:
+    """Merge ranked lists by rank, never by score.
+
+    ts_rank and cosine similarity are not on the same scale and no constant
+    converts one into the other: ts_rank is unbounded and grows with document
+    length, cosine similarity is bounded in [0, 1]. Any weighted sum of the two
+    is a number with no meaning, tuned until the demo looks right — and tuned
+    against thirty chunks, so it stops being right the moment M2.2 seeds six
+    hundred. RRF discards the scores and uses only position, which is the one
+    thing both lists agree about.
+
+    k=60 is the value from the original TREC work; it damps the difference
+    between rank 1 and rank 2 enough that a single list cannot dominate.
+    """
+    scores = _rrf_scores(runs, k)
+    return sorted(scores, key=scores.__getitem__, reverse=True)
 
 # The text search configuration, named once and bound as a parameter rather
 # than interpolated. Every `to_tsvector` below has to use the same one: lexing
@@ -229,6 +258,43 @@ async def _search_vector(session: AsyncSession, query: str, limit: int) -> list[
     return _to_citations(rows)
 
 
+def _rrf_scores(runs: list[list[uuid.UUID]], k: int = 60) -> dict[uuid.UUID, float]:
+    """The accumulation `reciprocal_rank_fusion` sorts by, kept separately.
+
+    `reciprocal_rank_fusion` returns order only — that is its contract, pinned
+    by `test_a_chunk_both_legs_agree_on_outranks_one_that_only_leads_the_lexical_leg`
+    — but the `citations` frame also has to carry the fused value itself
+    (Step 2: `score` in `HYBRID` is the RRF value, not `ts_rank`). This is the
+    one computation both need, so it exists once rather than as two copies that
+    could drift.
+    """
+    scores: dict[uuid.UUID, float] = {}
+    for run in runs:
+        for rank, cid in enumerate(run, start=1):
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+    return scores
+
+
+async def _search_hybrid(session: AsyncSession, query: str, limit: int) -> list[Citation]:
+    """Fuse the lexical and semantic legs by rank, then trim to `limit`.
+
+    Each leg runs to `_RUN_DEPTH`, deeper than `limit`, so a chunk that ranks
+    sixth lexically but first semantically can still surface — fusing two
+    top-5 lists would cap the result at ten candidates and make `HYBRID` a
+    re-ordering of the lexical five rather than a genuinely different answer.
+    """
+    lexical = await _search_fts(session, query, _RUN_DEPTH)
+    semantic = await _search_vector(session, query, _RUN_DEPTH)
+    by_id = {uuid.UUID(citation["chunk_id"]): citation for citation in lexical + semantic}
+    runs = [
+        [uuid.UUID(citation["chunk_id"]) for citation in lexical],
+        [uuid.UUID(citation["chunk_id"]) for citation in semantic],
+    ]
+    scores = _rrf_scores(runs)
+    order = sorted(scores, key=scores.__getitem__, reverse=True)
+    return [{**by_id[chunk_id], "score": scores[chunk_id]} for chunk_id in order[:limit]]
+
+
 async def search_chunks(
     session: AsyncSession, query: str, *, mode: SearchMode, limit: int = 5
 ) -> list[Citation]:
@@ -244,7 +310,9 @@ async def search_chunks(
     would not change either, and that promise is now retired: giving `mode` a
     default would let a call site that forgot to read the visitor's stored choice
     keep working in `FTS`, which is the inert switch this milestone removes.
-    All twenty-four existing call sites pass it explicitly.
+    All existing call sites pass it explicitly — `grep -rn "await search_chunks("`
+    finds thirty-one today, and a number written here would only be accurate
+    until the next one is added.
 
     There is deliberately no `WHERE org_id = ...` clause in either statement.
     Row-level security supplies it, and the tests hold that rather than assume
@@ -255,6 +323,8 @@ async def search_chunks(
     that reaches Postgres never asked them not to — so what excludes them is the
     policy.
     """
+    if mode is SearchMode.HYBRID:
+        return await _search_hybrid(session, query, limit)
     if mode is SearchMode.VECTOR:
         return await _search_vector(session, query, limit)
     return await _search_fts(session, query, limit)

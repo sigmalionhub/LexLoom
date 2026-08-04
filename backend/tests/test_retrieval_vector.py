@@ -26,17 +26,40 @@ from app.chat.retrieval import SearchMode, search_chunks
 from app.db.session import tenant_session
 
 
-async def _mark_chunks(session, marker: str) -> None:
-    """Stamp every chunk this session can see with the name of its owner.
+async def _mark_chunks(session, org_id: str, marker: str) -> None:
+    """Stamp one organisation's chunks with the name of their owner.
 
-    Applied after the corpus is copied, and it touches `content` rather than
-    `embedding` on purpose: it identifies the owner of a row without changing
-    what the vector search actually ranks on, so both tenants stay equally
-    findable by the same question.
+    Touches `content` rather than `embedding` on purpose: it identifies the
+    owner of a row without changing what the vector search actually ranks on,
+    so both tenants stay equally findable by the same question.
+
+    `WHERE org_id = :org` is written out even though the session is already
+    scoped, and that is not belt-and-braces. The one mode in which the test
+    around this has any value is with the policy disabled, and an unqualified
+    UPDATE in that mode rewrites `content` in every row of a development
+    database shared with a running stack. Nothing is lost by scoping it: what
+    proves the point is not the marking, it is that B's *search* returns A's
+    rows.
     """
     await session.execute(
-        text("UPDATE document_chunks SET content = :marker || ' ' || content"),
-        {"marker": marker},
+        text("UPDATE document_chunks SET content = :marker || ' ' || content WHERE org_id = :org"),
+        {"marker": marker, "org": org_id},
+    )
+
+
+async def _marked_chunks(session, org_id: str, marker: str) -> int:
+    """Count one organisation's marked chunks, by org_id rather than by policy.
+
+    Filtered explicitly because this is used to check a *precondition* of an
+    isolation test. Leaning on the policy here would make the precondition
+    unobservable in exactly the run — the sabotage — where it has to hold.
+    """
+    return await session.scalar(
+        text(
+            "SELECT count(*) FROM document_chunks "
+            "WHERE org_id = :org AND content LIKE :prefix"
+        ),
+        {"org": org_id, "prefix": f"{marker} %"},
     )
 
 
@@ -59,14 +82,37 @@ async def test_vector_search_returns_only_the_callers_own_chunks(two_orgs) -> No
     No embedding step here: `copy_corpus_into` writes the vector with the row,
     from `seed/gdpr_excerpts_vectors.json`. The question still has to be embedded,
     which is why this test is marked `model`.
+
+    A's rows are counted before B searches, and that assertion is what stops
+    this test from decaying back into the one it replaced. Delete A's two lines
+    of seeding and every remaining check still passes: `assert hits` succeeds on
+    B's own rows, `org_id == b` succeeds trivially, and the `OWNED-BY-A` check
+    becomes vacuous — the test would go quietly back to proving nothing, with a
+    docstring still explaining why it proves something. Docstrings do not fail;
+    the count does.
     """
     a, b = two_orgs
     async with tenant_session(a) as session:
         await copy_corpus_into(session, a)
-        await _mark_chunks(session, marker="OWNED-BY-A")
+        await _mark_chunks(session, a, marker="OWNED-BY-A")
+        planted = await _marked_chunks(session, a, "OWNED-BY-A")
+
+    # At least a whole corpus, not exactly one: `two_orgs` gives each
+    # organisation a chunk of its own before this test runs, so A owns
+    # len(load_excerpts()) + 1 marked rows today. The bound is written as "at
+    # least the corpus" so it pins what this test depends on — A having a full
+    # corpus of marked, leakable rows — without pinning a detail that belongs to
+    # conftest. Deleting `copy_corpus_into(session, a)` leaves 1 and this fails;
+    # deleting both of A's lines leaves 0 and it fails harder.
+    assert planted >= len(load_excerpts()), (
+        f"tenant A owns {planted} marked chunks, fewer than the {len(load_excerpts())} in the "
+        "corpus — there is not a full corpus for the search below to leak, so a green result "
+        "would say nothing about isolation"
+    )
+
     async with tenant_session(b) as session:
         await copy_corpus_into(session, b)
-        await _mark_chunks(session, marker="OWNED-BY-B")
+        await _mark_chunks(session, b, marker="OWNED-BY-B")
         hits = await search_chunks(session, "processor obligations", mode=SearchMode.VECTOR)
 
     assert hits, "tenant b must see its own chunks — an empty result proves nothing"
@@ -353,6 +399,48 @@ def test_the_seed_vectors_carry_a_vector_for_every_excerpt_in_file_order(
         with pytest.raises(corpus_module.CorpusUnavailableError) as raised:
             corpus_module.load_seed_vectors()
         assert str(truncated) in str(raised.value)
+    finally:
+        monkeypatch.undo()
+        corpus_module.load_seed_vectors.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["the recorded dim", "the vectors themselves", "both"],
+)
+def test_seed_vectors_of_the_wrong_width_are_refused(
+    description: str, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The width branch, exercised — it is the one refusal with no test of its own.
+
+    `test_the_seed_vectors_describe_the_corpus_that_is_actually_shipped` pins the
+    *file*, not the *guard*: delete the width check from `load_seed_vectors` and
+    it stays green, because the committed file is 384 wide. This pins the guard.
+
+    Three shapes, because the check has two halves that fail differently. A file
+    claiming `dim: 256` with 384-wide vectors is a generator that lied; 256-wide
+    vectors still claiming 384 is a generator that ran against another model and
+    forgot to say so. Only the second reaches Postgres if it slips through, and
+    it arrives as a width error naming neither the model nor the file — which is
+    the whole reason this refusal exists up here.
+    """
+    document = json.loads(corpus_module.SEED_VECTORS_FILE.read_text(encoding="utf-8"))
+    if description in ("the recorded dim", "both"):
+        document["dim"] = DIMENSIONS - 128
+    if description in ("the vectors themselves", "both"):
+        document["vectors"] = [vector[: DIMENSIONS - 128] for vector in document["vectors"]]
+
+    wrong_width = tmp_path / "gdpr_excerpts_vectors.json"
+    wrong_width.write_text(json.dumps(document), encoding="utf-8")
+
+    corpus_module.load_seed_vectors.cache_clear()
+    try:
+        monkeypatch.setattr(corpus_module, "SEED_VECTORS_FILE", wrong_width)
+        with pytest.raises(corpus_module.CorpusUnavailableError) as raised:
+            corpus_module.load_seed_vectors()
+        message = str(raised.value)
+        assert str(DIMENSIONS) in message, "the error does not say what width is required"
+        assert str(wrong_width) in message, "the error does not name the file to regenerate"
     finally:
         monkeypatch.undo()
         corpus_module.load_seed_vectors.cache_clear()

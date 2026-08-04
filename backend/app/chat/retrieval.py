@@ -4,7 +4,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.embedding import get_embedder
+from app.chat.embedding import DIMENSIONS, get_embedder
 
 Citation = dict[str, object]
 
@@ -136,11 +136,13 @@ _SEARCH_SQL = text(
 # and an operator resolved out of a different schema is a silent change of
 # meaning rather than an error.
 #
-# `.bindparams(... type_=Vector(384))`, never `CAST(:qvec AS public.vector)`.
-# `register_vector` is called nowhere in this repository, so asyncpg has no
-# codec for `vector` and rejects a bare `list[float]` with "invalid input for
-# query argument $1: [...] (expected str, got list)". The typed bindparam hands
-# the driver a value it understands and keeps it a bound parameter.
+# `.bindparams(... type_=Vector(DIMENSIONS))`, never `CAST(:qvec AS
+# public.vector)`. `register_vector` is called nowhere in this repository, so
+# asyncpg has no codec for `vector` and rejects a bare `list[float]` with
+# "invalid input for query argument $1: [...] (expected str, got list)". The
+# typed bindparam hands the driver a value it understands and keeps it a bound
+# parameter. `DIMENSIONS` rather than a literal 384, so the width this query is
+# bound at and the width the embedder produces cannot drift apart by one edit.
 #
 # `WHERE embedding IS NOT NULL` filters rather than relying on the sort. The
 # column is nullable — a chunk ingested before `lexloom.embed_org_corpus` ran
@@ -171,7 +173,7 @@ _VECTOR_SQL = text(
      ORDER BY embedding OPERATOR(public.<=>) :qvec
      LIMIT :limit
     """
-).bindparams(bindparam("qvec", type_=Vector(384)))
+).bindparams(bindparam("qvec", type_=Vector(DIMENSIONS)))
 
 
 def _to_citations(rows) -> list[Citation]:

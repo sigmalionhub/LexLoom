@@ -60,16 +60,21 @@ SEED_VECTORS_FILE = SEED_FILE.with_name("gdpr_excerpts_vectors.json")
 # public organisation's. A second copy of this INSERT is how one of them ends up
 # writing NULL into a column the other populates, with nothing raised anywhere.
 #
-# `bindparam(..., type_=Vector(384))` rather than a raw `list[float]` or a
-# string-interpolated CAST. `register_vector` is called nowhere in this
+# `bindparam(..., type_=Vector(DIMENSIONS))` rather than a raw `list[float]` or
+# a string-interpolated CAST. `register_vector` is called nowhere in this
 # repository, so asyncpg holds no codec for `vector` and rejects a bare list
 # outright: "invalid input for query argument $1: [...] (expected str, got
 # list)". The typed bindparam hands the driver what it understands and keeps the
 # value a bound parameter, with no SQL built by string construction.
+#
+# `DIMENSIONS` and not a literal 384, because `load_seed_vectors` below checks
+# the file's width against `DIMENSIONS` too. Two spellings of one number are two
+# sources of truth: change the constant and the guard stays green while this
+# INSERT fails on width, with the error naming neither.
 _INSERT_CHUNK = text(
     "INSERT INTO document_chunks (id, org_id, content, page_from, page_to, embedding) "
     "VALUES (:id, :org_id, :content, :page_from, :page_to, :embedding)"
-).bindparams(bindparam("embedding", type_=Vector(384)))
+).bindparams(bindparam("embedding", type_=Vector(DIMENSIONS)))
 
 
 class CorpusUnavailableError(RuntimeError):

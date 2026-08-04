@@ -2,6 +2,12 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 
+# `DIMENSIONS` only, and at module level deliberately. Importing
+# `app.chat.embedding` does not import fastembed or ONNX Runtime — that is
+# asserted by test_importing_the_module_does_not_import_fastembed — so the Celery
+# parent stays single-threaded and its fork stays the fork CPython is happy with.
+# The embedder itself is still imported inside the task body, after that fork.
+from app.chat.embedding import DIMENSIONS
 from app.worker import signals  # noqa: F401  (registers process-init handler)
 from app.worker.celery_app import celery_app
 
@@ -83,12 +89,14 @@ EMBED_BATCH = 32
 # One statement per row, executed as an executemany. The obvious single-statement
 # form — `UPDATE ... WHERE id = ANY(:ids)` — cannot carry a *different* vector per
 # id without an array-of-vector bind that asyncpg has no codec for; the whole
-# reason `bindparam(..., type_=Vector(384))` exists here is that `register_vector`
-# is called nowhere in this repository, so the driver rejects a raw list. An
-# executemany keeps every value a bound parameter and stays one round trip.
+# reason `bindparam(..., type_=Vector(DIMENSIONS))` exists here is that
+# `register_vector` is called nowhere in this repository, so the driver rejects a
+# raw list. An executemany keeps every value a bound parameter and stays one
+# round trip. `DIMENSIONS` rather than a literal, so this width and the one the
+# embedder produces are the same number and not two copies of it.
 _UPDATE_EMBEDDING = text(
     "UPDATE document_chunks SET embedding = :embedding WHERE id = :id"
-).bindparams(bindparam("embedding", type_=Vector(384)))
+).bindparams(bindparam("embedding", type_=Vector(DIMENSIONS)))
 
 # Read in the same statement shape the write uses, so the two cannot disagree
 # about what "still needs embedding" means. No OFFSET: the batch that was just

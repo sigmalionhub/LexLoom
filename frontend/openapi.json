@@ -400,6 +400,10 @@
           "generator": {
             "$ref": "#/components/schemas/GeneratorChoice",
             "default": "deterministic"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SearchMode",
+            "default": "fts"
           }
         },
         "type": "object",
@@ -656,6 +660,16 @@
           "by_class"
         ],
         "title": "RequestCounts"
+      },
+      "SearchMode": {
+        "type": "string",
+        "enum": [
+          "fts",
+          "vector",
+          "hybrid"
+        ],
+        "title": "SearchMode",
+        "description": "Which retrieval path a question takes.\n\nThe values are the ones stored in `messages.search_mode` (migration 0005, a\n`varchar(16)`) and the ones the frontend puts in the URL, so the enum, the\ncolumn and the query string all spell a mode the same way. `StrEnum` because\nthe value crosses a text column and a JSON body and has to survive both\nwithout a conversion table.\n\nDeliberately not carrying a default anywhere. `search_chunks` takes `mode`\nkeyword-only and without a default, so a call site that forgot to read the\nstored choice is a type error rather than a search that quietly runs in\n`FTS` — which is the inert-toggle failure this milestone exists to remove.\n\n`HYBRID` is task 21's member; it arrives with the RRF branch that gives it\nmeaning, because an enum member no code path implements is a mode a visitor\ncan select and never receive."
       },
       "ServiceStatus": {
         "properties": {

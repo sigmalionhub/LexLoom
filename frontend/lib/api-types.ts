@@ -235,6 +235,8 @@ export interface components {
       content: string;
       /** @default deterministic */
       generator?: components['schemas']['GeneratorChoice'];
+      /** @default fts */
+      mode?: components['schemas']['SearchMode'];
     };
     /** CreateMessageResponse */
     CreateMessageResponse: {
@@ -349,6 +351,27 @@ export interface components {
         [key: string]: number;
       };
     };
+    /**
+     * SearchMode
+     * @description Which retrieval path a question takes.
+     *
+     *     The values are the ones stored in `messages.search_mode` (migration 0005, a
+     *     `varchar(16)`) and the ones the frontend puts in the URL, so the enum, the
+     *     column and the query string all spell a mode the same way. `StrEnum` because
+     *     the value crosses a text column and a JSON body and has to survive both
+     *     without a conversion table.
+     *
+     *     Deliberately not carrying a default anywhere. `search_chunks` takes `mode`
+     *     keyword-only and without a default, so a call site that forgot to read the
+     *     stored choice is a type error rather than a search that quietly runs in
+     *     `FTS` — which is the inert-toggle failure this milestone exists to remove.
+     *
+     *     `HYBRID` is task 21's member; it arrives with the RRF branch that gives it
+     *     meaning, because an enum member no code path implements is a mode a visitor
+     *     can select and never receive.
+     * @enum {string}
+     */
+    SearchMode: 'fts' | 'vector' | 'hybrid';
     /** ServiceStatus */
     ServiceStatus: {
       /** Commit */

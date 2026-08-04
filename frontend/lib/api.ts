@@ -1,5 +1,6 @@
 import type { components } from './api-types';
 import type { GeneratorChoice } from './generator-choice';
+import type { SearchMode } from './search-mode';
 
 /**
  * The API is same-origin. In production nginx serves this bundle and proxies
@@ -52,8 +53,11 @@ export interface Citation {
   page_from: number;
   page_to: number;
   /**
-   * A raw Postgres `ts_rank`. Comparable inside one response and nowhere else,
-   * so it is rendered as a rank position, never as a percentage.
+   * A relevance score whose *unit* depends on the mode the `citations` frame
+   * carries: a raw Postgres `ts_rank` in `fts`, cosine similarity in `vector`,
+   * an RRF value in `hybrid`. Comparable inside one response and nowhere
+   * else — not across modes, not across questions — so it is rendered as a
+   * rank position, never as a percentage.
    */
   score: number;
 }
@@ -235,14 +239,14 @@ export const api = {
    *
    * `options` is a bag, not a positional parameter: `probeCrossTenant` below calls this with
    * three positional arguments, and CI runs `tsc --noEmit` — a required fourth positional
-   * parameter would break that call site. Task 21 adds `mode` to this same bag in a sibling
-   * branch; both keys are optional so neither caller has to know about the other's field.
+   * parameter would break that call site. `mode` and `generator` are both optional, so
+   * neither caller has to know about the other's field.
    */
   postMessage(
     token: string,
     conversationId: string,
     content: string,
-    options: { generator?: GeneratorChoice } = {},
+    options: { mode?: SearchMode; generator?: GeneratorChoice } = {},
   ): Promise<CreateMessageResponse> {
     return request<CreateMessageResponse>('POST', `/api/v1/conversations/${conversationId}/messages`, {
       token,

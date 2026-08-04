@@ -1,4 +1,5 @@
 import { ApiError, api, retryAfterSeconds, streamUrl, type Citation, type Problem } from './api';
+import type { SearchMode } from './search-mode';
 
 /**
  * Consuming the answer stream.
@@ -38,7 +39,13 @@ export interface StreamHandlers {
   /** Fires for every named frame before the specific handler below. */
   onFrame?(frame: Frame): void;
   onStart?(data: { message_id: string; model: string }, at: number): void;
-  onCitations?(chunks: Citation[], at: number): void;
+  /**
+   * `mode` is the retrieval path the sources were actually fetched with — the
+   * shape matches `onStart`, so a later field on this frame will not need
+   * another arity change. The panel shows this rather than the switch's own
+   * position, so a broken carrier is visible instead of invisible.
+   */
+  onCitations?(data: { chunks: Citation[]; mode: SearchMode }, at: number): void;
   /**
    * The provider named on `message_start` could not answer and the server
    * fell back mid-stream — today that only ever means a Gemini choice hit its
@@ -149,10 +156,10 @@ export function openAnswerStream(
 
   source.addEventListener('citations', (event) => {
     const at = record('citations');
-    const data = parse<{ chunks: Citation[] }>(dataOf(event), 'citations');
+    const data = parse<{ chunks: Citation[]; mode: SearchMode }>(dataOf(event), 'citations');
     // An empty array is a normal answer, not a failure: the question's terms
     // are simply not in this tenant's corpus.
-    if (data) handlers.onCitations?.(data.chunks ?? [], at);
+    if (data) handlers.onCitations?.({ chunks: data.chunks ?? [], mode: data.mode }, at);
   });
 
   source.addEventListener('generator_changed', (event) => {

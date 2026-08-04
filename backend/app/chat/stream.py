@@ -7,7 +7,7 @@ from starlette.types import Message
 
 from app.chat.gemini import GeminiQuotaExceededError
 from app.chat.providers import DEFAULT_GENERATOR, FakeProvider, GeneratorChoice, LLMProvider
-from app.chat.retrieval import Citation
+from app.chat.retrieval import Citation, SearchMode
 
 logger = structlog.get_logger(__name__)
 
@@ -90,6 +90,7 @@ async def generate_events(
     message_id: str,
     provider: LLMProvider,
     citations: list[Citation],
+    mode: SearchMode = SearchMode.FTS,
     prompt: str,
     generator: GeneratorChoice = DEFAULT_GENERATOR,
     progress: StreamProgress | None = None,
@@ -105,11 +106,15 @@ async def generate_events(
     cancelled task is itself cancelled, so there is nothing to salvage by
     trying.
 
-    `generator` defaults so the tests in `test_stream_cancellation.py` that
-    only care about cancellation, not selection, do not have to name a choice.
-    `conversations.py` always passes the one it actually built `provider` from
-    — the two must agree, since `model` below is what tells the client which
-    generator answered.
+    `generator` and `mode` both default, for the same reason: the tests in
+    `test_stream_cancellation.py` and `test_provider_degradation.py` only care
+    about cancellation and fallback, not about selection, and should not have
+    to name a choice for either axis. `conversations.py` always passes the
+    generator it actually built `provider` from and the mode retrieval
+    actually ran in — the two must agree in each case, since `model` below is
+    what tells the client which generator answered, and `mode` inside the
+    `citations` frame is what tells it which retrieval path the sources came
+    from.
 
     A `GeminiQuotaExceededError` on the first call to `provider.stream()` is
     not treated as failure: it yields an extra `generator_changed` frame —
@@ -131,7 +136,14 @@ async def generate_events(
         # characters on the wire are identical either way.
         "data": json.dumps({"message_id": message_id, "model": str(generator)}),
     }
-    yield {"event": "citations", "data": json.dumps({"chunks": citations})}
+    yield {
+        "event": "citations",
+        # `mode.value` and not `mode`: StrEnum happens to serialise as its
+        # value today, which puts the wire format at the mercy of someone
+        # later changing the enum's base class. The frame is a contract; it
+        # says so explicitly.
+        "data": json.dumps({"chunks": citations, "mode": mode.value}),
+    }
 
     finish_reason = "stop"
     spoken: list[str] = []

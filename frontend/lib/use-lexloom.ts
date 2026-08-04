@@ -12,6 +12,8 @@ import {
   type RequestRecord,
 } from './api';
 import { readGenerator } from './generator-choice';
+import type { SearchMode } from './search-mode';
+import { readSearchMode } from './search-mode';
 import { diagnoseStreamFailure, openAnswerStream, type Frame, type StreamHandle } from './stream';
 
 /**
@@ -40,6 +42,13 @@ export interface Turn {
    * `degradedFrom` is what remembers that a substitution happened and why.
    */
   degradedFrom?: { model: string; reason: string };
+  /**
+   * The retrieval path the sources were actually fetched with, read off the
+   * `citations` frame — not off the selector's own position. That is what
+   * makes a broken URL carrier visible: the panel would keep showing whatever
+   * mode was last selected while every answer came back `fts`.
+   */
+  searchMode?: SearchMode;
   citations: Citation[] | null;
   answer: string;
   tokens: number;
@@ -213,6 +222,7 @@ export function useLexloom() {
         // render time, where `window` would not exist on the prerendered
         // first paint of this static export.
         const { message_id: messageId } = await api.postMessage(tenant.token, conversationId, trimmed, {
+          mode: readSearchMode(),
           generator: readGenerator(),
         });
         // Minted here rather than earlier: the ticket is bound to this message
@@ -227,9 +237,10 @@ export function useLexloom() {
               model: data.model,
               timings: { ...turn.timings, start: at },
             })),
-          onCitations: (chunks, at) =>
+          onCitations: (data, at) =>
             patchTurn(turnId, (turn) => ({
-              citations: chunks,
+              citations: data.chunks,
+              searchMode: data.mode,
               timings: { ...turn.timings, citations: at },
             })),
           onGeneratorChanged: (data) =>

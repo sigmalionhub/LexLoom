@@ -1,3 +1,5 @@
+import os
+
 from celery import Celery
 
 from app.config import get_settings
@@ -19,15 +21,22 @@ celery_app.conf.update(
 
 # Demo tenants are only ephemeral if something actually removes them. Declared
 # here rather than passed on a command line so the interval is reviewable in
-# the repository; note that nothing in docker-compose.yml runs `celery beat`
-# yet, so on the current deployment this schedule is intent, not behaviour.
+# the repository; `docker-compose.yml` runs it on a dedicated `beat` service,
+# not on the worker itself (see the comment there for why: `-B` on the worker
+# ties the schedule to one process's lifetime and duplicates it the moment a
+# second worker exists).
 celery_app.conf.beat_schedule = {
     "purge-expired-demo-orgs": {
         "task": "lexloom.purge_expired_orgs",
-        # Hourly. The TTL is 24h, so the granularity that matters is "well
-        # under a day"; running it more often would only add wakeups on a
-        # 2 vCPU box shared with other applications.
-        "schedule": 3600.0,
+        # Hourly by default. The TTL is 24h, so the granularity that matters
+        # is "well under a day"; running it more often would only add wakeups
+        # on a 2 vCPU box shared with other applications. Read from the
+        # environment with a plain `os.environ.get`, not through `Settings`,
+        # so this file keeps not depending on `app.config` for anything beyond
+        # the broker URL it already needed. Nothing sets the variable in
+        # production, so 3600 is what actually runs; a test overrides it to
+        # prove the purge fires without waiting an hour for it.
+        "schedule": float(os.environ.get("PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS", "3600")),
     }
 }
 

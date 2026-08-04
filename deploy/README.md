@@ -390,10 +390,6 @@ and nothing else.
 
 ## Known gaps, stated rather than discovered
 
-- **Nothing runs `celery beat`.** The hourly purge of expired demo tenants is registered
-  on a schedule that no process reads, so the 24-hour TTL is currently enforced by
-  nothing. Until a beat service exists, run it by hand when the row count grows:
-  `docker compose exec worker celery -A app.worker.celery_app call lexloom.purge_expired_orgs`
 - **Demo tenants are not free.** Each one copies a 30-chunk corpus: about 31 rows and
   11.7 kB per anonymous `demo-login`. Watch the row count for the first days after this
   goes public.

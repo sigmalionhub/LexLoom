@@ -142,13 +142,13 @@ jobs:
           curl -fsS http://127.0.0.1:8100/health/live || { docker compose logs; exit 1; }
       - name: ...and every service must still be running, not just the API
         # The API answering proves the API started. Each service constructs its
-        # own settings, so one can exit at import while the other three stay up
+        # own settings, so one can exit at import while the other four stay up
         # and every HTTP check passes — which is exactly how a demo shipped with
         # no Celery worker. Compare the set, do not eyeball it.
         run: |
           docker compose ps
           running=$(docker compose ps --status running --format '{{.Service}}' | sort | tr '\n' ' ')
-          expected='api postgres redis worker '
+          expected='api beat postgres redis worker '
           test "$running" = "$expected" || {
             echo "running: [$running]"; echo "expected: [$expected]"
             docker compose logs

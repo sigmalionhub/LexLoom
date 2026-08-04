@@ -14,7 +14,7 @@ from app.auth.tickets import TICKET_TTL_SECONDS, mint_stream_ticket, verify_stre
 from app.auth.verify import InvalidTokenError
 from app.chat.prompt import build_grounded_prompt
 from app.chat.providers import DEFAULT_GENERATOR, GeneratorChoice, build_provider
-from app.chat.retrieval import search_chunks
+from app.chat.retrieval import SearchMode, search_chunks
 from app.chat.stream import SSE_HEADERS, StreamProgress, client_close_handler, generate_events
 from app.config import get_settings
 from app.db.session import TenantSession, tenant_session
@@ -242,14 +242,19 @@ async def stream_message(
             )
 
         # Order matters: the prompt is built FROM the citations, so retrieval
-        # has to run first. `search_chunks` here takes no `mode` yet — that
-        # parameter and the `search_mode` column arrive from Task 21, not
-        # merged in this worktree — but the ordering change is this task's
-        # whole point: Task 28 rev 1 built the prompt from the raw question,
-        # which would have sent a visitor's question to Google under the
-        # owner's key with no grounding in the corpus at all.
+        # has to run first. Task 28 rev 1 built the prompt from the raw
+        # question, which would have sent a visitor's question to Google under
+        # the owner's key with no grounding in the corpus at all.
+        #
+        # `SearchMode.FTS` is written out rather than defaulted, and that is the
+        # point of `mode` having no default: this line is *not yet* reading the
+        # visitor's choice out of `messages.search_mode`, and the explicit
+        # literal says so where a missing argument would have hidden it. Task 21
+        # replaces it with `SearchMode(message["search_mode"])` — the column
+        # already exists (migration 0005) and the row is already loaded here, so
+        # that change is this one line and no new query.
         question = message["content"]
-        citations = await search_chunks(session, question)
+        citations = await search_chunks(session, question, mode=SearchMode.FTS)
         prompt = build_grounded_prompt(question, citations)
         # Read from the same row the question came from — no second query.
         # `GeneratorChoice(...)` re-validates rather than trusting the column:

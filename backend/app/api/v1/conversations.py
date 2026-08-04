@@ -12,6 +12,7 @@ from starlette.types import Message
 from app.auth.deps import CurrentPrincipal
 from app.auth.tickets import TICKET_TTL_SECONDS, mint_stream_ticket, verify_stream_ticket
 from app.auth.verify import InvalidTokenError
+from app.chat.prompt import build_grounded_prompt
 from app.chat.providers import FakeProvider
 from app.chat.retrieval import search_chunks
 from app.chat.stream import SSE_HEADERS, StreamProgress, client_close_handler, generate_events
@@ -230,8 +231,16 @@ async def stream_message(
                 detail="This message has been answered; fetch the conversation instead.",
             )
 
-        prompt = message["content"]
-        citations = await search_chunks(session, prompt)
+        # Order matters: the prompt is built FROM the citations, so retrieval
+        # has to run first. `search_chunks` here takes no `mode` yet — that
+        # parameter and the `search_mode` column arrive from Task 21 and
+        # Task 29, neither merged in this worktree — but the ordering change
+        # is this task's whole point: Task 28 rev 1 built the prompt from the
+        # raw question, which would have sent a visitor's question to Google
+        # under the owner's key with no grounding in the corpus at all.
+        question = message["content"]
+        citations = await search_chunks(session, question)
+        prompt = build_grounded_prompt(question, citations)
 
     async def store_answer(answer: str, finish_reason: str) -> None:
         """Persist the answer in a fresh short transaction after generation.

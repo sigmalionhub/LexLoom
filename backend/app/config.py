@@ -101,6 +101,17 @@ class Settings(BaseSettings):
     auth_issuer: str = "https://lexloom.dev-idp"
     auth_audience: str = "lexloom-api"
 
+    # Google AI Studio key for the Gemini generator option (app/chat/gemini.py).
+    # Empty is a working state, not a misconfiguration: with no key,
+    # `build_provider(GeneratorChoice.GEMINI)` refuses rather than silently
+    # falling back to the fake, and the demo runs on `FakeProvider` alone
+    # (Task 30 decides when to offer the choice at all). Sent as the
+    # `x-goog-api-key` header, never a query parameter — see app/chat/gemini.py.
+    gemini_api_key: str = Field(
+        default="",
+        description="Google AI Studio API key for the Gemini generator option; empty disables it",
+    )
+
     # --- Admission control (app/limits.py) ---------------------------------
     #
     # The numbers are sized for the deployment target in deploy/README.md: a

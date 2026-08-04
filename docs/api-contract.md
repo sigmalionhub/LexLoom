@@ -671,4 +671,11 @@ Stated because a contract with unstated holes is not a contract.
 - **The model is a fake.** `model: "fake-1"` is a canned, deterministic generator
   behind the same async-iterator interface a real provider implements. The streaming,
   cancellation and citation machinery is real; the words are not an answer to your
-  question.
+  question. A real implementation of that interface exists (Gemini, over
+  `streamGenerateContent`), but no endpoint offers it yet — every stream still runs
+  the fake generator regardless of what a caller sends. Whichever generator answers,
+  it is never handed the raw question: `app.chat.prompt.build_grounded_prompt` builds
+  a prompt from the same `citations` this response's `citations` event carries,
+  instructing the model to answer only from those sources and say so plainly when
+  they do not contain the answer — a fabricated citation, formatted exactly like a
+  real one, is the one failure mode a legal-research demo cannot afford.

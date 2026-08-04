@@ -97,6 +97,11 @@ services:
       MAX_CONCURRENT_STREAMS: ${MAX_CONCURRENT_STREAMS:-16}
       MAX_CONCURRENT_STREAMS_PER_ORG: ${MAX_CONCURRENT_STREAMS_PER_ORG:-4}
       STREAM_SLOT_TTL_SECONDS: ${STREAM_SLOT_TTL_SECONDS:-600}
+      # Only this service: the worker and beat never generate an answer, so
+      # they have no use for the key, and `docker inspect` on either would
+      # otherwise show it to anyone in the `docker` group on this shared box.
+      # Empty is a working state — see the comment in .env.example.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "127.0.0.1:8100:8100"
     restart: unless-stopped

@@ -87,23 +87,58 @@ from app.worker.celery_app import celery_app  # noqa: E402
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip the `model` tests when the ONNX weights are not on disk.
+    """Handle a cold model cache: skip what can be skipped, refuse what cannot.
 
     CI installs dependencies onto a bare runner: there is no image and, on a
-    cold cache, no model. Without this the suite downloads ~90 MB per run to
-    re-establish that 384 is still 384, and goes red for a HuggingFace outage
-    that has nothing to do with the code. `actions/cache` restores the weights
-    when it can; when it cannot, these tests are skipped rather than slow.
+    cold cache, no model. Without this the suite would download ~90 MB per run
+    to re-establish that 384 is still 384, and would go red for a network
+    failure that has nothing to do with the code. (fastembed tries HuggingFace
+    and then a GCS tarball, so it takes losing both, not just one.)
+    `actions/cache` restores the weights when it can; when it cannot, the
+    `model` tests are skipped rather than slow.
 
-    Skipping rather than failing, because an absent model is not a defect in
-    anything — and because the two properties at stake are each also covered
-    without it: the dimension against the ORM column, the loading discipline
-    against the source of `signals.py`. What only the real model can prove is
-    that those two agree with the weights actually shipped, which is worth
-    running where the weights exist and worth nothing where they do not.
+    Skipping rather than failing for those, because an absent model is not a
+    defect in anything — and because the two properties at stake are each also
+    covered without it: the dimension against the ORM column, the loading
+    discipline against the source of `signals.py`. What only the real model can
+    prove is that those two agree with the weights actually shipped, which is
+    worth running where the weights exist and worth nothing where they do not.
+
+    The `live_server` tests are the exception and get the opposite treatment —
+    see below.
     """
     if model_is_cached():
         return
+
+    # A test that starts a real uvicorn cannot be handled by skipping, because
+    # nothing about it is marked or optional: app/main.py's lifespan warms the
+    # embedder before the port opens, so on a cold cache the download consumes
+    # the fixture's 30 s readiness budget and the run dies with "uvicorn never
+    # became live" — a message naming neither the model nor the download. That
+    # cost thirty seconds and a wrong hypothesis when it was first hit.
+    #
+    # Refuse the run instead, in under two seconds, naming the cause and the
+    # command. Deliberately NOT downloading here: a test run that silently
+    # pulls 90 MB is the other half of what this hook exists to prevent, and
+    # the developer, not the suite, should decide when to spend that.
+    #
+    # Narrow on purpose. It cannot fire in CI, where the workflow's "Fetch the
+    # embedding model" step has already run and `model_is_cached()` is true; and
+    # it cannot fire for a run whose collected tests never start a server, so
+    # `pytest tests/test_embedding.py` on a cold cache still works.
+    needs_live_server = [item for item in items if "live_server" in item.fixturenames]
+    if needs_live_server:
+        raise pytest.UsageError(
+            f"The embedding model is not cached in {cache_dir()}, and "
+            f"{len(needs_live_server)} test(s) in this run start a real uvicorn "
+            "process whose lifespan loads it before the port opens. They would "
+            "fail after 30s with 'uvicorn never became live', which names "
+            "neither the model nor the download.\n\n"
+            "Fetch it once (~90 MB), then re-run:\n\n"
+            "    python -c 'from app.chat.embedding import get_embedder; "
+            "get_embedder()._ensure()'\n"
+        )
+
     skip = pytest.mark.skip(reason=f"ONNX model not cached in {cache_dir()}")
     for item in items:
         if "model" in item.keywords:

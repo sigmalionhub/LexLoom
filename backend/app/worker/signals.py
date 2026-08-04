@@ -17,12 +17,15 @@ def on_worker_process_init(**_: object) -> None:
     exact about that, because two stronger reasons were tested for task 19 and
     NEITHER of them held.
 
-    The caution that stands: building an InferenceSession is what makes this
-    process multi-threaded, and CPython warns that `fork()` in a multi-threaded
-    process may deadlock in the child. Celery forks after loading the
+    The caution that stands is the runtime's own. Building an InferenceSession
+    is what makes this process multi-threaded, and CPython warns that `fork()`
+    in a multi-threaded process may deadlock in the child — the probe below
+    emitted exactly that DeprecationWarning. Celery forks after loading the
     application, so a model built at import is a model built before that fork.
     Loading in this handler is what keeps the parent single-threaded on our
-    account.
+    account. A documented hazard plus a warning actually observed is a real
+    reason; it is not the same thing as a reproduced failure, and this docstring
+    does not pretend otherwise.
 
     What was NOT reproduced, recorded here so nobody re-derives it from the
     comment history:
@@ -39,7 +42,10 @@ def on_worker_process_init(**_: object) -> None:
 
     So this is a conservative default rather than a fix for a demonstrated
     failure, and it is cheap: one load per child, and children are recycled
-    only every `--max-tasks-per-child=50`. See the task 19 report.
+    only every `--max-tasks-per-child=50`. Note that the memory measurement
+    mildly favours the opposite arrangement — children would share a
+    parent-built model — so nobody should reach for this pattern expecting it
+    to save memory. See the task 19 report.
     """
     import asyncio
 

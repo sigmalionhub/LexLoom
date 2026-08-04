@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     # Deliberately not wrapped in try/except. If the weights are missing this
     # raises and the container fails to start, which is the loud failure. The
     # quiet one is a container that comes up, answers /health/live, and then
-    # stalls on every search while it tries to reach HuggingFace. With
+    # stalls on every search while it tries to reach the network. With
     # `unless-stopped` the loud version shows up as a restart loop, which
     # `docker compose ps` reports and the runbook already reads.
     await asyncio.to_thread(get_embedder()._ensure)

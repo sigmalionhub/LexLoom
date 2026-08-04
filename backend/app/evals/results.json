@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "measured_at": "2026-08-04T20:15:16Z",
+  "commit": "234cdf6c97254b18af0a1414dce91e46a5c46ab1",
+  "provenance": {
+    "goldset_sha256": "4eba9c0c71714bd463020cedb9b0873157dd700f45c7d00c0f3d05f676c0a329",
+    "corpus_fingerprint": "9561192a2dee98af26cd4675fb5900a3ea89dc11bc925e43b26b136c4d3b512d",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "limit": 10,
+    "modes": [
+      "fts",
+      "vector",
+      "hybrid"
+    ]
+  },
+  "corpus": {
+    "sources": {
+      "gdpr-full": 1027,
+      "seed:gdpr-excerpts": 30
+    },
+    "chunks": 1057
+  },
+  "questions": {
+    "total": 30,
+    "answerable": 24,
+    "unanswerable": 6
+  },
+  "modes": {
+    "fts": {
+      "precision_at_3": 0.15555555555555553,
+      "recall_at_5": 0.17500000000000002,
+      "mrr_at_10": 0.4739583333333333,
+      "ndcg_at_10": 0.274832459932755,
+      "answerability_auc": 0.6597222222222222,
+      "by_kind": {
+        "multi_hop": {
+          "questions": 5,
+          "precision_at_3": 0.13333333333333333,
+          "recall_at_5": 0.18333333333333332,
+          "mrr_at_10": 0.275,
+          "ndcg_at_10": 0.1948313592451721
+        },
+        "paraphrase": {
+          "questions": 7,
+          "precision_at_3": 0.14285714285714285,
+          "recall_at_5": 0.09523809523809523,
+          "mrr_at_10": 0.42857142857142855,
+          "ndcg_at_10": 0.2015881189420122
+        },
+        "synonym": {
+          "questions": 6,
+          "precision_at_3": 0.1111111111111111,
+          "recall_at_5": 0.075,
+          "mrr_at_10": 0.3333333333333333,
+          "ndcg_at_10": 0.17801184765756584
+        },
+        "unanswerable": {
+          "questions": 6,
+          "precision_at_3": 0.0,
+          "recall_at_5": null,
+          "mrr_at_10": null,
+          "ndcg_at_10": null
+        },
+        "verbatim": {
+          "questions": 6,
+          "precision_at_3": 0.38888888888888884,
+          "recall_at_5": 0.3611111111111111,
+          "mrr_at_10": 0.8333333333333334,
+          "ndcg_at_10": 0.52377238727013
+        }
+      }
+    },
+    "vector": {
+      "precision_at_3": 0.2222222222222222,
+      "recall_at_5": 0.17777777777777778,
+      "mrr_at_10": 0.4972718253968254,
+      "ndcg_at_10": 0.2926253750627565,
+      "answerability_auc": 0.4097222222222222,
+      "by_kind": {
+        "multi_hop": {
+          "questions": 5,
+          "precision_at_3": 0.26666666666666666,
+          "recall_at_5": 0.13333333333333333,
+          "mrr_at_10": 0.525,
+          "ndcg_at_10": 0.24748451573418145
+        },
+        "paraphrase": {
+          "questions": 7,
+          "precision_at_3": 0.3333333333333333,
+          "recall_at_5": 0.2285714285714286,
+          "mrr_at_10": 0.7142857142857143,
+          "ndcg_at_10": 0.4058974821924624
+        },
+        "synonym": {
+          "questions": 6,
+          "precision_at_3": 0.05555555555555555,
+          "recall_at_5": 0.041666666666666664,
+          "mrr_at_10": 0.07936507936507936,
+          "ndcg_at_10": 0.06453947276879067
+        },
+        "unanswerable": {
+          "questions": 6,
+          "precision_at_3": 0.0,
+          "recall_at_5": null,
+          "mrr_at_10": null,
+          "ndcg_at_10": null
+        },
+        "verbatim": {
+          "questions": 6,
+          "precision_at_3": 0.4444444444444444,
+          "recall_at_5": 0.2916666666666667,
+          "mrr_at_10": 0.638888888888889,
+          "ndcg_at_10": 0.4261778684792114
+        }
+      }
+    },
+    "hybrid": {
+      "precision_at_3": 0.16666666666666666,
+      "recall_at_5": 0.1951388888888889,
+      "mrr_at_10": 0.4591269841269841,
+      "ndcg_at_10": 0.292420694420546,
+      "answerability_auc": 0.3923611111111111,
+      "by_kind": {
+        "multi_hop": {
+          "questions": 5,
+          "precision_at_3": 0.2,
+          "recall_at_5": 0.15,
+          "mrr_at_10": 0.5166666666666667,
+          "ndcg_at_10": 0.24717207904804703
+        },
+        "paraphrase": {
+          "questions": 7,
+          "precision_at_3": 0.14285714285714285,
+          "recall_at_5": 0.24761904761904763,
+          "mrr_at_10": 0.38367346938775515,
+          "ndcg_at_10": 0.3167919155745419
+        },
+        "synonym": {
+          "questions": 6,
+          "precision_at_3": 0.05555555555555555,
+          "recall_at_5": 0.075,
+          "mrr_at_10": 0.20833333333333334,
+          "ndcg_at_10": 0.12994892616629253
+        },
+        "unanswerable": {
+          "questions": 6,
+          "precision_at_3": 0.0,
+          "recall_at_5": null,
+          "mrr_at_10": null,
+          "ndcg_at_10": null
+        },
+        "verbatim": {
+          "questions": 6,
+          "precision_at_3": 0.4444444444444444,
+          "recall_at_5": 0.2916666666666667,
+          "mrr_at_10": 0.75,
+          "ndcg_at_10": 0.46416655080555347
+        }
+      }
+    }
+  }
+}

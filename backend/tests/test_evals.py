@@ -14,18 +14,35 @@ only `pypdf`.
 from __future__ import annotations
 
 import json
+import uuid
+from collections import Counter
+from dataclasses import replace
 
 import pytest
+from sqlalchemy import text
 
+from app.chat.corpus import SEED_SOURCE_KEY, copy_corpus_into
+from app.chat.embedding import get_embedder
+from app.db.session import system_session, tenant_session
 from app.evals.corpus import (
     CorpusDriftError,
     Manifest,
     SeededChunk,
     assert_corpus_matches_manifest,
+    build_corpus,
     build_manifest,
     content_digest,
     corpus_fingerprint,
+    load_manifest,
     parse_chunk_key,
+)
+from app.evals.goldset import (
+    ANSWERS,
+    EXPECTED_COVERAGE,
+    QUESTIONS,
+    SUPPORTS,
+    goldset_sha256,
+    referenced_keys,
 )
 from app.evals.score import (
     answerability_auc,
@@ -35,6 +52,7 @@ from app.evals.score import (
     recall_at_k,
     reciprocal_rank,
 )
+from app.ingest.catalogue import CATALOGUE
 
 # ---------------------------------------------------------------------------
 # precision@k
@@ -458,3 +476,218 @@ def test_the_committed_floors_are_an_empty_skeleton_and_say_why() -> None:
     floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
     assert floors["modes"] == {}
     assert "spread" in floors["note"]
+
+# ---------------------------------------------------------------------------
+# the gold set
+# ---------------------------------------------------------------------------
+
+def test_the_gold_set_has_the_coverage_it_claims() -> None:
+    """Thirty questions, and each kind in the number the design fixed.
+
+    Retyping a question from one kind to another silently changes what a
+    per-kind regression report means, which is the only thing `kind` is for.
+    """
+    counts = Counter(question.kind for question in QUESTIONS)
+    assert len(QUESTIONS) == 30
+    assert dict(counts) == dict(EXPECTED_COVERAGE)
+
+def test_every_question_has_a_unique_id() -> None:
+    ids = [question.id for question in QUESTIONS]
+    assert len(set(ids)) == len(ids)
+
+def test_every_judgement_records_why_it_was_made() -> None:
+    """A judgement with no reason cannot be audited, and this file's whole claim
+    is that a sceptic can check it. Grades are 1 or 2 and nothing else: a 0 would
+    be an assertion of irrelevance, which the scorers read as absence anyway and
+    which nobody would maintain."""
+    for question in QUESTIONS:
+        for judgement in question.judgements:
+            assert judgement.grade in (SUPPORTS, ANSWERS), (question.id, judgement.key)
+            assert len(judgement.why.strip()) > 20, (question.id, judgement.key)
+
+def test_every_question_says_what_it_is_for() -> None:
+    for question in QUESTIONS:
+        assert len(question.note.strip()) > 40, question.id
+
+def test_no_question_names_the_same_chunk_twice() -> None:
+    """Two judgements for one chunk would put one grade in `relevance` and lose
+    the other, silently."""
+    for question in QUESTIONS:
+        keys = [judgement.key for judgement in question.judgements]
+        assert len(set(keys)) == len(keys), question.id
+
+def test_every_answerable_question_has_a_chunk_that_actually_answers_it() -> None:
+    """At least one grade-2 judgement. A question supported from every side and
+    answered by nothing is a question whose gold answer is missing."""
+    for question in QUESTIONS:
+        if question.kind == "unanswerable":
+            continue
+        assert ANSWERS in question.relevance.values(), question.id
+
+def test_the_unanswerable_questions_carry_no_judgements_at_all() -> None:
+    """Empty is a value here, not a missing value — `score.py` branches on it."""
+    for question in QUESTIONS:
+        if question.kind == "unanswerable":
+            assert question.judgements == (), question.id
+            assert not question.is_answerable
+
+def test_the_unanswerable_questions_are_length_matched_to_the_answerable_ones() -> None:
+    """The rule `answerability_auc` depends on, enforced instead of reviewed.
+
+    `ts_rank` grows with the number of query lexemes, so a set of short, simple
+    unanswerable questions against long, specialist answerable ones produces a
+    splendid AUC that measures nothing but question length. The two means are
+    held within 25 % of each other and the ranges are required to overlap, which
+    is as much as a test can check about vocabulary matching; the rest is in the
+    `note` on each question.
+    """
+    answerable = [len(q.text.split()) for q in QUESTIONS if q.is_answerable]
+    unanswerable = [len(q.text.split()) for q in QUESTIONS if not q.is_answerable]
+    mean_a = sum(answerable) / len(answerable)
+    mean_u = sum(unanswerable) / len(unanswerable)
+    assert abs(mean_u - mean_a) / mean_a < 0.25, (mean_a, mean_u)
+    assert min(unanswerable) >= min(answerable), (min(answerable), min(unanswerable))
+    assert max(unanswerable) <= max(answerable), (max(answerable), max(unanswerable))
+
+def test_the_gold_set_hash_ignores_prose_and_notices_a_grade() -> None:
+    """`goldset_sha256` is over the questions and relevances, not the file bytes.
+
+    A clarified `why` must not force a re-measurement of something nothing
+    changed; a changed grade must.
+    """
+    baseline = goldset_sha256(QUESTIONS)
+    first = QUESTIONS[0]
+    reworded = replace(
+        first,
+        note="reworded entirely",
+        judgements=tuple(replace(j, why="reworded entirely") for j in first.judgements),
+    )
+    assert goldset_sha256((reworded, *QUESTIONS[1:])) == baseline
+
+    regraded = replace(
+        first,
+        judgements=(replace(first.judgements[0], grade=SUPPORTS), *first.judgements[1:]),
+    )
+    assert goldset_sha256((regraded, *QUESTIONS[1:])) != baseline
+
+# ---------------------------------------------------------------------------
+# the gold set against the real corpus (pypdf only: no database, no model)
+# ---------------------------------------------------------------------------
+
+def test_the_parsed_corpus_is_the_one_the_manifest_was_written_for() -> None:
+    """The drift guard, run against the committed manifest and the real PDF.
+
+    This is the test that goes red when the chunker changes — before any metric
+    does, and with an error that names the ordinal and both hashes instead of a
+    number that looks like a search regression.
+    """
+    assert_corpus_matches_manifest(build_corpus(), load_manifest())
+
+def test_the_corpus_is_1057_chunks_from_two_sources() -> None:
+    """1027 catalogue chunks and 30 seeded excerpts, measured rather than
+    estimated. The catalogue's own `expected_chunks` is the other place this
+    number is written down, and they have to agree."""
+    chunks = build_corpus()
+    assert len(chunks) == 1057
+    assert Counter(chunk.source_key for chunk in chunks) == {
+        "gdpr-full": 1027,
+        "seed:gdpr-excerpts": 30,
+    }
+    assert CATALOGUE["gdpr-full"].expected_chunks == 1027
+
+def test_every_chunk_the_gold_set_names_exists_in_the_corpus() -> None:
+    """A judgement about a chunk that is not there scores as a permanent miss and
+    is indistinguishable from a retrieval failure."""
+    present = {chunk.key for chunk in build_corpus()}
+    missing = [key for key in referenced_keys(QUESTIONS) if key not in present]
+    assert missing == []
+
+def test_every_chunk_in_the_corpus_is_addressable() -> None:
+    """A chunk with no `(source_key, chunk_ordinal)` is one the gold set cannot
+    name, and it can still be returned by a search.
+
+    Checked here on the data, where it is cheap, and again in the runner against
+    the database after seeding — because the column being populated in
+    `build_corpus` and the column being populated in `document_chunks` are two
+    different claims, and it was the second one that was broken before Task 22.
+    """
+    for chunk in build_corpus():
+        assert chunk.source_key
+        assert chunk.chunk_ordinal is not None
+        assert parse_chunk_key(chunk.key) == (chunk.source_key, chunk.chunk_ordinal)
+
+# ---------------------------------------------------------------------------
+# the two preconditions that need something outside this package
+# ---------------------------------------------------------------------------
+
+async def test_every_seeded_chunk_in_a_tenants_corpus_is_addressable(
+    created_orgs: list[str],
+) -> None:
+    """A NULL `source_key` is a chunk the gold set cannot name, and it can still
+    be returned.
+
+    The seeded excerpts are extracts of the same GDPR text the catalogue source
+    holds, so a correct answer can arrive as the seeded duplicate. Scored against
+    a gold set keyed on `(source_key, chunk_ordinal)`, an unaddressable duplicate
+    counts as a miss — the metric drops and retrieval had nothing to do with it.
+    Task 22 backfilled these columns for `copy_corpus_into`; this test is what
+    makes the omission loud instead of turning it into a plausible number.
+
+    Run against a throwaway organisation rather than against the eval one on
+    purpose: `copy_corpus_into` is the code path that had the defect, it needs no
+    embedding model (the vectors come from the committed file), and it finishes
+    in milliseconds. The same property is checked against the eval organisation's
+    full 1057-chunk corpus by `run.py`, after seeding and before the first search.
+    """
+    org_id = str(uuid.uuid4())
+    async with system_session() as session:
+        await session.execute(
+            text("INSERT INTO organizations (id, external_id, name) VALUES (:i, :e, :n)"),
+            {"i": org_id, "e": f"ext_{org_id}", "n": "Eval precondition"},
+        )
+    created_orgs.append(org_id)
+
+    async with tenant_session(org_id) as session:
+        written = await copy_corpus_into(session, org_id)
+
+    async with tenant_session(org_id) as session:
+        unnamed = await session.scalar(
+            text(
+                "SELECT count(*) FROM document_chunks "
+                "WHERE org_id = :org AND (source_key IS NULL OR chunk_ordinal IS NULL)"
+            ),
+            {"org": org_id},
+        )
+        ordinals = (
+            await session.execute(
+                text(
+                    "SELECT chunk_ordinal FROM document_chunks "
+                    "WHERE org_id = :org AND source_key = :key ORDER BY chunk_ordinal"
+                ),
+                {"org": org_id, "key": SEED_SOURCE_KEY},
+            )
+        ).scalars().all()
+
+    assert written == 30
+    assert unnamed == 0, f"{unnamed} chunks carry no stable key and cannot be scored"
+    assert list(ordinals) == list(range(30))
+
+@pytest.mark.model
+def test_the_same_question_embeds_to_the_same_vector_twice_in_one_process() -> None:
+    """The property `run.py` relies on instead of memoising the embedder.
+
+    The plan asked for one inference per question so that `vector` and `hybrid`
+    are compared on the same vector rather than on two numbers with one name.
+    Reaching into the embedder to memoise it would be the one shortcut in a
+    runner whose entire claim is that it takes the real path, so the property is
+    checked here directly instead: two calls, same input, identical output. If
+    this ever goes red, `measure()` is comparing two modes on two vectors and the
+    memo has to go in after all.
+
+    Marked `model` because it needs the real ONNX weights — and it needs them by
+    the indirect route, through `get_embedder()`, which is exactly the shape of
+    dependency that has twice been missed in this milestone.
+    """
+    embedder = get_embedder()
+    question = QUESTIONS[0].text
+    assert embedder.encode_query(question) == embedder.encode_query(question)

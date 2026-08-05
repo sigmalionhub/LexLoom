@@ -223,7 +223,12 @@ one character that renders — a label made entirely of zero-width or filler
 codepoints is a `422`, because an organisation whose name draws nothing is
 indistinguishable in a UI from one whose name failed to load.
 
-The tenant is reclaimed 24 hours after creation, along with everything in it.
+The tenant is reclaimed 24 hours after creation, along with everything in it — or
+**two hours** after creation if it starts an ingest. The shorter clock is not a
+penalty: `INGEST_ORG_CAP` slots are freed only by that same reclamation, so under
+the 24-hour rule a handful of visitors could hold every slot for a day and every
+later visitor would meet `503 capacity_unavailable`. See `app/ingest/jobs.py` for
+the trade-off that was chosen and the residual it leaves.
 
 ### 3.2 Create a conversation
 
@@ -801,9 +806,9 @@ Stated because a contract with unstated holes is not a contract.
 - **No way to read back a conversation.** No listing, no fetching a conversation, no
   history. Reload the page and it is gone from the UI, though the rows survive in the
   database until the tenant expires. This is not the same claim as "no `GET` route
-  returns data" — three now do (`GET /api/v1/status`, `GET /api/v1/generators`,
-  `GET /api/v1/ingest/status`) — see [§1](#1-the-whole-surface) for why none of them
-  is an exception to this one.
+  returns data" — four now do (`GET /api/v1/status`, `GET /api/v1/generators`,
+  `GET /api/v1/ingest/status`, `GET /api/v1/evals`) — see
+  [§1](#1-the-whole-surface) for why none of them is an exception to this one.
 - **No pagination**, because there is nothing to page.
 - **No `Idempotency-Key`**, on any endpoint. A retried `POST /conversations` creates
   a second conversation, and a retried `POST /messages` creates a second question.
@@ -815,8 +820,9 @@ Stated because a contract with unstated holes is not a contract.
   a 30-row corpus copy — 8.9 KB of chunk text, at 22 ms per call (20 sequential calls
   in 449 ms). It *is* metered, per client address ([§6.1](#61-refusals-429-503-and-retry-after)).
   What that does not bound is a caller spread across many addresses: nothing limits the
-  box as a whole, and the 24-hour tenant TTL is what reclaims the rows.
-- **No delete or update** of anything. The only removal is the 24-hour tenant purge,
+  box as a whole, and the tenant TTL is what reclaims the rows (24 hours, or two
+  hours once a tenant starts an ingest -- see §3.1).
+- **No delete or update** of anything. The only removal is the scheduled tenant purge,
   which a dedicated `beat` container now fires on an hourly schedule
   (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`, `docker-compose.yml`) rather than waiting to be
   invoked by hand — see [ADR 0004](adr/0004-scheduled-purge.md), which supersedes
@@ -866,7 +872,7 @@ Stated because a contract with unstated holes is not a contract.
   and an unauthenticated endpoint that hands that back for free turns probing into
   knowing. It carries no breakdown by organisation either, which would leak which
   organisations exist — including, for the length of a reporting window, ones the
-  24-hour purge has already destroyed. What it does publish is aggregate and
+  scheduled purge has already destroyed. What it does publish is aggregate and
   process-wide: the running commit, uptime, request counts by status class, and two
   latency distributions (ordinary requests and SSE stream duration, kept separate
   because a stream's duration is mostly the model and would otherwise drag the

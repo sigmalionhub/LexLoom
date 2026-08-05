@@ -8,7 +8,27 @@ organisations holding a corpus at once), read from Postgres rather than from
 Redis. Both ceilings are durable facts (rows) rather than a value in a cache
 `allkeys-lru` can evict under memory pressure with no log line — see
 `docker-compose.yml:40` and `limits.py`'s own comment on the same risk for
-the rate-limit counter. Called from the API, before a task is even queued.
+the rate-limit counter. Called from the API, before a task is even queued, and
+it *reserves* the slot it counts rather than inferring one from committed
+state — see its own docstring and migration 0008 for what inferring cost.
+
+The residual, and it is a documented limitation rather than a mechanism.
+`INGEST_ORG_CAP` is global, so filling it denies the feature to everyone, and
+one address can fill it: 30 demo logins per hour is well over the eight
+organisations the default cap allows. `_INGEST_ORG_TTL_SECONDS` shortens an
+ingesting tenant's life from 24 hours to 2, which turns a one-shot day-long
+outage into one that has to be re-mounted every couple of hours, and the
+liveness term in `count_orgs_with_corpus()` (0008) makes the slot come back
+when the TTL lapses rather than at the next hourly purge. Neither stops a
+sustained attacker. The two mechanisms that would were both weighed and both
+refused: evicting the oldest ingested corpus when the cap is reached destroys a
+live visitor's tenant mid-session and hands an attacker a way to target
+*specific* victims rather than merely the queue; a per-address cap does not
+bound the global memory the cap exists for, and would need the ingest route to
+grow the same trusted-proxy plumbing the demo-login limiter has, which is new
+surface (`limits.py`) for a ceiling that is not the one being defended. What
+actually bounds this attack is the demo-login rate limit, and that is where a
+future fix belongs.
 
 `run_ingest` is the job body a Celery task in `app/worker/tasks.py` runs
 inside `asyncio.run()`. It is not the task itself: the task owns the
@@ -36,7 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.corpus import SEED_SOURCE_KEY
 from app.chat.embedding import DIMENSIONS
 from app.config import Settings, get_settings
-from app.db.session import system_session, tenant_session
+from app.db.session import tenant_session
 from app.errors import ProblemError
 from app.ingest.catalogue import CATALOGUE
 
@@ -126,6 +146,55 @@ _ALREADY_INGESTED_SQL = text(
     "SELECT EXISTS (SELECT 1 FROM document_chunks "
     " WHERE source_key IS NOT NULL AND source_key <> :seed)"
 )
+
+# Migration 0008. Takes no organisation: it reads `app.current_org_id` itself,
+# so it cannot be pointed at a tenant the caller is not already inside.
+_RESERVE_SLOT_SQL = text(
+    "SELECT public.reserve_ingest_slot(:cap, :reservation_ttl, :org_ttl)"
+)
+
+# Cleared in the same transaction as the INSERT, which is what keeps
+# "organisations holding a corpus" and "organisations holding a reservation"
+# disjoint — see migration 0008 on why that matters for the count.
+_RELEASE_SLOT_SQL = text(
+    "UPDATE organizations SET ingest_reserved_at = NULL WHERE id = :org"
+)
+
+# How long an admitted-but-unfinished ingest keeps its slot. It has to exceed
+# the worst case a queued job can actually take: `INGEST_ORG_CAP` jobs ahead of
+# it at `task_time_limit` = 360 s each is 48 minutes at the default cap of 8, so
+# an hour is the smallest round number above it. Too short and a job still in
+# the queue loses its slot to a newcomer while it is about to run; too long and
+# a worker that died holds a slot for no reason. Matches `_PROGRESS_TTL_SECONDS`
+# for the same reason that one is 3600: it is sized against how long anyone
+# keeps looking, not against the data.
+_RESERVATION_TTL_SECONDS = 3600
+
+# What an organisation's TTL is shortened to when it starts an ingest — never
+# extended (migration 0008 uses LEAST), and never applied to an organisation
+# that has no expiry.
+#
+# This is the answer to "one visitor can switch the headline feature off for a
+# day". Eight demo logins plus eight ingests fill `INGEST_ORG_CAP`, and demo
+# organisations live 24 hours, so every later visitor got `503
+# capacity_unavailable` until the next day at negligible cost to whoever did it.
+# Two hours instead of twenty-four turns a one-shot outage into one that has to
+# be continuously re-mounted, and it costs a real visitor nothing measurable:
+# their token dies after `DEMO_TOKEN_TTL_SECONDS` (one hour) anyway, and logging
+# in again gives them a fresh organisation rather than this one.
+#
+# **It must stay strictly greater than `DEMO_TOKEN_TTL_SECONDS`**, and that is a
+# constraint from migration 0004 rather than a preference: 0004's residual
+# argument for API-path child rows rests on no live token existing when an
+# organisation expires. A token is minted at login and this TTL starts at
+# admission, which is later, so any TTL above the token's preserves it —
+# `test_an_ingesting_org_still_outlives_every_token_for_it` holds the two
+# numbers to that.
+#
+# What this does *not* fix is a sustained attacker: 30 logins per hour per
+# address is enough to keep eight slots occupied indefinitely from one IP. See
+# the module docstring.
+_INGEST_ORG_TTL_SECONDS = 7200
 
 # The same eight columns `app/chat/corpus.py`'s `_INSERT_CHUNK` writes, for
 # the same reasons: `bindparam(..., type_=Vector(DIMENSIONS))` because
@@ -320,26 +389,53 @@ async def ensure_ingest_admitted(org_id: str) -> None:
     can switch off under memory pressure, with no log line and no way to
     tell afterwards. The rows are the fact both ceilings are actually about,
     they cannot be evicted, and they are removed by the same purge that makes
-    the ceiling meaningful — so the ceiling relaxes exactly when capacity is
-    freed and never before.
+    the ceiling meaningful.
 
-    A race between two concurrent POSTs for the *global* cap is possible and
-    bounded: both can see `held < cap` and both proceed, so the ceiling can
-    be exceeded by the number of concurrent admissions. The cost of that is
-    ~1.2 MB per tenant; the cost of preventing it is a lock or a serialised
-    admission path. Cheaper, and named rather than hidden. A duplicate for
-    the *same* organisation cannot pass this way — see
-    `_guard_write_transaction`, which repeats the per-organisation check
-    inside the transaction that writes.
+    The global cap **reserves** a slot here rather than inferring one from
+    committed state, and this reverses what an earlier version of this
+    docstring argued. It said the concurrent-admission race was bounded by
+    "the number of concurrent admissions" and priced a fix at "a lock or a
+    serialised admission path", too dear for ~1.2 MB per tenant. Both halves
+    were wrong. Nothing commits *during* admission, so the reading it was
+    based on — `count_orgs_with_corpus()` — could not move no matter how many
+    admissions passed: measured with two free slots, twelve of twelve
+    consecutive POSTs were admitted, and `_guard_write_transaction` never
+    re-checks the global cap, so the whole queue then committed. And the cost
+    was never the megabytes: it was ~75 s of pinned CPU per queued job on a
+    two-vCPU box shared with someone else's production, with
+    `purge_expired_orgs` waiting behind all of it on the same queue.
+
+    So `public.reserve_ingest_slot` (migration 0008) takes an advisory lock,
+    counts organisations holding a corpus *or* a live reservation, and marks
+    this one — one statement, no window. Both checks now run in the same tenant
+    transaction: the reservation is committed only if the per-organisation
+    check passed, and it is rolled back rather than left behind if anything
+    below it raises.
+
+    A duplicate for the *same* organisation still cannot pass — see
+    `_guard_write_transaction`, which repeats the per-organisation check inside
+    the transaction that writes.
     """
+    settings = get_settings()
     async with tenant_session(org_id) as session:
         already = await session.scalar(_ALREADY_INGESTED_SQL, {"seed": SEED_SOURCE_KEY})
-    if already:
-        raise _already_ingested()
+        if already:
+            raise _already_ingested()
+        reserved = await session.scalar(
+            _RESERVE_SLOT_SQL,
+            {
+                "cap": settings.ingest_org_cap,
+                "reservation_ttl": _RESERVATION_TTL_SECONDS,
+                "org_ttl": _INGEST_ORG_TTL_SECONDS,
+            },
+        )
 
-    async with system_session() as session:
-        held = await session.scalar(text("SELECT public.count_orgs_with_corpus()"))
-    if held >= get_settings().ingest_org_cap:
+    # Raised outside the session, so the reservation the call above may have
+    # written is committed on the way out rather than rolled back by the
+    # exception. `false` means nothing was written, so the rollback that a
+    # raise inside would cause is not what distinguishes the two paths — the
+    # ordering does, and it is worth not having to think about twice.
+    if not reserved:
         raise _capacity_unavailable(_INGEST_RETRY_AFTER_SECONDS)
 
 
@@ -444,6 +540,14 @@ async def run_ingest(org_id: str, source_key: str) -> int:
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ],
         )
+        # The slot changes hands here, atomically: this organisation stops
+        # holding a *reservation* in the same transaction in which it starts
+        # holding a *corpus*. `reserve_ingest_slot` adds the two counts
+        # together (migration 0008), so an overlap would make one tenant
+        # occupy two slots until the reservation aged out. Rolled back with
+        # the INSERT if this transaction fails, which is the state a retry
+        # needs: the reservation is still there and still this tenant's.
+        await session.execute(_RELEASE_SLOT_SQL, {"org": org_id})
 
     await _write_progress(org_id, stage="complete", chunks_done=len(chunks))
     return len(chunks)

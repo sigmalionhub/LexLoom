@@ -234,12 +234,32 @@ WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
       )
 """
 
-# (schema, name, identity arguments, prokind, prosecdef). Argument-less and
-# `f` (a plain function, not an aggregate or a procedure) are part of the vetted
-# shape, not incidental: a variant taking an argument could be steered.
+# (schema, name, identity arguments, prokind, prosecdef). `f` (a plain function,
+# not an aggregate or a procedure) is part of the vetted shape, not incidental,
+# and so is the argument list: a variant taking an argument could be steered.
+#
+# `reserve_ingest_slot` takes three, and each one is vetted here rather than
+# waved through because the rule above is real. None of them names a tenant —
+# the organisation comes from `app.current_org_id`, so the function cannot be
+# pointed at a tenant the caller is not already inside, which is the property
+# 0004 and 0007 protect by returning counts and never ids. What the three do
+# reach: `p_cap` decides only whether the caller's *own* organisation is
+# admitted, and anyone able to choose it is already running arbitrary SQL as
+# `lexloom_app` and could take the slot for real by inserting chunks;
+# `p_org_ttl_seconds` reaches a `LEAST`, so it can shorten a TTL and never
+# extend one; a large `p_reservation_ttl_seconds` makes other tenants' stale
+# reservations count for longer, which costs the caller capacity rather than
+# buying it. See migration 0008.
 EXPECTED_FUNCTIONS = {
     ("public", "purge_expired_orgs", "", "f", True),
     ("public", "count_orgs_with_corpus", "", "f", True),
+    (
+        "public",
+        "reserve_ingest_slot",
+        "p_cap integer, p_reservation_ttl_seconds integer, p_org_ttl_seconds integer",
+        "f",
+        True,
+    ),
 }
 
 # A third inventory, of a third kind of thing that exists. `plpgsql` is created

@@ -22,6 +22,13 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # Ephemeral demo orgs expire; the seed corpus org has NULL and never does.
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When this organisation was admitted to an ingest, i.e. when it took one of
+    # the INGEST_ORG_CAP slots. Cleared in the same transaction that writes the
+    # chunks, so it means "an ingest is in flight", not "has ever ingested".
+    # See migration 0008 and app/ingest/jobs.py.
+    ingest_reserved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Conversation(Base):

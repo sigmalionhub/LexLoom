@@ -66,11 +66,27 @@ SEED_VECTORS_FILE = SEED_FILE.with_name("gdpr_excerpts_vectors.json")
 # nothing else could notice them drifting apart.
 SEED_SOURCE_KEY = "seed:gdpr-excerpts"
 
-# One statement, both callers — `copy_corpus_into` directly and
-# `seed_public_corpus` through it. That is not tidiness: it is what makes a
-# later edit to the column list reach every tenant's corpus instead of only the
-# public organisation's. A second copy of this INSERT is how one of them ends up
-# writing NULL into a column the other populates, with nothing raised anywhere.
+# One statement, three callers. Two are in this file — `copy_corpus_into`
+# directly and `seed_public_corpus` through it — and the third is outside it:
+# `app/evals/corpus.py` imports this private name (`from app.chat.corpus import
+# _INSERT_CHUNK`) and executes it at `seed_eval_corpus` to write the eval
+# organisation's 1008 rows. That import is deliberate and documented on its own
+# side; it is recorded here too because the rule lives here, and a rule whose
+# owner does not know all its subjects is a rule that gets broken by whoever
+# reads only the owning file. **Adding a column means editing this list and
+# checking all three call sites bind it.**
+#
+# That is not tidiness: it is what makes a later edit to the column list reach
+# every tenant's corpus instead of only the public organisation's. A second copy
+# of this INSERT is how one of them ends up writing NULL into a column the other
+# populates, with nothing raised anywhere.
+#
+# There is a fourth writer of `document_chunks` that this rule deliberately does
+# NOT reach: `app/ingest/jobs.py` keeps its own `_INSERT_CHUNK`, a separate copy
+# by decision rather than by oversight — it writes organisation-generated
+# content rather than the seed file, and the comment above it there states why
+# importing across that boundary was refused. Do not "fix" the duplication by
+# collapsing the two; do check that copy by hand when this column list changes.
 #
 # Eight columns, not seven. `embedding` is Task 20's; `source_key` and
 # `chunk_ordinal` are this task's. Dropping either back off the list does not

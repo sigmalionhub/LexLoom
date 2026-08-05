@@ -38,8 +38,13 @@ class SearchMode(StrEnum):
 # at most ten candidates, and a chunk that is sixth lexically and first
 # semantically can never surface — which makes the hybrid mode a re-ordering of
 # the lexical five rather than a different answer. Twenty per leg costs
-# nothing: a tenant owns tens of chunks today and ~600 after M2.2, and both
-# legs are exact scans of its own rows either way.
+# nothing: a tenant owns tens of chunks today and 1008 once it holds the M2.2
+# corpus — 978 chunks of `gdpr-full` plus the 30 seed excerpts, the figure
+# `app/evals/results.json` carries and the one the total-order comment below
+# measured on the eval organisation — and both legs are exact scans of its own
+# rows either way. Note that this is a query-cost
+# argument, not a memory one, so the 40 %-low "~600" it used to say was not a
+# harmless rounding: it understated the thing being claimed cheap.
 _RUN_DEPTH = 20
 
 
@@ -236,9 +241,15 @@ _SEARCH_SQL = text(
 # with no vector is not a candidate for a vector search.
 #
 # No HNSW index here, and that is a decision rather than an omission. A tenant
-# owns tens of chunks today and ~600 after M2.2; an exact scan of 600x384 floats
-# is a fraction of a millisecond, and the tenant's own rows are already reachable
-# through `ix_document_chunks_org`. More importantly, under row-level security an
+# owns tens of chunks today and 1008 once it holds the M2.2 corpus (978
+# `gdpr-full` chunks plus 30 seed excerpts — the count the total-order comment
+# above measured on the eval organisation, and the one `results.json` reports);
+# an exact scan of 1008x384 float4 is ~1.5 MB read and ~387k multiply-adds,
+# still a fraction of a millisecond, and the tenant's own rows are already
+# reachable through `ix_document_chunks_org`. The figure this comment used to
+# quote was 600, 40 % low — and this is an argument about *query cost*, where
+# understating the row count understates exactly the quantity being called
+# negligible. More importantly, under row-level security an
 # approximate index makes the answers *worse*: it returns the `ef_search` nearest
 # rows across the whole table, the policy then discards every other tenant's, and
 # the caller gets fewer rows than it asked for. The full argument, including the

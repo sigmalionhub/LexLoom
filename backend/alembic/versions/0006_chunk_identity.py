@@ -21,10 +21,16 @@ rows are gone within 24 h under the TTL Task 32 enforces, and
 `seed_public_corpus()` rewrites the permanent copy on the next deployment —
 both paths write the new columns going forward (`app/chat/corpus.py`).
 
-No index on the pair. ~600 rows per tenant, already reached through
-`ix_document_chunks_org`; a sequential scan inside one tenant's rows costs a
-fraction of a millisecond — the same arithmetic Task 20 used to skip an HNSW
-index on `embedding`. Adding one here would be a new relation, which would
+No index on the pair. 1008 rows per tenant holding the full catalogue — 978
+chunks of `gdpr-full` plus the 30 seed excerpts, measured on the eval
+organisation and recorded in `app/evals/results.json` — already reached
+through `ix_document_chunks_org`; a sequential scan inside one tenant's rows
+costs a fraction of a millisecond, the same arithmetic Task 20 used to skip an
+HNSW index on `embedding`. (This paragraph said "~600" until the count was
+re-derived; the conclusion is unchanged at 1008, but the number it rested on
+was 40 % low, and "no index needed" is a claim about scan cost, so the
+understatement was in the load-bearing direction.) Adding one here would be a
+new relation, which would
 break `EXPECTED_RELATIONS` (`test_demo_orgs.py:166`) and belongs in its own
 decision, not folded silently into this migration.
 """

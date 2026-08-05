@@ -24,9 +24,21 @@ from pydantic import BaseModel, Field
 # nobody here controls.
 #
 # Two ladders because one cannot serve both classes. The request ladder has to
-# resolve single milliseconds; the stream ladder has to reach past the 45 s
-# that `gemini-3.6-flash` was measured at on 2026-08-04. A single ladder
-# covering both would put every ordinary request in its first bucket.
+# resolve single milliseconds; the stream ladder has to resolve tens of
+# seconds. A single ladder covering both would put every ordinary request in
+# its first bucket.
+#
+# The only measurement of `gemini-3.6-flash` this repository holds is
+# 9.52-11.98 s end to end for a long answer (350-510 words), 7.56-8.91 s to
+# first token — three runs per model, taken locally on 2026-08-04 and
+# published in `frontend/components/panel/generator-selector.tsx` as
+# "~9.5-12.0s". This comment previously said 45 s "was measured"; nothing
+# measured 45 s. The figure came from an illustrative selector mock-up in the
+# milestone plan ("flash — 12–45 s") and was a guess. The ladder is unchanged,
+# because it was never sized on that number: 10 s and 20 s are the two buckets
+# the measured range actually straddles, and 30/45/60/120 s are tail buckets —
+# a slow network, a long answer on the deploy box, a retry — where the point is
+# to see *that* a stream took that long, not to resolve how long.
 REQUEST_BUCKETS_MS = (1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
 STREAM_BUCKETS_MS = (500, 1000, 2500, 5000, 10_000, 20_000, 30_000, 45_000, 60_000, 120_000)
 
@@ -34,12 +46,14 @@ STREAM_BUCKETS_MS = (500, 1000, 2500, 5000, 10_000, 20_000, 30_000, 45_000, 60_0
 # rather than the service's behaviour, and they pull p50 towards the cheapest
 # route in the application.
 #
-# `/api/v1/ingest/status` is listed before it exists, on purpose. It arrives
-# with the ingestion API in another branch, and its panel polls it twice a
-# second — the most aggressive poller in the product. A literal that has to be
-# edited by the task that adds the route is a literal that gets forgotten by
-# the task that adds the route; the branch that owns this rule owns the whole
-# list.
+# `/api/v1/ingest/status` was listed here before it existed, on purpose: a
+# literal that has to be edited by the task that adds a route is a literal that
+# gets forgotten by the task that adds the route, so the branch that owned this
+# rule owned the whole list. The route has since arrived, and this note is kept
+# only to record why the entry predates it — the entry itself is now an
+# ordinary one. Its panel polls it twice a second, which makes it the most
+# aggressive poller in the product and the strongest case on this list for not
+# being counted.
 _NOT_MEASURED = ("/api/v1/status", "/api/v1/ingest/status", "/health/")
 _STREAM_SUFFIX = "/stream"
 

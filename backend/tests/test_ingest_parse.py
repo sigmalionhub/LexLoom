@@ -21,12 +21,29 @@ FIXTURE = Path(__file__).parent / "fixtures" / "gdpr-full.chunks.json"
 #   pypdf, extraction_mode="layout"  2.8% ( 462/16686)
 #   pdftotext (poppler)              2.1% ( 340/15905)
 #   pdfminer.six (chosen)            2.1% ( 340/15908)
-# 5% sits with real headroom below every broken measurement (>=2.8x pypdf's
-# best mode, >=1.7x pypdf's default) and with real headroom above every clean
-# one (>=2.4x pdfminer's own rate, and above the 2.48% this test actually
-# measures over the whole document, which runs a little higher than the
-# 20-page sample because of legitimate single-letter tokens like "a" and "I"
-# that a sample this small under-represents).
+# 5% is a gross-breakage guard, and this comment states exactly what it does
+# and does not catch — it previously claimed headroom "below every broken
+# measurement (>=2.8x pypdf's best mode)", which was false twice over: 5% is
+# ABOVE pypdf-layout's 2.8%, not below it, and the "2.8x" was the table's 2.8%
+# restated as if it were a ratio.
+#
+# What 5% actually buys, re-derived from the table above:
+#   caught   pypdf default, 9.3% — 1.86x over the ceiling.
+#   NOT caught  pypdf layout, 2.8%. A regression to that extractor passes.
+#   headroom  2.02x over the 2.48% this test measures across the whole
+#             document, and 2.38x over pdfminer's own 2.1% on the 20-page
+#             sample. (The whole-document rate runs a little higher than the
+#             sample because of legitimate single-letter tokens like "a" and
+#             "I" that a 20-page sample under-represents.)
+#
+# The gap to pypdf-layout is left open on purpose rather than closed by
+# tightening. Closing it needs a ceiling under 2.8%, which leaves at most
+# 0.32 percentage points above the 2.48% this test measures — an 11% margin on
+# a figure that moves with the corpus. That is a guard that goes red on a
+# legitimate document change, and a guard that cries wolf gets its threshold
+# raised by whoever is unblocking CI, which loses the 9.3% catch as well.
+# Extractor identity is not a thing a token-rate threshold can assert; if a
+# regression to pypdf-layout needs catching, assert the extractor.
 _SINGLE_LETTER_TOKEN_RATE_CEILING = 0.05
 
 

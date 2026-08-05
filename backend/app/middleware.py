@@ -19,8 +19,13 @@ class RequestContextMiddleware:
 
     This is also why the timer below has to stop at `http.response.start`
     rather than after `await self.app(...)` returns: raw ASGI is what makes
-    streaming work, and streaming is exactly the case where that return
-    happens 12 to 45 seconds late. See `app/observability.py`.
+    streaming work, and streaming is exactly the case where that return happens
+    ten seconds or more late: `gemini-3.6-flash` measured 9.5-12.0 s end to end
+    for a long answer (see `generator-selector.tsx`), and the response *start*
+    is what a client waiting on an SSE stream actually experiences. This said
+    "12 to 45 seconds" until the figure was traced — 45 s was never measured,
+    it came from an illustrative mock-up in the milestone plan. See
+    `app/observability.py`.
     """
 
     def __init__(self, app) -> None:

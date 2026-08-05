@@ -272,23 +272,25 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
     from app.db.engine import engine
 
     await engine.dispose()
-    result = await asyncio.to_thread(
-        lambda: ingest_source.apply(args=(org_id, SOURCE_KEY)).get()
-    )
+    result = await asyncio.to_thread(lambda: ingest_source.apply(args=(org_id, SOURCE_KEY)).get())
 
     expected = CATALOGUE[SOURCE_KEY].expected_chunks
     assert result == expected
 
     async with tenant_session(org_id) as session:
         ordinals = (
-            await session.execute(
-                text(
-                    "SELECT chunk_ordinal FROM document_chunks "
-                    "WHERE source_key = :sk ORDER BY chunk_ordinal"
-                ),
-                {"sk": SOURCE_KEY},
+            (
+                await session.execute(
+                    text(
+                        "SELECT chunk_ordinal FROM document_chunks "
+                        "WHERE source_key = :sk ORDER BY chunk_ordinal"
+                    ),
+                    {"sk": SOURCE_KEY},
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert ordinals == list(range(expected))
 
     status = await read_ingest_status(org_id)
@@ -299,6 +301,7 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
     with pytest.raises(ProblemError) as refused:
         await ensure_ingest_admitted(org_id)
     assert refused.value.code == "already_ingested"
+
 
 # --- The purge window `_ALIVE_SQL`'s row lock closes -------------------------
 #
@@ -313,6 +316,7 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
 # `FOR KEY SHARE` closes it, and these two tests are the evidence rather than
 # the argument.
 
+
 async def _purge_as_worker(sessions) -> int:
     # `tenant_scoped=False`, the same declaration `system_session()` makes: the
     # purge is unscoped by definition, and `_require_tenant_context` raises for
@@ -321,6 +325,7 @@ async def _purge_as_worker(sessions) -> int:
         purged = await session.scalar(text("SELECT public.purge_expired_orgs()"))
         await session.commit()
         return purged
+
 
 async def test_the_liveness_guard_can_take_its_row_lock_as_the_worker_role(
     created_orgs, worker_role
@@ -334,6 +339,7 @@ async def test_the_liveness_guard_can_take_its_row_lock_as_the_worker_role(
     org_id = await _make_org(created_orgs)
     async with tenant_session(org_id) as session:
         await _guard_write_transaction(session, org_id)  # does not raise
+
 
 async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
     created_orgs,
@@ -398,6 +404,7 @@ async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
     finally:
         await worker_engine.dispose()
 
+
 # --- The reserved slot: I1's probe, and what fell out of it -------------------
 #
 # The finding that produced these: `ensure_ingest_admitted` read
@@ -406,6 +413,7 @@ async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
 # consecutive admissions passed and the whole burst then committed.
 # `_guard_write_transaction` re-checks liveness and the per-organisation
 # duplicate but never the global cap, so there was no second place to refuse.
+
 
 async def _reservation_of(org_id: str):
     """This organisation's `ingest_reserved_at`, read in its own tenant context.
@@ -422,6 +430,7 @@ async def _reservation_of(org_id: str):
             text("SELECT ingest_reserved_at FROM organizations WHERE id = :o"), {"o": org_id}
         )
 
+
 async def _admit(org_id: str) -> str | None:
     """Admit, and report the refusal code instead of raising."""
     try:
@@ -429,6 +438,7 @@ async def _admit(org_id: str) -> str | None:
     except ProblemError as refused:
         return refused.code
     return None
+
 
 async def test_a_burst_of_concurrent_admissions_takes_exactly_the_free_slots(
     created_orgs, settings_override
@@ -469,6 +479,7 @@ async def test_a_burst_of_concurrent_admissions_takes_exactly_the_free_slots(
     reserved = [org for org in burst if await _reservation_of(org) is not None]
     assert reserved == admitted, "the organisations admitted are not the ones holding a slot"
 
+
 async def test_an_organisation_that_already_holds_a_slot_is_readmitted_when_the_cap_is_full(
     created_orgs, settings_override
 ) -> None:
@@ -486,6 +497,7 @@ async def test_an_organisation_that_already_holds_a_slot_is_readmitted_when_the_
     assert await _admit(other) == "capacity_unavailable"  # the cap is full
 
     assert await _admit(org_id) is None, "a retry was refused by its own reservation"
+
 
 async def test_a_committed_ingest_hands_its_reservation_over_to_its_corpus(
     created_orgs, settings_override
@@ -519,6 +531,7 @@ async def test_a_committed_ingest_hands_its_reservation_over_to_its_corpus(
     async with system_session() as session:
         assert await session.scalar(text("SELECT public.count_orgs_with_corpus()")) == committed + 1
 
+
 async def test_an_orphaned_corpus_does_not_consume_a_slot(created_orgs) -> None:
     """Migration 0007's count never joined `organizations`, so chunks whose
     organisation was gone held a slot with no way to release it — the cap
@@ -540,6 +553,7 @@ async def test_an_orphaned_corpus_does_not_consume_a_slot(created_orgs) -> None:
         without_org = await session.scalar(text("SELECT public.count_orgs_with_corpus()"))
     assert without_org == with_org - 1
 
+
 async def test_an_expired_organisation_stops_holding_a_slot_before_the_purge_runs(
     created_orgs,
 ) -> None:
@@ -558,6 +572,7 @@ async def test_an_expired_organisation_stops_holding_a_slot_before_the_purge_run
     await _add_fake_ingested_chunk(live_org)
     async with system_session() as session:
         assert await session.scalar(text("SELECT public.count_orgs_with_corpus()")) == held + 1
+
 
 async def test_admission_shortens_an_ingesting_organisations_ttl(
     created_orgs, settings_override
@@ -580,6 +595,7 @@ async def test_admission_shortens_an_ingesting_organisations_ttl(
     assert remaining.total_seconds() <= _INGEST_ORG_TTL_SECONDS
     # And not shortened past the token that is already out there.
     assert remaining.total_seconds() > DEMO_TOKEN_TTL_SECONDS
+
 
 async def test_admission_never_extends_an_organisations_ttl(
     created_orgs, settings_override
@@ -608,6 +624,7 @@ async def test_admission_never_extends_an_organisations_ttl(
         )
     assert expires_at is None
 
+
 def test_an_ingesting_org_still_outlives_every_token_for_it() -> None:
     """Migration 0004's residual argument for API-path child rows rests on no
     live token existing when an organisation expires. Shortening an ingesting
@@ -619,3 +636,87 @@ def test_an_ingesting_org_still_outlives_every_token_for_it() -> None:
     deadline is always the earlier of the two by at least the gap between them.
     """
     assert _INGEST_ORG_TTL_SECONDS > DEMO_TOKEN_TTL_SECONDS
+
+
+# --- Migration 0010: a tenant is counted once, and is never refused a ceiling
+#     it is already inside --------------------------------------------------
+
+
+async def _reserve(org_id: str, cap: int) -> bool:
+    """Call the admission function directly, as the API role does."""
+    async with tenant_session(org_id) as session:
+        return bool(
+            await session.scalar(
+                text("SELECT public.reserve_ingest_slot(:cap, 3600, 7200)"),
+                {"cap": cap},
+            )
+        )
+
+
+async def test_a_tenant_holding_a_corpus_and_a_reservation_is_counted_once(
+    created_orgs,
+) -> None:
+    """0008's sum rests on a precondition per-source ingest retires.
+
+    Its own comment states it: "a tenant holds a reservation or a corpus, never
+    both". Once a tenant can ingest a second document, it holds both for the
+    duration of that job and is added to the ceiling twice — so an unrelated
+    tenant is refused while a slot is genuinely free.
+
+    The state is built by hand rather than by running two ingests, because the
+    code that produces it naturally arrives in the next task. That is the point
+    of putting this migration first: the fix lands before the feature that
+    triggers the bug.
+
+    The assertion is behavioural — a neighbour's admission — rather than a
+    recomputation of the sum. Asserting the arithmetic would only test the SQL
+    this test itself wrote; asserting the neighbour tests the function.
+    """
+    ingesting = await _make_org(created_orgs)
+    await _add_fake_ingested_chunk(ingesting)
+
+    # It holds a corpus; admitting it for a second document gives it a
+    # reservation too, which is the state 0008 declared impossible.
+    assert await _reserve(ingesting, cap=1000) is True
+
+    # One slot free, counting the tenants that actually hold a corpus.
+    cap = await _count_orgs_with_corpus() + 1
+    neighbour = await _make_org(created_orgs)
+    assert await _reserve(neighbour, cap=cap) is True, (
+        "an unrelated tenant was refused while a slot was free: the ingesting "
+        "tenant is being counted by both terms of the admission sum"
+    )
+
+
+async def test_a_tenant_inside_a_full_ceiling_is_still_admitted_for_a_second_source(
+    created_orgs,
+) -> None:
+    """The half 0008's short-circuit could not see.
+
+    `v_holds_slot` asked only about a live reservation, so a tenant holding a
+    corpus and no reservation fell through to the cap check — where the corpus
+    term counts it. With the cap full it was refused a slot it already occupies.
+    """
+    org_id = await _make_org(created_orgs)
+    await _add_fake_ingested_chunk(org_id)
+    held = await _count_orgs_with_corpus()
+
+    # A cap already fully consumed by the tenants that hold a corpus.
+    assert await _reserve(org_id, cap=held) is True
+
+
+async def test_the_admission_function_is_still_executable_by_the_api_role() -> None:
+    """0010 replaces the function in place precisely so 0008's grants survive.
+
+    A changed signature would be a new function: PUBLIC would get EXECUTE by
+    default, `lexloom_app` would get none, and `EXPECTED_RELATIONS` would not
+    notice because it keys on name without an argument dimension.
+    """
+    async with system_session() as session:
+        allowed = await session.scalar(
+            text(
+                "SELECT has_function_privilege('lexloom_app', "
+                "'public.reserve_ingest_slot(integer, integer, integer)', 'EXECUTE')"
+            )
+        )
+    assert allowed is True

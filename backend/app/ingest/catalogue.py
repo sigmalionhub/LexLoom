@@ -21,8 +21,16 @@ class Source:
     key: str
     title: str
     path: Path
-    pages: int
-    expected_chunks: int
+    # Which extractor `parse_source` dispatches to. A media type rather than a
+    # file extension: the extension is an artefact of how the file was named,
+    # the media type is a statement about what is inside it, and `parse.py`
+    # branches on the latter.
+    media_type: str
+    # `None` for a format that has no pages. `document_chunks.page_from` /
+    # `page_to` are nullable from migration 0009 for the same reason: a `.docx`
+    # chunk that claimed a page number would be a number pointing at nothing.
+    # What it carries instead is `locator` — the heading path.
+    pages: int | None
     # Provenance travels with the entry, not in a README. `chat/corpus.py`
     # already made this choice for the seed corpus ("the provenance ... travels
     # in the file itself rather than here, so it cannot drift away from the
@@ -39,6 +47,23 @@ class Source:
     # failing anywhere else. `test_ingest_parse.py` checks the file on disk
     # against this value on every run.
     sha256: str
+    # Empty when the publisher's own file is committed unchanged, as for the
+    # GDPR PDF. Non-empty means the committed file is OURS: it names the command
+    # that produced it, so anyone can re-run it and compare both digests. A
+    # converted artefact with no such statement is the whole class of problem
+    # this repository is a case study about.
+    conversion: str | None = None
+    # `.docx` only. A zip records a modification time per entry, so two runs
+    # over identical input can differ in the file digest while the content is
+    # identical. `build_docx_source.sh` rezips with fixed timestamps, which
+    # makes BOTH digests reproducible — this field exists so the claim can be
+    # checked against the part that carries the text, not just the container.
+    document_xml_sha256: str | None = None
+    # Measured against the committed file by `parse_source()`, never guessed.
+    # Last field and defaulted so a source can be committed before its chunking
+    # exists — but `test_ingest_catalogue.py` refuses to let a `None` survive
+    # into a release, because an unmeasured expectation gates nothing.
+    expected_chunks: int | None = None
 
 
 CATALOGUE: dict[str, Source] = {
@@ -52,6 +77,7 @@ CATALOGUE: dict[str, Source] = {
             "Data Protection Regulation)"
         ),
         path=_SOURCES / "gdpr-full.pdf",
+        media_type="application/pdf",
         pages=88,
         # Measured against the committed file by parse_source(), not guessed:
         # see task-22-report.md for the run that produced this number.
@@ -88,5 +114,65 @@ CATALOGUE: dict[str, Source] = {
             "taken under."
         ),
         sha256="bd84e63f5b622b739a83389afc3b30d240f792bb88d8eb03a816c9a82b0c2499",
+    ),
+    "nist-sp-800-63b": Source(
+        key="nist-sp-800-63b",
+        title=(
+            "NIST Special Publication 800-63B rev 4, Digital Identity "
+            "Guidelines: Authentication and Authenticator Management"
+        ),
+        path=_SOURCES / "nist-sp-800-63b.docx",
+        media_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        # No pages. NIST publishes this document as HTML and PDF; the committed
+        # artefact is built from the HTML, which has no pagination to carry. The
+        # citation shows `locator` — the heading path — instead, and that is a
+        # position a reader can actually find with Ctrl-F.
+        pages=None,
+        source_url="https://pages.nist.gov/800-63-4/sp800-63b.html",
+        retrieved_at="2026-08-05",
+        # Quoted verbatim from https://www.nist.gov/oism/copyrights, fetched on
+        # the date above. The document itself says nothing about rights — zero
+        # matches for "copyright", "public domain" or "17 U.S.C" anywhere in the
+        # published HTML, which is why the licence is cited from the publisher's
+        # own policy page rather than from the file.
+        licence=(
+            'NIST, https://www.nist.gov/oism/copyrights: "NIST web pages are '
+            "provided as a public service by the National Institute of "
+            "Standards and Technology (NIST). With the exception of material "
+            "marked as copyrighted, information presented on NIST sites are "
+            "considered public information and may be distributed or copied. "
+            'Use of appropriate byline/photo/image credits is requested." '
+            "Nothing in this document is marked as copyrighted. Separately, and "
+            "as a conclusion rather than a quotation: a work of the United "
+            "States Government is not subject to copyright protection in the "
+            "United States (17 U.S.C. 105)."
+        ),
+        # Both digests are of OUR artefact, and both are reproducible: two runs
+        # of the script over the same fetched HTML produced byte-identical
+        # output, verified. An earlier draft of this work claimed the file
+        # digest could not be reproducible because a zip stores per-entry
+        # mtimes; that was true of the naive build and false of this one, which
+        # normalises them.
+        sha256="391aa0a370b2f4884821a2e6ba2da19e1bcc67f563560eee6f355ae588760408",
+        document_xml_sha256=("9ca7af97efd756c4c053219943a1e9335adcd07eedee9a6cf64ebcfe98ecf9f9"),
+        conversion=(
+            "Built by backend/scripts/build_docx_source.sh with LibreOffice "
+            "24.2.7.2 420(Build:2) on 2026-08-05: the publisher's HTML is "
+            "stripped of one <nav>, one <footer>, the page-switch div and the "
+            "page build timestamp, its 616 anchors are unwrapped and its images "
+            "and scripts removed, then converted and the package sanitised. The "
+            "bibliography is deliberately kept: it sits mid-document, ahead of "
+            "appendices A-E, and removing it would leave dangling references "
+            "and make this title an overstatement. The preprocessed HTML is "
+            "committed beside the .docx as nist-sp-800-63b.src.html so every "
+            "test that needs ground truth can quote the publisher rather than "
+            "this repository's own extractor."
+        ),
+        # Deliberately unset. The number has to come from a real parse, and the
+        # chunker does not exist yet; a plausible placeholder here would be a
+        # gate that passes without measuring anything, which is the failure this
+        # catalogue's other comments already document. The task that measures it
+        # also adds the guard to `test_ingest_catalogue.py` that refuses a None.
+        expected_chunks=None,
     ),
 }

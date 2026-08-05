@@ -239,22 +239,34 @@ sudo mkdir -p /etc/nginx/snippets
 sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-proxy.conf   /etc/nginx/snippets/
 sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-headers.conf /etc/nginx/snippets/
 
+# Permissions BEFORE the secret is written, not after. `cp` lands the file 0644,
+# and this file is about to hold a secret while every other file in /etc/nginx is
+# 0644. Left at the default it would be readable by every local account on the box
+# — including whatever runs the neighbouring applications, which is precisely the
+# party the secret exists to tell apart from nginx. nginx parses its config as root
+# before dropping to www-data, so it never needs the read bit for others.
+# `sed -i` below preserves the mode and owner of the file it rewrites, so doing
+# this first leaves no window in which the secret sits in a world-readable file.
+sudo chown root:root /etc/nginx/snippets/lexloom-proxy.conf
+sudo chmod 640       /etc/nginx/snippets/lexloom-proxy.conf
+
 # The shared secret, into the INSTALLED copy — the same string as
 # TRUSTED_PROXY_SECRET in .env. The committed file carries a placeholder that
 # the application refuses to start with, so forgetting this fails loudly.
+#
+# The sed script arrives on **stdin**, and that is the point of the pipe. Written
+# the obvious way — `sudo sed -i "s|...|$SECRET|" file` — the expanded secret is
+# an element of sed's argv, and argv is readable through /proc/<pid>/cmdline by
+# every local account on this box: exactly the accounts the paragraph above is
+# about. `printf` is a shell builtin, so it forks nothing and puts nothing on any
+# command line either. A hex secret (`openssl rand -hex 32`) contains no `|`, `&`
+# or backslash, so it needs no escaping as a sed replacement.
 SECRET=$(grep '^TRUSTED_PROXY_SECRET=' /var/www/portfolio/lexloom/app/.env | cut -d= -f2-)
 test -n "$SECRET" || { echo 'TRUSTED_PROXY_SECRET is not set in .env'; exit 1; }
-sudo sed -i "s|REPLACE_ME_WITH_TRUSTED_PROXY_SECRET|$SECRET|" \
-  /etc/nginx/snippets/lexloom-proxy.conf
-grep -c REPLACE_ME /etc/nginx/snippets/lexloom-proxy.conf   # must print 0
-
-# This file now holds a secret, and every other file in /etc/nginx is 0644.
-# Left at the default it would be readable by every local account on the box —
-# including whatever runs the neighbouring applications, which is precisely the
-# party the secret exists to tell apart from nginx. nginx parses its config as
-# root before dropping to www-data, so it never needs the read bit for others.
-sudo chown root:root /etc/nginx/snippets/lexloom-proxy.conf
-sudo chmod 640       /etc/nginx/snippets/lexloom-proxy.conf
+printf 's|REPLACE_ME_WITH_TRUSTED_PROXY_SECRET|%s|\n' "$SECRET" |
+  sudo sed -i -f - /etc/nginx/snippets/lexloom-proxy.conf
+unset SECRET
+sudo grep -c REPLACE_ME /etc/nginx/snippets/lexloom-proxy.conf   # must print 0
 
 sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/lexloom.conf /etc/nginx/sites-available/lexloom
 sudo ln -s /etc/nginx/sites-available/lexloom /etc/nginx/sites-enabled/lexloom

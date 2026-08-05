@@ -14,9 +14,7 @@ class Base(DeclarativeBase):
 class Organization(Base):
     __tablename__ = "organizations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     external_id: Mapped[str] = mapped_column(String(255), unique=True)
     name: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -36,9 +34,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     title: Mapped[str] = mapped_column(
         String(255), nullable=False, server_default="New conversation"
@@ -51,9 +47,7 @@ class Message(Base):
 
     __tablename__ = "messages"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -81,13 +75,17 @@ class DocumentChunk(Base):
 
     __tablename__ = "document_chunks"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     content: Mapped[str] = mapped_column(Text(), nullable=False)
-    page_from: Mapped[int] = mapped_column(Integer(), nullable=False)
-    page_to: Mapped[int] = mapped_column(Integer(), nullable=False)
+    # Nullable from migration 0009: a source whose format has no pages — the
+    # `.docx` built from a web publication — carries `locator` instead. Keeping
+    # this in step with the migration is not tidiness: `alembic/env.py` points
+    # `target_metadata` at this metadata, so a model that still says
+    # `nullable=False` after 0009 makes the next `--autogenerate` emit a
+    # migration that reverts it.
+    page_from: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    page_to: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     # Stable chunk identity the M2.4 gold set keys on, added by migration
     # 0006. Nullable for the reason that migration documents: existing rows
@@ -97,3 +95,9 @@ class DocumentChunk(Base):
     # position within that source's parse.
     source_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chunk_ordinal: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    # Where the chunk sits, in words a reader can look up — the heading path for
+    # a `.docx`. `NULL` for a paginated source, which says it with page numbers,
+    # and for every row written before migration 0009. That NULL is the
+    # permanent right answer for those rows rather than an unfilled value, which
+    # is why 0009 does not backfill.
+    locator: Mapped[str | None] = mapped_column(Text(), nullable=True)

@@ -149,16 +149,12 @@ _ALREADY_INGESTED_SQL = text(
 
 # Migration 0008. Takes no organisation: it reads `app.current_org_id` itself,
 # so it cannot be pointed at a tenant the caller is not already inside.
-_RESERVE_SLOT_SQL = text(
-    "SELECT public.reserve_ingest_slot(:cap, :reservation_ttl, :org_ttl)"
-)
+_RESERVE_SLOT_SQL = text("SELECT public.reserve_ingest_slot(:cap, :reservation_ttl, :org_ttl)")
 
 # Cleared in the same transaction as the INSERT, which is what keeps
 # "organisations holding a corpus" and "organisations holding a reservation"
 # disjoint — see migration 0008 on why that matters for the count.
-_RELEASE_SLOT_SQL = text(
-    "UPDATE organizations SET ingest_reserved_at = NULL WHERE id = :org"
-)
+_RELEASE_SLOT_SQL = text("UPDATE organizations SET ingest_reserved_at = NULL WHERE id = :org")
 
 # How long an admitted-but-unfinished ingest keeps its slot. It has to exceed
 # the worst case a queued job can actually take: `INGEST_ORG_CAP` jobs ahead of
@@ -210,8 +206,9 @@ _INGEST_ORG_TTL_SECONDS = 7200
 # that have no reason to change together.
 _INSERT_CHUNK = text(
     "INSERT INTO document_chunks "
-    "(id, org_id, content, page_from, page_to, source_key, chunk_ordinal, embedding) "
-    "VALUES (:id, :org_id, :content, :page_from, :page_to, :source_key, :chunk_ordinal, :embedding)"
+    "(id, org_id, content, page_from, page_to, locator, source_key, chunk_ordinal, embedding) "
+    "VALUES (:id, :org_id, :content, :page_from, :page_to, :locator, :source_key, "
+    ":chunk_ordinal, :embedding)"
 ).bindparams(bindparam("embedding", type_=Vector(DIMENSIONS)))
 
 
@@ -533,6 +530,11 @@ async def run_ingest(org_id: str, source_key: str) -> int:
                     "content": chunk.content,
                     "page_from": chunk.page_from,
                     "page_to": chunk.page_to,
+                    # One of the two is always set and the other always NULL:
+                    # a paginated source says where a chunk is with pages, a
+                    # `.docx` says it with its heading path. `parse_source`
+                    # decides which by dispatching on `source.media_type`.
+                    "locator": chunk.locator,
                     "source_key": source_key,
                     "chunk_ordinal": chunk.chunk_ordinal,
                     "embedding": vector,

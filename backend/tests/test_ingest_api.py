@@ -265,6 +265,7 @@ async def test_a_route_that_is_not_excluded_is_still_counted(
     snapshot = fresh.snapshot()
     assert snapshot.requests.total == 1
 
+
 # --- What a failed ingest tells the visitor ----------------------------------
 #
 # The exception to this module's "never the real task" rule, and it is the
@@ -283,6 +284,7 @@ async def test_a_route_that_is_not_excluded_is_still_counted(
 
 _LEAKY_CONTENT = "Article 28 obligations of the processor, verbatim from the document"
 
+
 class _ThreeFloatModel:
     """Not `DIMENSIONS` wide, which is the whole idea — the INSERT then fails
     inside the write transaction with a real, statement-bearing database
@@ -294,6 +296,7 @@ class _ThreeFloatModel:
                 return list(self)
 
         return [_Row([0.1, 0.2, 0.3]) for _ in texts]
+
 
 @pytest.fixture
 def failing_ingest(monkeypatch: pytest.MonkeyPatch):
@@ -308,6 +311,7 @@ def failing_ingest(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr("app.ingest.parse.parse_source", _fake_parse)
     monkeypatch.setattr(embedding_module, "_model", _ThreeFloatModel())
+
 
 async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
     client: AsyncClient,
@@ -360,3 +364,38 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
     # A code, not a paragraph: the value also goes into a 48 MB allkeys-lru
     # Redis, where multi-kilobyte writes evict the rate-limit counters.
     assert len(body[SOURCE_KEY]["error"]) < 64
+
+
+# --- The catalogue route ------------------------------------------------------
+
+
+async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
+    client: AsyncClient,
+) -> None:
+    """Three fields, and the ones deliberately absent.
+
+    `Source` also carries `path` (an absolute path inside the image), `sha256`,
+    `document_xml_sha256` and `conversion` (which names the build tool and its
+    exact version). A response model that mirrored the dataclass would have
+    published all four; `CatalogueEntry` is what stops it, so the absence is
+    asserted rather than trusted.
+    """
+    response = await client.get("/api/v1/catalogue")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert [entry["key"] for entry in body] == list(CATALOGUE)
+    for entry in body:
+        assert set(entry) == {"key", "title", "media_type"}
+
+    serialised = response.text
+    for leaked in ("/app/", "sha256", "LibreOffice", "build_docx_source"):
+        assert leaked not in serialised
+
+
+async def test_the_catalogue_needs_no_token(client: AsyncClient) -> None:
+    """Unauthenticated on purpose — see the route's docstring and its entry in
+    `EXPECTED_ROUTES`. Asserted because "public" is a security decision, and a
+    decision nothing checks is a decision that can be reversed by accident."""
+    response = await client.get("/api/v1/catalogue")
+    assert response.status_code == 200

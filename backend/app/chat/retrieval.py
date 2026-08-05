@@ -163,12 +163,29 @@ _MAX_QUERY_CHARS = 200
 # migration 0006 adds no unique index over `(org_id, source_key, chunk_ordinal)`,
 # and no test asserts distinctness. What holds it is that only two writers ever
 # set the pair — `app.chat.corpus` for the seed excerpts, `app.ingest.jobs` for a
-# catalogue document — and that `app/ingest/jobs.py:94` refuses a second ingest
-# for an organisation that already holds one. Measured on the eval organisation:
-# 1008 rows, 0 NULL pairs, 1008 distinct pairs. If a second ingest per
-# organisation is ever allowed, or one document is ingested twice, this stops
-# being a total order and the drift above returns — silently, because the query
-# still returns rows.
+# catalogue document — and that the ingest path refuses a second ingest of the
+# same document. Measured on the eval organisation: 1008 rows, 0 NULL pairs,
+# 1008 distinct pairs.
+#
+# An earlier version of this paragraph said the guard was "a second ingest for
+# an organisation that already holds one", and warned that allowing a second
+# ingest per organisation would break the total order. A tenant may now hold
+# every document in the catalogue, and the order survives — because
+# `chunk_ordinal` is only ever unique *within a document*, and `source_key`
+# precedes it in the sort. The invariant that actually matters was never "one
+# document per tenant"; it is "one ingest per (tenant, document)", which is what
+# `app/ingest/jobs.py`'s guard now enforces on both the admission path and
+# inside the write transaction. Ingest the same document twice and this stops
+# being a total order — silently, because the query still returns rows.
+#
+# **What a second document does change is a bias, not the ordering.** Ties are
+# broken by `source_key` ascending, so where two chunks score identically the
+# alphabetically earlier document wins — `gdpr-full` before `nist-sp-800-63b`.
+# On a corpus where 288 of 570 adjacent pairs already tie (measured above), that
+# is a systematic preference for whichever document sorts first, and it is a
+# known limitation rather than a decision: removing it means changing this
+# ORDER BY, and permuting only tied groups was measured to move MRR@10 by up to
+# 0.040, which would move the frozen floors in `app/evals/floors.json`.
 #
 # **A flag for whoever adds the ANN index the design spec plans.** These extra
 # sort keys are not free once `embedding` carries an HNSW or IVFFlat index: the

@@ -82,7 +82,7 @@
           "auth"
         ],
         "summary": "Demo Login",
-        "description": "Mint a throwaway organisation for this visitor.\n\nShared demo orgs would put one visitor's upload in front of the next, and a\nproject whose headline claim is per-org isolation cannot seat every visitor\nin the same tenant. An ephemeral org makes the demo demonstrate the thesis:\ntwo browsers, two orgs, mutually invisible data.\n\n`expires_in` describes the token, so it is the same constant the token was\nminted with — not a second literal that agrees with `mint()`'s default by\ncoincidence and stops agreeing the moment either is tuned.",
+        "description": "Mint a throwaway organisation for this visitor.\n\nShared demo orgs would put one visitor's upload in front of the next, and a\nproject whose headline claim is per-org isolation cannot seat every visitor\nin the same tenant. An ephemeral org makes the demo demonstrate the thesis:\ntwo browsers, two orgs, mutually invisible data.\n\n`expires_in` describes the token, so it is the same constant the token was\nminted with \u2014 not a second literal that agrees with `mint()`'s default by\ncoincidence and stops agreeing the moment either is tuned.",
         "operationId": "demo_login_api_v1_auth_demo_login_post",
         "requestBody": {
           "content": {
@@ -165,7 +165,7 @@
           "chat"
         ],
         "summary": "Create Message",
-        "description": "Accept the question and return immediately.\n\nGeneration happens on the stream endpoint, not here. Answering 202 rather\nthan holding the request open is what lets the client open the stream on\nits own terms — and it keeps this handler off the critical path of a slow\nprovider.",
+        "description": "Accept the question and return immediately.\n\nGeneration happens on the stream endpoint, not here. Answering 202 rather\nthan holding the request open is what lets the client open the stream on\nits own terms \u2014 and it keeps this handler off the critical path of a slow\nprovider.",
         "operationId": "create_message_api_v1_conversations__conversation_id__messages_post",
         "parameters": [
           {
@@ -219,7 +219,7 @@
           "chat"
         ],
         "summary": "Create Stream Ticket",
-        "description": "Mint the credential an EventSource can carry in its URL.\n\nThe message id is not checked for existence here. A ticket is only ever\nhonoured by the stream endpoint, which looks the message up in the ticket\nholder's own tenant context — so a ticket for someone else's message id, or\nfor none at all, buys a 404 and nothing more. Checking here would add an\nexistence oracle in exchange for nothing.",
+        "description": "Mint the credential an EventSource can carry in its URL.\n\nThe message id is not checked for existence here. A ticket is only ever\nhonoured by the stream endpoint, which looks the message up in the ticket\nholder's own tenant context \u2014 so a ticket for someone else's message id, or\nfor none at all, buys a 404 and nothing more. Checking here would add an\nexistence oracle in exchange for nothing.",
         "operationId": "create_stream_ticket_api_v1_auth_stream_tickets_post",
         "requestBody": {
           "content": {
@@ -357,13 +357,39 @@
         }
       }
     },
+    "/api/v1/catalogue": {
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Get Catalogue",
+        "description": "The documents this deployment can ingest.\n\nThis route did not exist while the catalogue held one document, and the\nmodule docstring above used to argue against adding one: a route built for\na single caller and a single value is the same mistake as a `job_id` nobody\nreads. With a second source the panel has to render a list it cannot know in\nadvance, and hard-coding the pair in the frontend would put the catalogue in\ntwo places that drift.\n\nUnauthenticated, for the reason `GET /api/v1/generators` gives for itself:\nit takes no token, sees no organisation and reads no org-scoped table, so it\ncarries none of the residual-purge argument migration 0004 makes for a\ncredential. What it exposes is what a `/docs` reader already sees in the\nschema \u2014 which documents exist \u2014 and not one field about where they live on\ndisk or how they were built.\n\nOrdered as `CATALOGUE` is ordered, which is insertion order and therefore\nstable across runs: the panel renders the list as it arrives, and a set-like\niteration would reshuffle the visitor's rows between polls.",
+        "operationId": "get_catalogue_api_v1_catalogue_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CatalogueEntry"
+                  },
+                  "type": "array",
+                  "title": "Response Get Catalogue Api V1 Catalogue Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ingest": {
       "post": {
         "tags": [
           "ingest"
         ],
         "summary": "Start Ingest",
-        "description": "Admit, queue and dispatch — in that order, and none of it skipped on\na race. `ensure_ingest_admitted` raises `ProblemError` for both ceilings\n(409 already_ingested, 503 capacity_unavailable with Retry-After); a\ncatalogue miss is checked first, cheaply, before either touches\nPostgres.",
+        "description": "Admit, queue and dispatch \u2014 in that order, and none of it skipped on\na race. `ensure_ingest_admitted` raises `ProblemError` for both ceilings\n(409 already_ingested, 503 capacity_unavailable with Retry-After); a\ncatalogue miss is checked first, cheaply, before either touches\nPostgres.",
         "operationId": "start_ingest_api_v1_ingest_post",
         "requestBody": {
           "content": {
@@ -405,6 +431,7 @@
           "ingest"
         ],
         "summary": "Get Ingest Status",
+        "description": "Every catalogue source's status for this organisation, keyed by source.\n\nA map rather than one status, and rather than a `?source_key=` parameter,\nbecause the panel polls this twice a second while anything is in flight: one\nrequest describing the whole catalogue costs what one source used to, where\na parameterised route would cost one request per document. The exclusion in\n`app/observability.py`'s `_NOT_MEASURED` was granted on that poll rate and\nstill holds for the same reason.\n\nEvery key in the catalogue appears, whether or not this tenant has touched\nit \u2014 a source the tenant has never ingested reports `idle`. A caller that\nhad to distinguish \"absent from the map\" from \"not started\" would be\ndeciding something the server already knows.",
         "operationId": "get_ingest_status_api_v1_ingest_status_get",
         "responses": {
           "200": {
@@ -412,7 +439,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IngestStatusResponse"
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/IngestStatusResponse"
+                  },
+                  "type": "object",
+                  "title": "Response Get Ingest Status Api V1 Ingest Status Get"
                 }
               }
             }
@@ -444,6 +475,30 @@
   },
   "components": {
     "schemas": {
+      "CatalogueEntry": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "media_type"
+        ],
+        "title": "CatalogueEntry",
+        "description": "What a caller may know about a source: three fields, and no more.\n\n`Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,\n`document_xml_sha256` and `conversion`. None of them leave the server.\n`path` is an absolute path inside the image, and `conversion` names the\nbuild tool and its exact version \u2014 neither is any of a visitor's business,\nand a response model that listed the dataclass's fields by default would\nhave shipped both. The model is the boundary, not a convenience."
+      },
       "CreateConversationRequest": {
         "properties": {
           "title": {
@@ -690,7 +745,7 @@
           "modes"
         ],
         "title": "EvalsProvenance",
-        "description": "What the numbers are about — the fields the CI freshness check compares.\n\n`goldset_sha256` and `corpus_fingerprint` are hashes of the questions and of\nthe parsed corpus, so a build whose gold set or catalogue has moved on cannot\nquietly keep publishing the old measurement under a fresh-looking date."
+        "description": "What the numbers are about \u2014 the fields the CI freshness check compares.\n\n`goldset_sha256` and `corpus_fingerprint` are hashes of the questions and of\nthe parsed corpus, so a build whose gold set or catalogue has moved on cannot\nquietly keep publishing the old measurement under a fresh-looking date."
       },
       "EvalsQuestions": {
         "properties": {
@@ -768,7 +823,7 @@
           "gemini-3.6-flash"
         ],
         "title": "GeneratorChoice",
-        "description": "Which `LLMProvider` a request asked for.\n\nRead on the `POST /messages` request body and stored on the row (migration\n0005's `generator` column); `stream_message` reads it back and hands it to\n`build_provider`. The value that comes back out is also what the\n`message_start` SSE frame carries as `model` — see `app.chat.stream`.\n\nThe two Gemini members carry the model id as their value rather than a\nshort label like the old `GEMINI` member did: `build_provider` below reads\nthe model straight off `choice.value`, so there is exactly one place that\nknows the mapping from a visitor's choice to a Gemini model name, and it\nis this enum. A short label plus a separate lookup table would be two\nthings that have to agree with each other and nothing enforcing it."
+        "description": "Which `LLMProvider` a request asked for.\n\nRead on the `POST /messages` request body and stored on the row (migration\n0005's `generator` column); `stream_message` reads it back and hands it to\n`build_provider`. The value that comes back out is also what the\n`message_start` SSE frame carries as `model` \u2014 see `app.chat.stream`.\n\nThe two Gemini members carry the model id as their value rather than a\nshort label like the old `GEMINI` member did: `build_provider` below reads\nthe model straight off `choice.value`, so there is exactly one place that\nknows the mapping from a visitor's choice to a Gemini model name, and it\nis this enum. A short label plus a separate lookup table would be two\nthings that have to agree with each other and nothing enforcing it."
       },
       "GeneratorOption": {
         "properties": {
@@ -844,7 +899,7 @@
           "error"
         ],
         "title": "IngestStage",
-        "description": "The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two\nit does not: `idle` (nothing ever queued for this organisation) and\n`error` (the job raised — see `app.worker.tasks.ingest_source`)."
+        "description": "The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two\nit does not: `idle` (nothing ever queued for this organisation *and this\nsource* \u2014 the pair, since a tenant may hold several documents) and `error`\n(the job raised \u2014 see `app.worker.tasks.ingest_source`)."
       },
       "IngestStatusResponse": {
         "properties": {
@@ -868,7 +923,8 @@
                 "type": "null"
               }
             ],
-            "title": "Error"
+            "title": "Error",
+            "description": "A stable code, never a message and never an exception's text: `ingest_failed`, `ingest_timeout`, `ingest_abandoned` or `already_ingested` (app/worker/tasks.py). Null unless `stage` is `error`. Whatever went wrong is in the worker's log, correlated by organisation \u2014 a database failure's own string carries the failing statement, its bound parameters and the document text with it, and this field is returned to the visitor verbatim."
           },
           "started_at": {
             "anyOf": [
@@ -946,7 +1002,7 @@
           "e"
         ],
         "title": "JwksKey",
-        "description": "One RSA public key, in the six members RFC 7517 needs to verify with.\n\nNamed rather than left as `dict[str, str]` so the *absence* of the private\nmembers is visible in the schema. `d`, `p` and `q` are not here, and a\nresponse model drops anything not declared — so if a future key source ever\nhanded them over, this endpoint would not pass them on."
+        "description": "One RSA public key, in the six members RFC 7517 needs to verify with.\n\nNamed rather than left as `dict[str, str]` so the *absence* of the private\nmembers is visible in the schema. `d`, `p` and `q` are not here, and a\nresponse model drops anything not declared \u2014 so if a future key source ever\nhanded them over, this endpoint would not pass them on."
       },
       "Percentiles": {
         "properties": {
@@ -1036,7 +1092,7 @@
           "hybrid"
         ],
         "title": "SearchMode",
-        "description": "Which retrieval path a question takes.\n\nThe values are the ones stored in `messages.search_mode` (migration 0005, a\n`varchar(16)`) and the ones the frontend puts in the URL, so the enum, the\ncolumn and the query string all spell a mode the same way. `StrEnum` because\nthe value crosses a text column and a JSON body and has to survive both\nwithout a conversion table.\n\nDeliberately not carrying a default anywhere. `search_chunks` takes `mode`\nkeyword-only and without a default, so a call site that forgot to read the\nstored choice is a type error rather than a search that quietly runs in\n`FTS` — which is the inert-toggle failure this milestone exists to remove.\n\n`HYBRID` is task 21's member; it arrives with the RRF branch that gives it\nmeaning, because an enum member no code path implements is a mode a visitor\ncan select and never receive."
+        "description": "Which retrieval path a question takes.\n\nThe values are the ones stored in `messages.search_mode` (migration 0005, a\n`varchar(16)`) and the ones the frontend puts in the URL, so the enum, the\ncolumn and the query string all spell a mode the same way. `StrEnum` because\nthe value crosses a text column and a JSON body and has to survive both\nwithout a conversion table.\n\nDeliberately not carrying a default anywhere. `search_chunks` takes `mode`\nkeyword-only and without a default, so a call site that forgot to read the\nstored choice is a type error rather than a search that quietly runs in\n`FTS` \u2014 which is the inert-toggle failure this milestone exists to remove.\n\n`HYBRID` is task 21's member; it arrives with the RRF branch that gives it\nmeaning, because an enum member no code path implements is a mode a visitor\ncan select and never receive."
       },
       "ServiceStatus": {
         "properties": {

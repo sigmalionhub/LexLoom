@@ -9,7 +9,14 @@
  * deliberately by running this script against a live stack, and the refresh
  * shows up in a diff where it can be reviewed.
  *
- * Usage: docker compose up -d api && npm run snapshot:openapi && npm run gen:types
+ * Usage: docker compose up -d --build api && npm run snapshot:openapi && npm run gen:types
+ *
+ * `--build` is not decoration. This fetches from a RUNNING container, so a
+ * refresh against a stale image writes a snapshot of the old code over the new
+ * one, and `gen:types` then produces types that agree with the frontend while
+ * both disagree with the server. `backend/tests/test_openapi_snapshot.py` is
+ * what catches that; it exists because the mistake was made rather than
+ * imagined.
  */
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

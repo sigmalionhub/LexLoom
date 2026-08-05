@@ -212,6 +212,44 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/catalogue': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get Catalogue
+     * @description The documents this deployment can ingest.
+     *
+     *     This route did not exist while the catalogue held one document, and the
+     *     module docstring above used to argue against adding one: a route built for
+     *     a single caller and a single value is the same mistake as a `job_id` nobody
+     *     reads. With a second source the panel has to render a list it cannot know in
+     *     advance, and hard-coding the pair in the frontend would put the catalogue in
+     *     two places that drift.
+     *
+     *     Unauthenticated, for the reason `GET /api/v1/generators` gives for itself:
+     *     it takes no token, sees no organisation and reads no org-scoped table, so it
+     *     carries none of the residual-purge argument migration 0004 makes for a
+     *     credential. What it exposes is what a `/docs` reader already sees in the
+     *     schema — which documents exist — and not one field about where they live on
+     *     disk or how they were built.
+     *
+     *     Ordered as `CATALOGUE` is ordered, which is insertion order and therefore
+     *     stable across runs: the panel renders the list as it arrives, and a set-like
+     *     iteration would reshuffle the visitor's rows between polls.
+     */
+    get: operations['get_catalogue_api_v1_catalogue_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/ingest': {
     parameters: {
       query?: never;
@@ -243,7 +281,22 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get Ingest Status */
+    /**
+     * Get Ingest Status
+     * @description Every catalogue source's status for this organisation, keyed by source.
+     *
+     *     A map rather than one status, and rather than a `?source_key=` parameter,
+     *     because the panel polls this twice a second while anything is in flight: one
+     *     request describing the whole catalogue costs what one source used to, where
+     *     a parameterised route would cost one request per document. The exclusion in
+     *     `app/observability.py`'s `_NOT_MEASURED` was granted on that poll rate and
+     *     still holds for the same reason.
+     *
+     *     Every key in the catalogue appears, whether or not this tenant has touched
+     *     it — a source the tenant has never ingested reports `idle`. A caller that
+     *     had to distinguish "absent from the map" from "not started" would be
+     *     deciding something the server already knows.
+     */
     get: operations['get_ingest_status_api_v1_ingest_status_get'];
     put?: never;
     post?: never;
@@ -274,6 +327,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /**
+     * CatalogueEntry
+     * @description What a caller may know about a source: three fields, and no more.
+     *
+     *     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
+     *     `document_xml_sha256` and `conversion`. None of them leave the server.
+     *     `path` is an absolute path inside the image, and `conversion` names the
+     *     build tool and its exact version — neither is any of a visitor's business,
+     *     and a response model that listed the dataclass's fields by default would
+     *     have shipped both. The model is the boundary, not a convenience.
+     */
+    CatalogueEntry: {
+      /** Key */
+      key: string;
+      /** Title */
+      title: string;
+      /** Media Type */
+      media_type: string;
+    };
     /** CreateConversationRequest */
     CreateConversationRequest: {
       /** Title */
@@ -464,8 +536,9 @@ export interface components {
     /**
      * IngestStage
      * @description The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two
-     *     it does not: `idle` (nothing ever queued for this organisation) and
-     *     `error` (the job raised — see `app.worker.tasks.ingest_source`).
+     *     it does not: `idle` (nothing ever queued for this organisation *and this
+     *     source* — the pair, since a tenant may hold several documents) and `error`
+     *     (the job raised — see `app.worker.tasks.ingest_source`).
      * @enum {string}
      */
     IngestStage:
@@ -486,9 +559,7 @@ export interface components {
       chunks_total: number;
       /**
        * Error
-       * @description A stable code, never a message and never an exception's text:
-       *     `ingest_failed`, `ingest_timeout`, `ingest_abandoned` or `already_ingested`
-       *     (app/worker/tasks.py). Null unless `stage` is `error`.
+       * @description A stable code, never a message and never an exception's text: `ingest_failed`, `ingest_timeout`, `ingest_abandoned` or `already_ingested` (app/worker/tasks.py). Null unless `stage` is `error`. Whatever went wrong is in the worker's log, correlated by organisation — a database failure's own string carries the failing statement, its bound parameters and the document text with it, and this field is returned to the visitor verbatim.
        */
       error: string | null;
       /**
@@ -893,6 +964,26 @@ export interface operations {
       };
     };
   };
+  get_catalogue_api_v1_catalogue_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CatalogueEntry'][];
+        };
+      };
+    };
+  };
   start_ingest_api_v1_ingest_post: {
     parameters: {
       query?: never;
@@ -941,7 +1032,9 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['IngestStatusResponse'];
+          'application/json': {
+            [key: string]: components['schemas']['IngestStatusResponse'];
+          };
         };
       };
     };

@@ -77,6 +77,22 @@ class IngestRequest(BaseModel):
     source_key: str = Field(min_length=1, max_length=100)
 
 
+class CatalogueEntry(BaseModel):
+    """What a caller may know about a source: three fields, and no more.
+
+    `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
+    `document_xml_sha256` and `conversion`. None of them leave the server.
+    `path` is an absolute path inside the image, and `conversion` names the
+    build tool and its exact version — neither is any of a visitor's business,
+    and a response model that listed the dataclass's fields by default would
+    have shipped both. The model is the boundary, not a convenience.
+    """
+
+    key: str
+    title: str
+    media_type: str
+
+
 class IngestStatusResponse(BaseModel):
     stage: IngestStage
     chunks_done: int
@@ -104,6 +120,34 @@ def _source_not_found() -> ProblemError:
         title="Source not found",
         detail="No such source in the catalogue.",
     )
+
+
+@router.get("/catalogue")
+async def get_catalogue() -> list[CatalogueEntry]:
+    """The documents this deployment can ingest.
+
+    This route did not exist while the catalogue held one document, and the
+    module docstring above used to argue against adding one: a route built for
+    a single caller and a single value is the same mistake as a `job_id` nobody
+    reads. With a second source the panel has to render a list it cannot know in
+    advance, and hard-coding the pair in the frontend would put the catalogue in
+    two places that drift.
+
+    Unauthenticated, for the reason `GET /api/v1/generators` gives for itself:
+    it takes no token, sees no organisation and reads no org-scoped table, so it
+    carries none of the residual-purge argument migration 0004 makes for a
+    credential. What it exposes is what a `/docs` reader already sees in the
+    schema — which documents exist — and not one field about where they live on
+    disk or how they were built.
+
+    Ordered as `CATALOGUE` is ordered, which is insertion order and therefore
+    stable across runs: the panel renders the list as it arrives, and a set-like
+    iteration would reshuffle the visitor's rows between polls.
+    """
+    return [
+        CatalogueEntry(key=source.key, title=source.title, media_type=source.media_type)
+        for source in CATALOGUE.values()
+    ]
 
 
 @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)

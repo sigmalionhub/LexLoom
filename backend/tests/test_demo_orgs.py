@@ -438,6 +438,7 @@ async def _wait_until_the_purge_blocks_on_a_lock(observer) -> None:
         "reaching the DELETE, or it is no longer taking the organisations row lock first"
     )
 
+
 async def _seed_org(created_orgs: list[str], *, expires_at: datetime | None) -> str:
     """Create one organisation owning one row in every org-scoped table.
 
@@ -482,19 +483,13 @@ async def _seed_org(created_orgs: list[str], *, expires_at: datetime | None) -> 
 async def test_two_demo_logins_get_different_organisations(
     client: AsyncClient, created_orgs: list[str]
 ) -> None:
-    first = (
-        await client.post("/api/v1/auth/demo-login", json={"label": "Acme Legal"})
-    ).json()
-    second = (
-        await client.post("/api/v1/auth/demo-login", json={"label": "Acme Legal"})
-    ).json()
+    first = (await client.post("/api/v1/auth/demo-login", json={"label": "Acme Legal"})).json()
+    second = (await client.post("/api/v1/auth/demo-login", json={"label": "Acme Legal"})).json()
     created_orgs.extend([first["org_id"], second["org_id"]])
     assert first["org_id"] != second["org_id"]
 
 
-async def test_demo_org_carries_an_expiry(
-    client: AsyncClient, created_orgs: list[str]
-) -> None:
+async def test_demo_org_carries_an_expiry(client: AsyncClient, created_orgs: list[str]) -> None:
     """Read through the new organisation's own tenant_session, not an unscoped one.
 
     organizations' SELECT policy is `id = current_setting('app.current_org_id')`,
@@ -567,6 +562,7 @@ async def test_demo_login_rejects_a_label_with_nothing_visible_in_it(
             # have created. Found the hard way while sabotage-testing this.
             created_orgs.append(response.json()["org_id"])
         assert response.status_code == 422, f"{label!r} was accepted"
+
 
 def test_every_rejected_category_and_codepoint_is_load_bearing() -> None:
     """No decorative entries in the validator's two sets.
@@ -722,6 +718,7 @@ async def test_the_purge_never_touches_rows_it_did_not_just_destroy(
             == 0
         )
 
+
 async def test_a_row_committed_while_the_purge_waits_is_still_collected(
     worker_role, created_orgs: list[str]
 ) -> None:
@@ -798,6 +795,7 @@ async def test_a_row_committed_while_the_purge_waits_is_still_collected(
         "a row committed while the purge was blocked outlived its organisation; nothing in "
         "the system can reach it again"
     )
+
 
 async def test_an_expired_organisation_stays_invisible_to_other_tenants(
     created_orgs: list[str],
@@ -1028,6 +1026,7 @@ async def test_the_purge_helper_is_not_executable_by_the_api_role() -> None:
         async with system_session() as session:
             await session.execute(text("SELECT public.purge_expired_orgs()"))
 
+
 def _deadlock_error(sqlstate: str) -> DBAPIError:
     """A DBAPIError shaped the way SQLAlchemy actually delivers a Postgres error.
 
@@ -1042,12 +1041,14 @@ def _deadlock_error(sqlstate: str) -> DBAPIError:
 
     return DBAPIError("SELECT public.purge_expired_orgs()", {}, _Orig())
 
+
 def test_only_a_deadlock_counts_as_a_deadlock() -> None:
     """Retrying on `DBAPIError` itself would silently retry a permission denial
     or a syntax error three times before reporting it."""
     assert is_deadlock(_deadlock_error("40P01"))
     assert not is_deadlock(_deadlock_error("42501"))  # permission denied
     assert not is_deadlock(RuntimeError("something else entirely"))
+
 
 async def test_the_purge_task_retries_a_deadlock_and_propagates_anything_else(
     monkeypatch: pytest.MonkeyPatch,
@@ -1095,6 +1096,7 @@ async def test_the_purge_task_retries_a_deadlock_and_propagates_anything_else(
     assert len(recorded) == 1, "a non-deadlock failure was retried instead of raised"
     assert result.state == "FAILURE", "a non-deadlock failure did not surface as a failure"
 
+
 def test_the_worker_dsn_is_derived_rather_than_string_replaced() -> None:
     """The worker DSN must follow a customised application password.
 
@@ -1115,6 +1117,7 @@ def test_the_worker_dsn_is_derived_rather_than_string_replaced() -> None:
     assert derived.username == "lexloom_worker"
     assert derived.password == worker_password
     assert (derived.host, derived.port, derived.database) == ("db.internal", 6000, "lexloom")
+
 
 def test_the_demo_token_cannot_outlive_the_organisation_it_names() -> None:
     """The purge's residual window is closed by these two constants, nothing else.
@@ -1266,6 +1269,17 @@ EXPECTED_ROUTES = {
     # organisation exists after the purge either, since it names none. The
     # argument holds unchanged.
     ("/api/v1/generators", frozenset({"GET"})),
+    # Same derivation as `/generators` above, re-run rather than assumed by
+    # analogy. `GET /api/v1/catalogue` takes no token, so it mints no
+    # credential; it names no organisation, so it cannot widen the residual
+    # window 0004 leaves open; and it reads no org-scoped table — its whole
+    # response is built from a literal `dict` in `app/ingest/catalogue.py`, so
+    # it cannot report that an organisation exists after the purge either.
+    # The three fields it returns (`key`, `title`, `media_type`) are bounded by
+    # `CatalogueEntry` precisely so the dataclass's `path`, `sha256` and
+    # `conversion` cannot leak into a public response. The argument holds
+    # unchanged.
+    ("/api/v1/catalogue", frozenset({"GET"})),
     # The residual argument (0004:63-72) does NOT hold unchanged for these two,
     # and re-deriving it — not just re-reading it — is the point of this
     # comment. Split by half, because the two routes split it differently:

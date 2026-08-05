@@ -18,6 +18,19 @@
 const nextConfig = {
   output: 'export',
 
+  // A build and a running dev server must not share a build directory.
+  //
+  // They did, and it cost a debugging round: `npm run build` writes production
+  // output over the incremental artefacts `next dev` is holding open, and the
+  // dev server then answers every request with a bare `Internal Server Error`
+  // while `tsc`, `eslint` and the build itself all stay green — so nothing
+  // points at the cause. Verifying a build while someone has the page open is
+  // an ordinary thing to do here, and it should not break their tab.
+  //
+  // `scripts/serve.mjs` sets `NEXT_DIST_DIR=.next-dev` for the dev server it
+  // spawns; a build sets nothing and keeps `.next`. Both are git-ignored.
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
+
   // Note the two things that are deliberately absent.
   //
   // `rewrites()` would have been the obvious way to reach the API in

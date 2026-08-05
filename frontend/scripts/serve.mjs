@@ -53,7 +53,15 @@ const CONTENT_TYPES = {
 let child = null;
 if (!staticMode) {
   const bin = join(ROOT, 'node_modules', '.bin', 'next');
-  child = spawn(bin, ['dev', '-p', String(nextPort)], { stdio: 'inherit', cwd: ROOT });
+  // Its own build directory, so `npm run build` in another terminal cannot
+  // overwrite the artefacts this server is holding open. When it did, every
+  // request became a bare `Internal Server Error` with nothing else failing —
+  // see the note on `distDir` in `next.config.mjs`.
+  child = spawn(bin, ['dev', '-p', String(nextPort)], {
+    stdio: 'inherit',
+    cwd: ROOT,
+    env: { ...process.env, NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? '.next-dev' },
+  });
   child.on('exit', (code) => process.exit(code ?? 0));
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {

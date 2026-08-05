@@ -1,4 +1,5 @@
 import os
+import pathlib
 import uuid
 from urllib.parse import urlsplit, urlunsplit
 
@@ -485,3 +486,64 @@ async def _dispose_engine_between_tests():
     from app.db.engine import engine
 
     await engine.dispose()
+
+# Whether this session has already established that the template organisation
+# holds the catalogue corpus. Module state rather than a session-scoped fixture
+# on purpose: every test here gets its own event loop (see
+# `_dispose_engine_between_tests`), and a session-scoped async fixture would
+# hold a connection created on a loop that is gone by the second test.
+_catalogue_template_checked = False
+
+@pytest.fixture(autouse=True)
+async def _the_catalogue_template_exists():
+    """Provisioning copies the catalogue corpus, so the template must be there.
+
+    Since every demo tenant is born holding the whole GDPR, `provision_demo_org`
+    reads it out of the public organisation — and refuses to commit a tenant
+    without it. On a database where `scripts/seed_corpus.py` has never run, that
+    turns roughly forty tests that have nothing to do with ingestion into
+    failures inside demo-login.
+
+    So the suite loads it, once, if it is missing. In a subprocess and not in
+    process: the load parses and embeds 978 chunks, and doing that on a test's
+    own event loop would hand the engine's pool to a loop that is disposed at
+    the end of the test.
+    """
+    global _catalogue_template_checked
+    if not _catalogue_template_checked:
+        from sqlalchemy import text as _text
+
+        from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, SEED_SOURCE_KEY
+        from app.db.session import tenant_session
+
+        async with tenant_session(str(PUBLIC_CORPUS_ORG_ID)) as session:
+            held = await session.scalar(
+                _text(
+                    "SELECT count(*) FROM document_chunks "
+                    "WHERE org_id = :org AND source_key <> :seed"
+                ),
+                {"org": str(PUBLIC_CORPUS_ORG_ID), "seed": SEED_SOURCE_KEY},
+            )
+        if not held:
+            _load_catalogue_template()
+        _catalogue_template_checked = True
+    yield
+
+def _load_catalogue_template() -> None:
+    """Run the deployment's own seeder, so the suite cannot drift from it."""
+    import subprocess  # noqa: PLC0415 - only needed on a cold database
+    import sys  # noqa: PLC0415
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell, no input
+        [sys.executable, str(root / "scripts" / "seed_corpus.py")],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "could not load the catalogue template corpus that provisioning "
+            f"copies from:\n{result.stdout}\n{result.stderr}"
+        )

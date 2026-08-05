@@ -37,6 +37,7 @@ from sqlalchemy import text
 
 from app.auth.demo import provision_demo_org
 from app.db.session import tenant_session
+from app.ingest.preload import provisioned_corpus_size
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -170,8 +171,13 @@ async def test_a_real_beat_process_drives_a_real_worker_to_purge(created_orgs, b
         "organizations": 1,
         "conversations": 1,
         "messages": 1,
-        # provision_demo_org's own copy of the seed corpus.
-        "document_chunks": 30,
+        # provision_demo_org's own copy of the corpus: the seeded excerpts
+        # plus the catalogue document every tenant is given. Read from the
+        # source of that arithmetic rather than written out — the purge has to
+        # take the whole corpus with the organisation, and a literal here would
+        # have to be edited every time the corpus changes, which is exactly
+        # when this assertion matters most.
+        "document_chunks": provisioned_corpus_size(),
     }, f"seed did not produce the expected rows: {before}"
 
     deadline = time.monotonic() + POLL_TIMEOUT_SECONDS

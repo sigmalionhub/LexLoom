@@ -211,7 +211,7 @@ enforceable. Migrations run as the migration role, so both commands below carry 
 export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
 
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0011 (head)
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0012 (head)
 ```
 
 Without that DSN, `alembic current` fails with `permission denied for table
@@ -220,6 +220,36 @@ isolation design working rather than a misconfiguration.
 
 Check `alembic current`, not the exit code. A container built before a migration existed
 will report success and apply nothing.
+
+### Then load the template corpus, before anyone can sign in
+
+Every demo tenant is created holding the whole GDPR, copied out of a template
+organisation. This is what fills that organisation, and until it has run, **every
+sign-in fails** with `TemplateCorpusMissingError` — deliberately, because the
+alternative is a visitor whose tenant quietly holds nothing.
+
+```bash
+docker compose exec -T api python scripts/seed_corpus.py
+# Seeded 30 excerpt chunks into organisation 00000000-0000-0000-0000-000000000001.
+# Seeded 978 chunks of gdpr-full.
+```
+
+Two things about it. It is **idempotent** — each loader replaces its own rows, so
+re-running on every deployment leaves one copy, and the two loaders no longer care
+which order they run in. And it takes **minutes, not seconds**: it parses the PDF and
+runs 978 embeddings, on purpose, so that no visitor's sign-in ever pays for it.
+
+Re-run it whenever the corpus changes — a new catalogue document, a re-parsed source, a
+different embedding model. Nothing detects a stale template: the rows are a copy taken
+whenever this last ran, and tenants keep receiving the old one.
+
+**Capacity, changed by this.** `INGEST_ORG_CAP` (8) no longer bounds the GDPR — it only
+bounds the second document. Every live tenant now holds ~978 chunks for its full
+`DEMO_ORG_TTL` of 24 h, at roughly 2.4 KB a chunk, so ~2.4 MB per visitor per day
+(derived from a 384-dimensional float32 vector plus ~500 characters of text, not
+measured end to end). A hundred visitors in a day is ~240 MB of Postgres growth resident
+at the peak, on a box shared with other applications. The lever for that is the TTL, not
+the cap.
 
 ## Step 4 — build the frontend
 

@@ -27,6 +27,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from test_ingest_job import (  # noqa: PLC2701
+    PRELOADED_KEY,
     SOURCE_KEY,
     _add_fake_ingested_chunk,
     _make_org,
@@ -171,8 +172,14 @@ async def test_post_ingest_503s_with_retry_after_when_the_global_cap_is_held(
 async def test_get_ingest_status_reports_idle_before_any_ingest(
     client: AsyncClient, demo_auth: dict[str, str]
 ) -> None:
-    """A fresh demo org holds only the seed corpus — Task 22's SEED_SOURCE_KEY
-    — which `read_ingest_status`'s rows-fallback does not count.
+    """A fresh demo org has ingested nothing, and says so per source.
+
+    "Nothing ingested" is no longer "nothing held". Provisioning gives every
+    tenant the seeded excerpts *and* the whole of `gdpr-full`, so the map is
+    read one source at a time: the preloaded document reports `complete` off its
+    own rows, and the one nobody has asked for reports `idle`. A test that
+    asserted every entry was idle would have to be satisfied by a deployment
+    that never preloaded anything.
     """
     response = await client.get("/api/v1/ingest/status", headers=demo_auth)
 
@@ -180,6 +187,8 @@ async def test_get_ingest_status_reports_idle_before_any_ingest(
     body = response.json()
     # A map now, one entry per catalogue source; see the route's docstring.
     assert set(body) == set(CATALOGUE)
+    assert body[PRELOADED_KEY]["stage"] == "complete"
+    assert body[PRELOADED_KEY]["chunks_done"] == CATALOGUE[PRELOADED_KEY].expected_chunks
     assert body[SOURCE_KEY]["stage"] == "idle"
     assert body[SOURCE_KEY]["chunks_done"] == 0
     assert body[SOURCE_KEY]["chunks_total"] == 0
@@ -210,9 +219,10 @@ async def test_get_ingest_status_reflects_a_queued_post(
     body = response.json()
     assert body[SOURCE_KEY]["stage"] == "queued"
     assert isinstance(body[SOURCE_KEY]["started_at"], int)
-    # The other source is untouched and says so, rather than being absent.
-    other = next(k for k in CATALOGUE if k != SOURCE_KEY)
-    assert body[other]["stage"] == "idle"
+    # The other source is the preloaded one, and it reports what this tenant
+    # actually holds rather than being absent or being dragged along by this
+    # source's progress hash — the defect the per-source key exists to prevent.
+    assert body[PRELOADED_KEY]["stage"] == "complete"
 
 
 # --- Step 3: the metrics exception this task depends on, checked rather than

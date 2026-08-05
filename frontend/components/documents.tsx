@@ -100,15 +100,16 @@ export function Documents({
 
       {startError && <p className="mt-2 text-[0.8125rem] leading-snug text-alarm">{startError}</p>}
 
-      {/* The seed corpus, named for what it is and never counted as the
-          document. A fresh tenant holds 30 excerpts of the GDPR, not the
-          regulation; showing the GDPR card as "loaded" because of them would be
-          the exact substitution this page exists to refuse. The number is the
-          one the backend pins in four places, not a literal invented here. */}
+      {/* What "already loaded" actually means, said rather than implied.
+          The GDPR is not sitting in some shared table this tenant is allowed to
+          read — it was copied, row by row, into this tenant's own corpus when
+          the tenant was created, which is the claim the isolation block on the
+          right measures. Saying "preloaded" and leaving it there would let a
+          reader assume the cheap version. */}
       <p className="mt-2.5 text-[0.8125rem] leading-relaxed text-ink-soft">
-        Every tenant starts with 30 seeded GDPR excerpts — pages 33–83, definitions and breach
-        notification only. That is not the document: ingesting it is what puts the whole of it in
-        this tenant’s corpus.
+        The GDPR is copied into every new tenant at sign-in — its own rows, not a shared table, which
+        is what the isolation figures on the right are counting. The second document is not, so you
+        can watch one arrive.
       </p>
     </section>
   );

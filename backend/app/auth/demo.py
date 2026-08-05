@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.corpus import copy_corpus_into
 from app.db.session import system_session, tenant_session
@@ -74,7 +75,46 @@ async def provision_demo_org(label: str) -> DemoOrganisation:
             },
         )
         await copy_corpus_into(session, str(org_id))
+        await _copy_catalogue_corpus_into(session, str(org_id))
     return DemoOrganisation(id=str(org_id), external_id=external_id, name=label)
+
+
+class TemplateCorpusMissingError(RuntimeError):
+    """The public organisation holds no catalogue corpus to copy.
+
+    Raised rather than logged, and raised *inside* provisioning's transaction so
+    the organisation is never committed. A visitor whose tenant was created with
+    the seed and nothing else sees a page whose document list says the GDPR is
+    not ingested and whose ingest button answers 409 — a broken deployment
+    wearing the face of a working one, which is precisely the failure the copy
+    exists to make impossible.
+    """
+
+
+async def _copy_catalogue_corpus_into(session: AsyncSession, org_id: str) -> int:
+    """Give this tenant its own copy of the preloaded catalogue documents.
+
+    Inside Postgres, through migration 0012's `copy_catalogue_corpus_into`,
+    because an ordinary `INSERT ... SELECT` here reads nothing: the session is
+    scoped to the new tenant and the template organisation's rows do not exist
+    in that context under FORCE row-level security. That is not a hypothetical —
+    `app/chat/corpus.py` declined the same statement for the same reason, and
+    the failure mode is an empty corpus with nothing raised.
+
+    Reading them out of the database rather than out of a file is what keeps
+    this cheap: 978 vectors is ~1.5 MB and ~375,000 Python floats per demo
+    login, and this call sits inside the transaction of the request that has to
+    paint first. As a server-side statement it never crosses the wire.
+    """
+    written = await session.scalar(
+        text("SELECT copy_catalogue_corpus_into(:org_id)"), {"org_id": org_id}
+    )
+    if not written:
+        raise TemplateCorpusMissingError(
+            "the public corpus organisation holds no catalogue chunks; run "
+            "`python -m scripts.seed_corpus` before serving"
+        )
+    return int(written)
 
 
 async def purge_expired_orgs() -> int:

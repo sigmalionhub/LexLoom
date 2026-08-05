@@ -55,7 +55,16 @@ from app.ingest.jobs import (
 from app.ingest.parse import Chunk
 from app.worker.tasks import ingest_source
 
-SOURCE_KEY = "gdpr-full"
+# The document a tenant can actually ingest.
+#
+# It was `gdpr-full` until every tenant started being born holding that one.
+# Ingesting it now answers 409 `already_ingested` before anything else runs, and
+# — more quietly — migration 0012 stops counting it towards `INGEST_ORG_CAP`,
+# because provisioning hands it out. Every ceiling test below plants a corpus
+# under this key to mean "this tenant has ingested something", so a preloaded
+# key would make them all assert against a tenant the ceiling deliberately
+# ignores. `test_ingest_api.py` imports this name for the same reason.
+SOURCE_KEY = "nist-sp-800-63b"
 
 
 async def _count_orgs_with_corpus() -> int:
@@ -733,7 +742,13 @@ async def test_the_admission_function_is_still_executable_by_the_api_role() -> N
 
 # --- Per-source ingest: the pair (organisation, source), not the organisation -
 
-NIST_KEY = "nist-sp-800-63b"
+# The other half of the pair these tests need: a source a tenant may hold
+# *without* having ingested it. Since provisioning hands out `gdpr-full`,
+# that is the one, and it is also what a real tenant looks like — so
+# "already holds one document, ingests a second" is now the production
+# shape rather than a contrivance. `_make_org` creates a bare organisation
+# with no corpus at all, which is why these tests can still ingest it.
+PRELOADED_KEY = "gdpr-full"
 
 
 class _StubEmbedder:
@@ -774,9 +789,9 @@ async def test_a_second_source_ingests_end_to_end_for_a_tenant_that_already_has_
     the write transaction, in production, after a full parse and embed.
     """
     org_id = await _make_org(created_orgs)
-    await _add_fake_ingested_chunk(org_id, SOURCE_KEY)
+    await _add_fake_ingested_chunk(org_id, PRELOADED_KEY)
 
-    written = await run_ingest(org_id, NIST_KEY)
+    written = await run_ingest(org_id, SOURCE_KEY)
     assert written == 2
 
     async with tenant_session(org_id) as session:
@@ -790,22 +805,22 @@ async def test_a_second_source_ingests_end_to_end_for_a_tenant_that_already_has_
                 )
             ).all()
         )
-    assert by_source[SOURCE_KEY] == 1
-    assert by_source[NIST_KEY] == 2
+    assert by_source[PRELOADED_KEY] == 1
+    assert by_source[SOURCE_KEY] == 2
 
 
 async def test_the_same_source_twice_is_still_refused(created_orgs) -> None:
     """Loosening the invariant must not remove it: the per-source guard is what
     keeps a double POST from writing one document's chunks twice."""
     org_id = await _make_org(created_orgs)
-    await _add_fake_ingested_chunk(org_id, NIST_KEY)
+    await _add_fake_ingested_chunk(org_id, SOURCE_KEY)
 
     with pytest.raises(ProblemError) as refused:
-        await ensure_ingest_admitted(org_id, NIST_KEY)
+        await ensure_ingest_admitted(org_id, SOURCE_KEY)
     assert refused.value.code == "already_ingested"
 
     # ...and the other source is still admitted.
-    await ensure_ingest_admitted(org_id, SOURCE_KEY)
+    await ensure_ingest_admitted(org_id, PRELOADED_KEY)
 
 
 async def test_progress_for_one_source_does_not_overwrite_the_other(
@@ -816,11 +831,11 @@ async def test_progress_for_one_source_does_not_overwrite_the_other(
     `_write_progress` calls are half the ones that had to change."""
     org_id = await _make_org(created_orgs)
 
-    await mark_ingest_queued(org_id, SOURCE_KEY)
-    await run_ingest(org_id, NIST_KEY)
+    await mark_ingest_queued(org_id, PRELOADED_KEY)
+    await run_ingest(org_id, SOURCE_KEY)
 
-    assert (await read_ingest_status(org_id, NIST_KEY))["stage"] == "complete"
-    assert (await read_ingest_status(org_id, SOURCE_KEY))["stage"] == "queued"
+    assert (await read_ingest_status(org_id, SOURCE_KEY))["stage"] == "complete"
+    assert (await read_ingest_status(org_id, PRELOADED_KEY))["stage"] == "queued"
 
 
 async def test_two_tenants_ingesting_different_sources_stay_isolated(
@@ -836,8 +851,8 @@ async def test_two_tenants_ingesting_different_sources_stay_isolated(
     """
     first = await _make_org(created_orgs)
     second = await _make_org(created_orgs)
-    await run_ingest(first, SOURCE_KEY)
-    await run_ingest(second, NIST_KEY)
+    await run_ingest(first, PRELOADED_KEY)
+    await run_ingest(second, SOURCE_KEY)
 
     async with tenant_session(first) as session:
         rows = (
@@ -852,7 +867,7 @@ async def test_two_tenants_ingesting_different_sources_stay_isolated(
             .scalars()
             .all()
         )
-    assert set(rows) == {SOURCE_KEY}
+    assert set(rows) == {PRELOADED_KEY}
 
 
 async def test_an_unknown_source_key_never_reaches_redis(client, demo_auth) -> None:
@@ -882,14 +897,14 @@ async def test_an_ingest_the_organisation_will_not_outlive_is_refused(created_or
     Refusing spends nothing, and a fresh login gives a fresh organisation.
     """
     org_id = await _make_org(created_orgs, expires_at_sql="now() + interval '5 minutes'")
-    await _add_fake_ingested_chunk(org_id, SOURCE_KEY)
+    await _add_fake_ingested_chunk(org_id, PRELOADED_KEY)
 
     with pytest.raises(ProblemError) as refused:
-        await ensure_ingest_admitted(org_id, NIST_KEY)
+        await ensure_ingest_admitted(org_id, SOURCE_KEY)
     assert refused.value.code == "capacity_unavailable"
 
     # And a tenant with a full window is admitted, so the guard is a threshold
     # rather than a blanket refusal of anything that has ever ingested.
     roomy = await _make_org(created_orgs, expires_at_sql="now() + interval '2 hours'")
-    await _add_fake_ingested_chunk(roomy, SOURCE_KEY)
-    await ensure_ingest_admitted(roomy, NIST_KEY)
+    await _add_fake_ingested_chunk(roomy, PRELOADED_KEY)
+    await ensure_ingest_admitted(roomy, SOURCE_KEY)

@@ -90,16 +90,24 @@ def test_no_citations_still_produces_a_usable_prompt() -> None:
 
 
 async def test_the_stream_endpoint_hands_the_provider_a_grounded_prompt_not_the_raw_question(
-    client, demo_auth, monkeypatch
+    client, demo_auth, demo_org_id, monkeypatch
 ) -> None:
     """The whole point of Step 2's reorder, proven against the real endpoint
     rather than the pure function.
 
     Saboteur check: revert `conversations.py` to `prompt = message["content"]`
     and this goes red — the recorded prompt would be exactly the six-word
-    question, with none of the retrieved source text (`Article 33(1)`, present
-    in the seeded corpus and not in the question itself) and none of the three
+    question, with none of the retrieved source text and none of the three
     instruction clauses.
+
+    The retrieved text is not a literal any more. It used to assert
+    `Article 33(1)`, a phrase from the seeded excerpts' own typography — and
+    those excerpts stopped being the whole of a tenant's corpus when
+    provisioning started handing out the full regulation, whose chunks carry the
+    Official Journal's wording instead. Rather than swap one literal for
+    another, the test now runs the same retrieval the endpoint ran and requires
+    that what came back is in the prompt. That is the claim the literal was
+    standing in for, and it survives the next change of corpus.
     """
     _RecordingProvider.received_prompts.clear()
     # `conversations.py` now builds its provider through `build_provider`
@@ -135,9 +143,16 @@ async def test_the_stream_endpoint_hands_the_provider_a_grounded_prompt_not_the_
     assert len(_RecordingProvider.received_prompts) == 1
     prompt = _RecordingProvider.received_prompts[0]
     assert question in prompt
-    # Source text that is in the seeded corpus and nowhere in the question —
-    # proof the provider received more than the bare question.
-    assert "Article 33(1)" in prompt
+
+    # Proof the provider received more than the bare question: what retrieval
+    # actually returned for this tenant is in there.
+    from app.chat.retrieval import SearchMode, search_chunks
+    from app.db.session import tenant_session
+
+    async with tenant_session(demo_org_id) as session:
+        cited = await search_chunks(session, question, mode=SearchMode.FTS, limit=5)
+    assert cited, "retrieval returned nothing, so the assertion below proves nothing"
+    assert any(str(chunk["content"]) in prompt for chunk in cited)
     assert "if the sources do not contain the answer, say so" in prompt.lower()
 
 

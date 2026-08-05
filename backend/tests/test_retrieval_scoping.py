@@ -9,6 +9,7 @@ from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, SEED_SOURCE_KEY, load_excerpts
 from app.chat.retrieval import SearchMode, search_chunks
 from app.db.engine import engine
 from app.db.session import system_session, tenant_session
+from app.ingest.preload import provisioned_corpus_size
 
 
 async def test_search_returns_only_the_caller_org_chunks(two_orgs) -> None:
@@ -125,7 +126,10 @@ async def test_a_demo_tenant_has_a_corpus_before_it_has_uploaded_anything(
 
     async with tenant_session(org_id) as session:
         owned = await session.scalar(text("SELECT count(*) FROM document_chunks"))
-    assert owned == len(load_excerpts()), "the demo tenant did not receive the whole corpus"
+    # The seeded excerpts *and* the preloaded catalogue document: since the
+    # GDPR is copied in at provisioning, a tenant that received only the
+    # excerpts is a half-provisioned tenant, not a working one.
+    assert owned == provisioned_corpus_size(), "the demo tenant did not receive the whole corpus"
 
 
 async def test_two_demo_tenants_share_no_chunk(
@@ -148,7 +152,7 @@ async def test_two_demo_tenants_share_no_chunk(
 
     mine, theirs = await chunk_ids(first), await chunk_ids(second)
     assert mine and theirs
-    assert len(mine) == len(theirs) == len(load_excerpts())
+    assert len(mine) == len(theirs) == provisioned_corpus_size()
     assert mine.isdisjoint(theirs), "two demo tenants are reading the same rows"
 
 
@@ -258,7 +262,13 @@ async def test_seeding_the_public_corpus_twice_leaves_one_copy() -> None:
     assert await seed_public_corpus() == len(load_excerpts())
 
     async with tenant_session(str(PUBLIC_CORPUS_ORG_ID)) as session:
-        stored = await session.scalar(text("SELECT count(*) FROM document_chunks"))
+        # This loader's own rows, not the organisation's. The same organisation
+        # is also the template `app/ingest/preload.py` fills with the catalogue
+        # documents, and counting everything here would measure that loader too.
+        stored = await session.scalar(
+            text("SELECT count(*) FROM document_chunks WHERE source_key = :key"),
+            {"key": SEED_SOURCE_KEY},
+        )
         expires_at = await session.scalar(
             text("SELECT expires_at FROM organizations WHERE id = :o"),
             {"o": str(PUBLIC_CORPUS_ORG_ID)},
@@ -289,8 +299,9 @@ async def test_the_seeded_rows_are_the_file_they_came_from() -> None:
             await session.execute(
                 text(
                     "SELECT content, page_from, page_to, source_key, chunk_ordinal "
-                    "FROM document_chunks"
-                )
+                    "FROM document_chunks WHERE source_key = :key"
+                ),
+                {"key": SEED_SOURCE_KEY},
             )
         ).all()
 

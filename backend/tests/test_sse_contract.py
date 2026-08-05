@@ -486,15 +486,22 @@ async def test_citations_carry_the_tenants_own_chunks(client, demo_auth, demo_or
             {
                 "i": str(uuid.uuid4()),
                 "o": demo_org_id,
-                "c": "The processor's obligations include a 72-hour breach notice.",
+                # A term that occurs nowhere in this tenant's corpus. It used
+                # to be enough to plant an ordinary sentence and ask an ordinary
+                # question, because the tenant held thirty excerpts; it now
+                # holds the whole regulation, and "processor's obligations"
+                # retrieves the real Article 28 ahead of a planted row. The
+                # subject here is whose chunks come back, not which — so the
+                # question is made unambiguous rather than the assertion loosened.
+                "c": (
+                    "Ravensmoot clause: the processor's obligations include a "
+                    "72-hour breach notice."
+                ),
             },
         )
 
     conversation_id = await _create_conversation(client, demo_auth)
-    # M1 retrieval is a literal substring match, so the question has to be one.
-    # M2 replaces the body of search_chunks with hybrid search and this stops
-    # being a constraint on what can be asked.
-    message_id = await _ask(client, demo_auth, conversation_id, "processor's obligations")
+    message_id = await _ask(client, demo_auth, conversation_id, "Ravensmoot clause")
     ticket = await _ticket(client, demo_auth, message_id)
 
     async with client.stream("GET", _stream_url(conversation_id, message_id, ticket)) as response:

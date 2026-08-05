@@ -378,7 +378,18 @@ async def seed_public_corpus() -> int:
         except IntegrityError:
             pass  # already created; the chunk refresh below is the idempotent part
 
+        # Scoped to this loader's own rows, not to the organisation.
+        #
+        # It used to delete everything this organisation held, which was correct
+        # while it was the only thing writing here. It is not any more:
+        # `app/ingest/preload.py` puts the catalogue documents in the same
+        # organisation, and a blanket DELETE made the two loaders
+        # order-dependent — running this one second silently emptied the
+        # template every demo tenant is copied from. That is not hypothetical.
+        # It is what the test suite did on its first run, and it surfaced as
+        # forty unrelated tests failing inside demo-login.
         await session.execute(
-            text("DELETE FROM document_chunks WHERE org_id = :org_id"), {"org_id": org_id}
+            text("DELETE FROM document_chunks WHERE org_id = :org_id AND source_key = :key"),
+            {"org_id": org_id, "key": SEED_SOURCE_KEY},
         )
         return await copy_corpus_into(session, org_id)

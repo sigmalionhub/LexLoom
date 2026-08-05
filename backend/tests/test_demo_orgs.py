@@ -253,6 +253,14 @@ WHERE p.oid >= 16384  -- FirstNormalObjectId, as above
 EXPECTED_FUNCTIONS = {
     ("public", "purge_expired_orgs", "", "f", True),
     ("public", "count_orgs_with_corpus", "", "f", True),
+    # Migration 0012. `SECURITY DEFINER` with `row_security = off`, so it can
+    # write into any tenant — and the argument that this is safe is one line of
+    # the function rather than anything an inventory can see: it refuses unless
+    # `p_org` equals the caller's own `app.current_org_id`, and its source
+    # organisation is a literal rather than a parameter. Both are asserted in
+    # `test_preloaded_corpus.py`; what belongs here is the record that a fourth
+    # privileged function now exists and was meant to.
+    ("public", "copy_catalogue_corpus_into", "p_org uuid", "f", True),
     (
         "public",
         "reserve_ingest_slot",

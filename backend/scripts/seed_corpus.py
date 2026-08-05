@@ -30,11 +30,22 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.chat.corpus import PUBLIC_CORPUS_ORG_ID, seed_public_corpus  # noqa: E402
+from app.ingest.preload import seed_public_catalogue_corpus  # noqa: E402
 
 
 async def main() -> None:
+    # Order matters and is not incidental: `seed_public_corpus` deletes every
+    # chunk this organisation holds before writing the excerpts, so the
+    # catalogue load has to follow it. The reverse order leaves the template
+    # holding the seed alone, every tenant born without a document, and
+    # `provision_demo_org` raising on the first visitor.
     seeded = await seed_public_corpus()
-    print(f"Seeded {seeded} chunks into organisation {PUBLIC_CORPUS_ORG_ID}.")
+    print(f"Seeded {seeded} excerpt chunks into organisation {PUBLIC_CORPUS_ORG_ID}.")
+
+    # Minutes, not seconds: each source is parsed and embedded here so that no
+    # visitor's login ever pays for it.
+    for source_key, chunks in (await seed_public_catalogue_corpus()).items():
+        print(f"Seeded {chunks} chunks of {source_key}.")
 
 
 if __name__ == "__main__":

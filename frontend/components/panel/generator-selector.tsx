@@ -26,12 +26,29 @@ import type { PanelSectionProps } from './types';
  * from where it ran, and RTT to Google's API differs by host. Re-measure
  * from the deployed box and update this comment and the two `note` strings
  * together when that becomes possible.
+ *
+ * **Flash-Lite was re-measured against the deployment on 2026-08-05** and its
+ * note now says so. Three runs of one question, answers 626–682 characters,
+ * timed end to end from a client over the public internet — so the figure
+ * includes RTT to the box as well as the box's own RTT to Google, which is
+ * what a visitor actually waits. It came out at 1.1–1.2 s where the local
+ * figure was 2.2–2.5 s. Not a clean A/B: the two passes used different
+ * questions and therefore different answer lengths, so read it as "this is
+ * what the deployment does", not as a speedup.
+ *
+ * **Flash is deliberately still the local figure.** The same three-run pass
+ * against the deployment returned 1.8 s / 293 characters on one run, and the
+ * API log for it reads `provider_quota_exceeded` with a 429 from Google: that
+ * run was the fallback in `app/chat/stream.py`, not the model. A range built
+ * from a set containing a degraded run would be exactly the plausible-looking
+ * lie the paragraph above refuses. Re-measure when the quota allows three
+ * clean runs.
  */
 const OPTIONS: Record<GeneratorChoice, { label: string; note: string }> = {
   deterministic: { label: 'Deterministic', note: 'canned text — no external call' },
   'gemini-3.5-flash-lite': {
     label: 'Flash-Lite',
-    note: '~2.2–2.5s for a long answer (measured locally, not on the deploy box)',
+    note: '1.1–1.2s for a long answer (measured on the deploy box, end to end)',
   },
   'gemini-3.6-flash': {
     label: 'Flash',

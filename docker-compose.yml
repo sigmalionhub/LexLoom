@@ -155,11 +155,12 @@ services:
       MAX_CONCURRENT_STREAMS_PER_ORG: ${MAX_CONCURRENT_STREAMS_PER_ORG:-4}
       STREAM_SLOT_TTL_SECONDS: ${STREAM_SLOT_TTL_SECONDS:-600}
       # How many organisations may hold an ingested corpus at once
-      # (app/ingest/jobs.py). Only this service: the cap is checked in the
+      # (app/ingest/jobs.py). Only this service: the slot is reserved in the
       # admission path, before a task is even queued, and
-      # public.count_orgs_with_corpus() (migration 0007) grants EXECUTE to
+      # public.reserve_ingest_slot() (migration 0008) grants EXECUTE to
       # lexloom_app — the role this service connects as — and not to
-      # lexloom_worker.
+      # lexloom_worker, which would have nothing to do with a ceiling it only
+      # discovered after the task was already in the queue.
       INGEST_ORG_CAP: ${INGEST_ORG_CAP:-8}
       # Only this service: the worker and beat never generate an answer, so
       # they have no use for the key, and `docker inspect` on either would

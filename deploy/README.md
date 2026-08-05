@@ -28,7 +28,7 @@ Read this whole file before running anything. Roughly ten minutes, most of it wa
 | Redis | container | published on `127.0.0.1:6379`, and **`requirepass` is what protects it** — see below |
 | API (FastAPI) | container | `127.0.0.1:8100` only |
 | Worker (Celery) | container | no ports |
-| Beat (Celery beat) | container | no ports — fires `purge_expired_orgs` once an hour (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`); that one task both enforces the 24-hour demo-organisation TTL and frees the slots `INGEST_ORG_CAP` counts, which would otherwise only grow |
+| Beat (Celery beat) | container | no ports — fires `purge_expired_orgs` once an hour (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`); that one task enforces the demo-organisation TTL. It is no longer what frees an `INGEST_ORG_CAP` slot: the count requires the organisation to be live (migration 0008), so a slot comes back when the TTL lapses rather than up to an hour later. The purge still reclaims the rows |
 | Frontend | **files on disk** | statically exported, served by nginx — no Node process |
 | nginx | host, already installed | terminates TLS, serves the files, proxies the API |
 
@@ -184,7 +184,11 @@ Edit `.env` before starting anything:
   point of the header.
 - optionally set `INGEST_ORG_CAP` (default `8`) to change how many organisations may
   hold an ingested corpus at once — see the comment beside it in `.env.example` for the
-  memory arithmetic behind the default.
+  memory arithmetic behind the default. Note what it does **not** bound: it is a global
+  ceiling, so one address filling it denies the ingest feature to every later visitor
+  until those tenants expire (two hours after they started an ingest, not the usual
+  twenty-four). That is a known limitation, written up in `backend/app/ingest/jobs.py`;
+  the demo-login rate limit is what actually bounds how fast anyone can fill it.
 
 The passwords are read **only when the data volume is first created**. Changing them later
 edits nothing inside a Postgres that already exists, so set them now.

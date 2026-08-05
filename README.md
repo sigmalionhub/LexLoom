@@ -98,9 +98,15 @@ make that mistake with.
 
 ## What the retrieval actually measures
 
-All of it from [`backend/app/evals/results.json`](backend/app/evals/results.json),
-recomputed independently by CI on every push and gated by
-[`floors.json`](backend/app/evals/floors.json).
+All of it from [`backend/app/evals/results.json`](backend/app/evals/results.json), gated by
+[`floors.json`](backend/app/evals/floors.json). The `evals` job in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) recomputes every cell from scratch
+on each push and fails the build against those floors.
+
+That job has **not run yet**: this milestone has not been pushed. What has been done is the
+run it performs, executed locally — a full reseed and re-embed reproducing all fifteen cells
+exactly, three times, on this machine. Saying "CI verifies it" of a job that has never
+executed would be the same defect this page spends a section on, one page earlier.
 
 Corpus: **1008 chunks** per evaluation tenant — 978 from the full GDPR PDF plus the
 30 seeded excerpts. Thirty questions, of which **six are unanswerable by design.**

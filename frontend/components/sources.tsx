@@ -34,13 +34,8 @@ export function Sources({ citations, orgId }: SourcesProps) {
   return (
     <ol className="divide-y divide-rule overflow-hidden rounded border border-rule bg-paper-raised">
       {citations.map((citation, index) => {
-        const { heading, body } = splitCitation(citation.content);
-        // `splitCitation`'s dash pattern was written against GDPR chunks
-        // ("Article 33(1) GDPR — In the case of…"). NIST's text is verbatim
-        // prose with no such lede, so every one of its citations would render
-        // a truncated first sentence as its title. The heading path is what
-        // that document has instead, and it is the better title anyway.
-        const title = heading ?? citation.locator ?? body.slice(0, 64);
+        const { title, context, body } = describe(citation);
+        const page = pageLabel(citation);
         const isOpen = expanded === citation.chunk_id;
         const foreign = citation.org_id !== orgId;
 
@@ -55,11 +50,31 @@ export function Sources({ citations, orgId }: SourcesProps) {
               <span className="figure w-6 shrink-0 text-[0.6875rem] text-ink-soft/70">
                 {String(index + 1).padStart(2, '0')}
               </span>
+              {/* One column, not three. The old row put the locator in a third
+                  column beside the title, which cost twice: on a pageless
+                  source the two were the *same string*, printed side by side,
+                  and the space it took squeezed `nist-sp-800-63b` into four
+                  stacked lines. Everything now lives in one measure that can
+                  use the full width. */}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[0.9375rem] leading-snug text-ink">
-                  {title}
+                <span className="flex items-baseline gap-3">
+                  <span className="min-w-0 flex-1 truncate text-[0.9375rem] leading-snug text-ink">
+                    {title}
+                  </span>
+                  {page && (
+                    <span className="figure shrink-0 whitespace-nowrap text-[0.6875rem] text-ink-soft/70">
+                      {page}
+                    </span>
+                  )}
                 </span>
-                <span className="mt-1.5 flex items-center gap-2">
+
+                {context && (
+                  <span className="mt-0.5 block truncate text-[0.8125rem] leading-snug text-ink-soft/75">
+                    {context}
+                  </span>
+                )}
+
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
                   <span
                     aria-hidden
                     // A hairline read as a divider rather than as a gauge, and
@@ -76,29 +91,28 @@ export function Sources({ citations, orgId }: SourcesProps) {
                       }}
                     />
                   </span>
-                  <span className="figure text-[0.6875rem] text-ink-soft/70">
-                    org {citation.org_id.slice(0, 8)}
-                  </span>
                   {/* Which document answered. Retrieval runs over the tenant's
                       whole corpus with no per-source filter, so without this a
                       reader holding two documents cannot tell which one a
                       passage came from — and the demo's whole claim is that an
                       answer is checkable. The short key rather than the title:
-                      the GDPR's catalogue title is 280 characters. */}
+                      the GDPR's catalogue title is 280 characters. `nowrap`
+                      because a hyphenated key is exactly what a narrow flex
+                      child breaks apart, one segment per line. */}
                   {citation.source_key && (
-                    <span className="figure text-[0.6875rem] text-ink-soft/70">
+                    <span className="figure whitespace-nowrap text-[0.6875rem] text-ink-soft/70">
                       {citation.source_key}
                     </span>
                   )}
+                  <span className="figure whitespace-nowrap text-[0.6875rem] text-ink-soft/70">
+                    org {citation.org_id.slice(0, 8)}
+                  </span>
                   {foreign && (
-                    <span className="figure rounded bg-alarm px-1.5 text-[0.6875rem] text-paper">
+                    <span className="figure whitespace-nowrap rounded bg-alarm px-1.5 text-[0.6875rem] text-paper">
                       foreign tenant
                     </span>
                   )}
                 </span>
-              </span>
-              <span className="figure shrink-0 whitespace-nowrap text-[0.6875rem] text-ink-soft/70">
-                {locatorLabel(citation)}
               </span>
             </button>
 
@@ -130,27 +144,73 @@ function splitCitation(content: string): {
 }
 
 /**
- * Where this chunk is, in whatever way its document can say it.
+ * The separator `app/ingest/chunk_docx.py` joins a heading path with — U+203A,
+ * chosen there because it appears in none of the document's 145 headings, so
+ * splitting on it cannot cut a heading in half. Matched on the character alone
+ * rather than on `" › "`, so a path that ever loses its padding still splits.
+ */
+const PATH_SEPARATOR = '›';
+
+/**
+ * What to call this passage, and where it sits.
+ *
+ * Three shapes of source, and the row has to read well for all of them:
+ *
+ *   - The seeded GDPR excerpts lead with a citation — "Article 33(1) GDPR — In
+ *     the case of…" — so the part before the dash is the title and there is no
+ *     context line.
+ *   - A `.docx` built from a web publication has no such lede and no pages. It
+ *     carries `locator`, the heading path, and printing the whole path as the
+ *     title truncated the part that identifies the passage: "Authenticator
+ *     an…" for a chunk whose real subject is *Password Verifiers*. The leaf is
+ *     the title; its ancestors become the quieter line under it.
+ *   - Anything else falls back to its own opening words.
+ *
+ * The ancestors are trimmed from the head, not the tail: the segments nearest
+ * the leaf are the ones that place it. Measured over the NIST document's 145
+ * headings: median path 88 characters, longest 166.
+ */
+const CONTEXT_MAX = 72;
+
+function describe(citation: Citation): {
+  title: string;
+  context: string | null;
+  body: string;
+} {
+  const { heading, body } = splitCitation(citation.content);
+  if (heading) return { title: heading, context: null, body };
+
+  if (citation.locator) {
+    const parts = citation.locator
+      .split(PATH_SEPARATOR)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) {
+      const leaf = parts[parts.length - 1];
+      const ancestors = parts.slice(0, -1).join(' › ');
+      return { title: leaf, context: ancestors ? trimHead(ancestors) : null, body };
+    }
+  }
+
+  return { title: body.slice(0, 64), context: null, body };
+}
+
+function trimHead(value: string): string {
+  if (value.length <= CONTEXT_MAX) return value;
+  return `…${value.slice(value.length - CONTEXT_MAX + 1)}`;
+}
+
+/**
+ * A page reference, or nothing at all.
  *
  * The null test comes first and is not a nicety: `null === null` is true, so
  * the equality branch alone rendered `p. null` for every chunk of a source
- * whose format has no pages. A `.docx` built from a web publication is exactly
- * that, and it carries `locator` — the heading path — instead.
- *
- * Long paths are truncated at the end rather than the start. Measured over the
- * NIST document's 145 headings: median 88 characters, longest 166. The tail is
- * the leaf section, which is the part that identifies the passage, so the head
- * is what gives way.
+ * whose format has no pages. Such a source now returns null and the row simply
+ * omits the slot — it used to fall back to the locator, which by then was
+ * already the title, so the same string was printed twice on one line.
  */
-const LOCATOR_MAX = 64;
-
-function locatorLabel(citation: Citation): string {
-  if (citation.page_from === null || citation.page_to === null) {
-    const locator = citation.locator;
-    if (!locator) return '—';
-    if (locator.length <= LOCATOR_MAX) return locator;
-    return `…${locator.slice(locator.length - LOCATOR_MAX + 1)}`;
-  }
+function pageLabel(citation: Citation): string | null {
+  if (citation.page_from === null || citation.page_to === null) return null;
   return citation.page_from === citation.page_to
     ? `p. ${citation.page_from}`
     : `pp. ${citation.page_from}–${citation.page_to}`;

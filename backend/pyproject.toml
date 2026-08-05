@@ -47,6 +47,18 @@ dependencies = [
     # call from the worker, and ties poppler's own measured quality on this
     # document.
     "pdfminer.six==20260107",
+    # Pinned exactly, for the same reason as `pdfminer.six` above and not a
+    # weaker one: `(source_key, chunk_ordinal)` is a chunk's identity, and it is
+    # a function of what the extractor returns. A floating extractor makes chunk
+    # identity a function of when the venv was built.
+    #
+    # `python-docx` reads paragraph styles, which is the whole reason a `.docx`
+    # earns its place beside a PDF here: the heading structure is *given* by the
+    # format instead of inferred from typography by the GDPR-specific boundary
+    # regexes in `parse.py`. What it does not give is document order across
+    # tables — `document.paragraphs` skips every paragraph inside a table — so
+    # `extract_docx.py` walks the body element itself. See its docstring.
+    "python-docx==1.2.0",
 ]
 
 [project.optional-dependencies]

@@ -113,6 +113,57 @@ from app.main import create_app  # noqa: E402
 from app.worker.celery_app import celery_app  # noqa: E402
 
 
+def pytest_sessionstart(session):
+    """Fail once, clearly, when the local Redis predates `requirepass`.
+
+    `docker-compose.yml` started requiring a password on Redis, because the
+    deployment host is shared and "published on 127.0.0.1 only" was never the
+    access control it had been written up as. A container created before that
+    change is still running without one, and every process that reaches it
+    keeps working — so the mismatch is invisible until the suite runs.
+
+    What it looks like without this hook, measured: eleven failures and six
+    errors spread across `test_limits.py`, `test_ingest_api.py` and
+    `test_ingest_job.py`, each one a `capacity_unavailable` raised by the
+    limits backend's own error path, with `AUTH <password> called without any
+    password configured for the default user` buried in a captured log. Every
+    one of those tests is fine. Nothing in that output names the container.
+
+    Checked here rather than in a test because it is not a property of the
+    code: it is a statement about the machine the suite is running on, and the
+    right response is to recreate one container, not to change anything in this
+    repository. Recreating it also restarts whatever is connected to it, which
+    is why this refuses rather than fixing it — on a shared box that decision
+    belongs to a person.
+    """
+    import redis as _redis
+
+    url = os.environ["REDIS_URL"]
+    try:
+        _redis.Redis.from_url(url).ping()
+    except _redis.exceptions.AuthenticationError as exc:
+        if "without any password" not in str(exc):
+            raise
+        pytest.exit(
+            "The Redis at REDIS_URL is running without a password, but this suite "
+            "sends one because docker-compose.yml now requires it.\n\n"
+            "  docker compose up -d --force-recreate redis\n\n"
+            "That restarts every container connected to it, so do it deliberately: "
+            "on this box the api and worker containers hold connections to the same "
+            "Redis and will need recreating too.\n\n"
+            "To run against a Redis you do not want to touch, export a URL without "
+            "credentials -- but note that test_the_suite_reaches_redis_with_a_password_too "
+            "will then fail on purpose, because the authenticated path is the one "
+            "production uses and a green suite must not hide that it went untested:\n\n"
+            "  REDIS_URL=redis://localhost:6379/0 pytest",
+            returncode=1,
+        )
+    except (_redis.exceptions.ConnectionError, OSError):
+        # Not this hook's business. The tests that need Redis report it
+        # themselves, and the ones that do not should still run.
+        pass
+
+
 def pytest_collection_modifyitems(config, items):
     """Handle a cold model cache: skip what can be skipped, refuse what cannot.
 

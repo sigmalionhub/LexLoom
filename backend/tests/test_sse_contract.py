@@ -21,8 +21,9 @@ async def test_stream_emits_events_in_the_contracted_order(client, demo_auth) ->
         )
     ).json()["message_id"]
     ticket = (
-        await client.post("/api/v1/auth/stream-tickets", json={"message_id": message_id},
-                          headers=demo_auth)
+        await client.post(
+            "/api/v1/auth/stream-tickets", json={"message_id": message_id}, headers=demo_auth
+        )
     ).json()["ticket"]
 
     events: list[str] = []
@@ -52,13 +53,15 @@ async def test_stream_rejects_a_ticket_minted_for_another_message(client, demo_a
     first = (
         await client.post(
             f"/api/v1/conversations/{conversation_id}/messages",
-            json={"content": "first"}, headers=demo_auth,
+            json={"content": "first"},
+            headers=demo_auth,
         )
     ).json()["message_id"]
     second = (
         await client.post(
             f"/api/v1/conversations/{conversation_id}/messages",
-            json={"content": "second"}, headers=demo_auth,
+            json={"content": "second"},
+            headers=demo_auth,
         )
     ).json()["message_id"]
     ticket = (
@@ -81,7 +84,8 @@ async def test_stream_response_is_not_compressed(client, demo_auth) -> None:
     message_id = (
         await client.post(
             f"/api/v1/conversations/{conversation_id}/messages",
-            json={"content": "q"}, headers=demo_auth,
+            json={"content": "q"},
+            headers=demo_auth,
         )
     ).json()["message_id"]
     ticket = (
@@ -285,9 +289,7 @@ async def test_a_ticket_does_not_open_its_message_under_a_different_conversation
     assert response.json()["code"] == "message_not_found"
 
 
-async def test_another_tenants_conversation_id_does_not_open_a_stream(
-    client, created_orgs
-) -> None:
+async def test_another_tenants_conversation_id_does_not_open_a_stream(client, created_orgs) -> None:
     """The same clause, crossed with the tenant boundary: a valid ticket for
     one's own message, presented under a conversation id belonging to somebody
     else, is refused — and refused with the same 404 as a missing one, so it
@@ -324,9 +326,7 @@ async def test_a_ticket_minted_by_another_tenant_finds_nothing_to_stream(
     assert response.json()["code"] == "message_not_found"
 
 
-async def test_the_assistant_row_cannot_itself_be_streamed(
-    client, demo_auth, demo_org_id
-) -> None:
+async def test_the_assistant_row_cannot_itself_be_streamed(client, demo_auth, demo_org_id) -> None:
     """`AND role = 'user'` keeps the stored answer from being addressable.
 
     Without it the assistant row is found and refused by the replay guard
@@ -397,14 +397,18 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
 
     async with tenant_session(demo_org_id) as session:
         rows = (
-            await session.execute(
-                text(
-                    "SELECT role, content, status, finish_reason, citations FROM messages "
-                    "WHERE conversation_id = :c ORDER BY role"
-                ),
-                {"c": conversation_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT role, content, status, finish_reason, citations FROM messages "
+                        "WHERE conversation_id = :c ORDER BY role"
+                    ),
+                    {"c": conversation_id},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
     assert [row["role"] for row in rows] == ["assistant", "user"]
     answer, question = rows
@@ -420,9 +424,29 @@ async def test_the_answer_is_stored_when_the_stream_finishes(
     seeded = [chunk for chunk in streamed_chunks if "survive termination" in chunk["content"]]
     assert len(seeded) == 1, "the chunk this test seeded is not among the sources"
     mine = seeded[0]
-    assert mine.keys() == {"chunk_id", "org_id", "content", "page_from", "page_to", "score"}
+    # The wire format of a citation, pinned exactly. `source_key` and `locator`
+    # joined it when the catalogue gained a second document: a question now
+    # searches a corpus of more than one, so a citation that did not say which
+    # document it came from would be unverifiable by the reader it is for.
+    # This assertion is what noticed the change rather than letting it ship —
+    # which is the whole reason it enumerates the keys instead of checking a few.
+    assert mine.keys() == {
+        "chunk_id",
+        "org_id",
+        "content",
+        "page_from",
+        "page_to",
+        "source_key",
+        "locator",
+        "score",
+    }
     assert mine["page_from"] == 3
     assert mine["page_to"] == 4
+    # This chunk is seeded directly by the test with no source and no locator,
+    # so both are null on the wire — and `null` rather than a missing key, which
+    # is what lets a client tell "no locator" from "old server".
+    assert mine["source_key"] is None
+    assert mine["locator"] is None
     # A real `ts_rank`, not the constant this field used to carry. Bounded below
     # rather than pinned: the value depends on the question and on how much of
     # the corpus shares its terms, and neither is this test's business.
@@ -547,9 +571,7 @@ async def _ticket(client, headers, message_id: str) -> str:
 
 
 def _stream_url(conversation_id: str, message_id: str, ticket: str) -> str:
-    return (
-        f"/api/v1/conversations/{conversation_id}/messages/{message_id}/stream?ticket={ticket}"
-    )
+    return f"/api/v1/conversations/{conversation_id}/messages/{message_id}/stream?ticket={ticket}"
 
 
 async def _events(response) -> list[tuple[str, dict]]:

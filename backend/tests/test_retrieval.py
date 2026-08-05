@@ -1,7 +1,10 @@
 import uuid
 
-from sqlalchemy import text
+import pytest
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import bindparam, text
 
+from app.chat.embedding import DIMENSIONS
 from app.chat.retrieval import SearchMode, search_chunks
 from app.db.session import system_session, tenant_session
 
@@ -135,15 +138,15 @@ async def test_a_word_whose_stem_would_stem_again_is_still_found(
     await _seed_chunk(org, "The erasure of personal data must be without undue delay.", page=2)
     async with tenant_session(org) as session:
         assert len(await search_chunks(session, "pseudonymisation", mode=SearchMode.FTS)) == 1
-        assert len(
-            await search_chunks(session, "when is erasure required?", mode=SearchMode.FTS)
-        ) == 2
+        assert (
+            len(await search_chunks(session, "when is erasure required?", mode=SearchMode.FTS)) == 2
+        )
 
 
 async def test_a_question_of_nothing_but_stop_words_matches_nothing(
     created_orgs: list[str],
 ) -> None:
-    """"the and or of" has no lexemes, so `string_agg` returns NULL.
+    """ "the and or of" has no lexemes, so `string_agg` returns NULL.
 
     Without the `IS NOT NULL` guard in the statement this is the failure that
     would not look like one. A NULL `tsquery` is not an empty one, and "matches
@@ -177,12 +180,13 @@ async def test_tsquery_operators_in_the_question_are_words_and_not_operators(
     org = await _new_org(created_orgs)
     await _seed_chunk(org, _CLAUSE)
     async with tenant_session(org) as session:
-        assert len(
-            await search_chunks(session, "processor & !controller", mode=SearchMode.FTS)
-        ) == 1
-        assert len(
-            await search_chunks(session, "notify <-> controller | (((", mode=SearchMode.FTS)
-        ) == 1
+        assert (
+            len(await search_chunks(session, "processor & !controller", mode=SearchMode.FTS)) == 1
+        )
+        assert (
+            len(await search_chunks(session, "notify <-> controller | (((", mode=SearchMode.FTS))
+            == 1
+        )
         assert len(await search_chunks(session, "processor controller", mode=SearchMode.FTS)) == 1
 
 
@@ -233,9 +237,10 @@ async def test_the_limit_bounds_what_comes_back(created_orgs: list[str]) -> None
         await _seed_chunk(org, f"The processor has an obligation on page {page}.", page=page)
     async with tenant_session(org) as session:
         assert len(await search_chunks(session, "processor obligation", mode=SearchMode.FTS)) == 5
-        assert len(
-            await search_chunks(session, "processor obligation", mode=SearchMode.FTS, limit=3)
-        ) == 3
+        assert (
+            len(await search_chunks(session, "processor obligation", mode=SearchMode.FTS, limit=3))
+            == 3
+        )
 
 
 async def test_search_chunks_never_sees_another_tenants_chunk(
@@ -253,6 +258,7 @@ async def test_search_chunks_never_sees_another_tenants_chunk(
         hits = await search_chunks(session, "obligations under clause 4", mode=SearchMode.FTS)
 
     assert [hit["org_id"] for hit in hits] == [mine]
+
 
 async def _seed_identified_chunk(
     org_id: str, content: str, source_key: str, ordinal: int, page: int = 1
@@ -273,6 +279,7 @@ async def _seed_identified_chunk(
                 "n": ordinal,
             },
         )
+
 
 async def test_chunks_with_the_same_score_come_back_in_a_stable_order(
     created_orgs: list[str],
@@ -307,17 +314,113 @@ async def test_chunks_with_the_same_score_come_back_in_a_stable_order(
     assert [hit["chunk_id"] for hit in hits] == [hit["chunk_id"] for hit in again]
     async with tenant_session(org) as session:
         rows = (
-            await session.execute(
-                text(
-                    "SELECT id, source_key, chunk_ordinal FROM document_chunks "
-                    "WHERE org_id = :o"
-                ),
-                {"o": org},
+            (
+                await session.execute(
+                    text(
+                        "SELECT id, source_key, chunk_ordinal FROM document_chunks "
+                        "WHERE org_id = :o"
+                    ),
+                    {"o": org},
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     identity = {str(row["id"]): (row["source_key"], row["chunk_ordinal"]) for row in rows}
     ordered = [identity[hit["chunk_id"]] for hit in hits]
     assert ordered == sorted(ordered), (
         "tied rows did not come back in (source_key, chunk_ordinal) order; the ORDER BY "
         "lost its total order and every eval metric is arbitrary again"
     )
+
+
+# --- Provenance: which document, and where in it -----------------------------
+
+
+async def _seed_docx_chunk(org_id: str, content: str, locator: str) -> None:
+    """A chunk shaped the way `chunk_docx` writes one: no pages, a locator."""
+    async with tenant_session(org_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(id, org_id, content, page_from, page_to, locator, source_key, chunk_ordinal) "
+                "VALUES (:i, :o, :c, NULL, NULL, :l, 'nist-sp-800-63b', 0)"
+            ),
+            {"i": str(uuid.uuid4()), "o": org_id, "c": content, "l": locator},
+        )
+
+
+@pytest.mark.parametrize("mode", list(SearchMode))
+async def test_every_mode_returns_the_same_citation_shape(
+    created_orgs: list[str], mode: SearchMode
+) -> None:
+    """`_to_citations` exists so a mode cannot invent a field or lose one, and
+    the two SQL projections it reads from have to stay identical for that to be
+    true. `source_key` sat in both ORDER BY clauses and in neither SELECT list
+    until this change — so a claim that projecting it was "one line" was wrong
+    by two, and only a test over every mode would have said so.
+    """
+    org_id = await _new_org(created_orgs)
+    # With an embedding, because `_VECTOR_SQL` filters on `embedding IS NOT
+    # NULL` and a chunk seeded without one makes the VECTOR leg return nothing
+    # — which reads as "the shape is wrong" when it means "the fixture was".
+    async with tenant_session(org_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(id, org_id, content, page_from, page_to, embedding) "
+                "VALUES (:i, :o, :c, 3, 3, :e)"
+            ).bindparams(bindparam("e", type_=Vector(DIMENSIONS))),
+            {
+                "i": str(uuid.uuid4()),
+                "o": org_id,
+                "c": "processor obligations under the contract",
+                "e": [0.1] * DIMENSIONS,
+            },
+        )
+
+    async with tenant_session(org_id) as session:
+        citations = await search_chunks(session, "processor obligations", mode=mode, limit=5)
+
+    assert citations
+    for citation in citations:
+        assert set(citation) == {
+            "chunk_id",
+            "org_id",
+            "content",
+            "page_from",
+            "page_to",
+            "source_key",
+            "locator",
+            "score",
+        }
+
+
+async def test_a_page_less_chunk_comes_back_with_its_locator(created_orgs: list[str]) -> None:
+    path = "Authentication Assurance Levels › Reauthentication"
+    org_id = await _new_org(created_orgs)
+    await _seed_docx_chunk(org_id, "reauthentication of subscriber sessions", path)
+
+    async with tenant_session(org_id) as session:
+        citations = await search_chunks(
+            session, "reauthentication sessions", mode=SearchMode.FTS, limit=5
+        )
+
+    assert citations[0]["locator"] == path
+    assert citations[0]["page_from"] is None
+    assert citations[0]["source_key"] == "nist-sp-800-63b"
+
+
+async def test_retrieval_is_not_filtered_by_source(created_orgs: list[str]) -> None:
+    """The owner's third decision, pinned so the next author does not "improve"
+    it into a filter: a question searches the tenant's whole corpus, and what
+    makes the answer checkable is that the citation names its document.
+    """
+    org_id = await _new_org(created_orgs)
+    await _seed_chunk(org_id, "the processor shall assist the controller", page=1)
+    await _seed_docx_chunk(org_id, "the verifier shall assist the subscriber", "Session Management")
+
+    async with tenant_session(org_id) as session:
+        citations = await search_chunks(session, "shall assist", mode=SearchMode.FTS, limit=10)
+
+    assert {c["source_key"] for c in citations} == {None, "nist-sp-800-63b"}

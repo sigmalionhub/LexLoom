@@ -65,6 +65,7 @@ def reciprocal_rank_fusion(runs: list[list[uuid.UUID]], k: int = 60) -> list[uui
     scores = _rrf_scores(runs, k)
     return sorted(scores, key=scores.__getitem__, reverse=True)
 
+
 # The text search configuration, named once and bound as a parameter rather
 # than interpolated. Every `to_tsvector` below has to use the same one: lexing
 # the question with a different dictionary than the corpus produces stems that
@@ -214,6 +215,8 @@ _SEARCH_SQL = text(
            content,
            page_from,
            page_to,
+           locator,
+           source_key,
            ts_rank(to_tsvector(CAST(:config AS regconfig), content), question.query) AS score
     FROM document_chunks, question
     WHERE question.query IS NOT NULL
@@ -282,7 +285,7 @@ _SEARCH_SQL = text(
 # re-measuring rather than re-asserting when the corpus changes.
 _VECTOR_SQL = text(
     """
-    SELECT id, org_id, content, page_from, page_to,
+    SELECT id, org_id, content, page_from, page_to, locator, source_key,
            1 - (embedding OPERATOR(public.<=>) :qvec) AS score
       FROM document_chunks
      WHERE embedding IS NOT NULL
@@ -301,6 +304,14 @@ def _to_citations(rows) -> list[Citation]:
             "content": row["content"][:400],
             "page_from": row["page_from"],
             "page_to": row["page_to"],
+            # Which document, and where in it. `source_key` was already in both
+            # ORDER BY clauses and in neither SELECT list, so a claim that
+            # projecting it was "one line" was wrong by two: both projections
+            # had to gain it, and the comment below requires them to stay
+            # identical. `locator` is the heading path for a source with no
+            # pages; exactly one of `locator` and the page pair is ever set.
+            "source_key": row["source_key"],
+            "locator": row["locator"],
             # A real relevance score, and the value the rows were ordered by.
             # What it *means* depends on the mode and the field does not
             # pretend otherwise: `ts_rank` in `FTS` is unnormalised, so 0.07
@@ -316,15 +327,19 @@ def _to_citations(rows) -> list[Citation]:
 
 async def _search_fts(session: AsyncSession, query: str, limit: int) -> list[Citation]:
     rows = (
-        await session.execute(
-            _SEARCH_SQL,
-            {
-                "config": _TEXT_SEARCH_CONFIG,
-                "question": query[:_MAX_QUERY_CHARS],
-                "limit": limit,
-            },
+        (
+            await session.execute(
+                _SEARCH_SQL,
+                {
+                    "config": _TEXT_SEARCH_CONFIG,
+                    "question": query[:_MAX_QUERY_CHARS],
+                    "limit": limit,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return _to_citations(rows)
 
 
@@ -339,9 +354,7 @@ async def _search_vector(session: AsyncSession, query: str, limit: int) -> list[
     # question is allowed to cost, and it should not depend on which mode the
     # visitor picked.
     qvec = await get_embedder().aencode_query(query[:_MAX_QUERY_CHARS])
-    rows = (
-        await session.execute(_VECTOR_SQL, {"qvec": qvec, "limit": limit})
-    ).mappings().all()
+    rows = (await session.execute(_VECTOR_SQL, {"qvec": qvec, "limit": limit})).mappings().all()
     return _to_citations(rows)
 
 

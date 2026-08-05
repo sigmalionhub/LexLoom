@@ -1,4 +1,5 @@
 from app.chat.prompt import build_grounded_prompt
+from app.ingest.catalogue import CATALOGUE
 
 
 class _RecordingProvider:
@@ -19,6 +20,7 @@ class _RecordingProvider:
     async def stream(self, prompt: str):
         _RecordingProvider.received_prompts.append(prompt)
         yield "ok "
+
 
 _CITATIONS = [
     {
@@ -137,3 +139,52 @@ async def test_the_stream_endpoint_hands_the_provider_a_grounded_prompt_not_the_
     # proof the provider received more than the bare question.
     assert "Article 33(1)" in prompt
     assert "if the sources do not contain the answer, say so" in prompt.lower()
+
+
+# --- A second document: where a chunk is, when its format has no pages -------
+
+_NIST_KEY = "nist-sp-800-63b"
+_NIST_PATH = "Authentication Assurance Levels › Authentication Assurance Level 2 › Reauthentication"
+
+
+def _pageless_citation() -> dict:
+    """A `.docx` chunk as `_to_citations` builds one: no pages, a locator."""
+    return {
+        "chunk_id": "00000000-0000-0000-0000-000000000001",
+        "org_id": "00000000-0000-0000-0000-000000000002",
+        "content": "Periodic reauthentication of subscriber sessions SHALL be performed.",
+        "page_from": None,
+        "page_to": None,
+        "source_key": _NIST_KEY,
+        "locator": _NIST_PATH,
+        "score": 0.5,
+    }
+
+
+def test_a_page_less_chunk_is_never_rendered_as_page_none() -> None:
+    """`None == None` is true, so the equality branch that produced "p. 12"
+    produced "p. None" for every `.docx` chunk and handed it to the model as a
+    position. The bug is one character of precedence and zero characters of
+    output that look wrong to a human skimming a prompt."""
+    rendered = build_grounded_prompt("when must a session reauthenticate?", [_pageless_citation()])
+    assert "None" not in rendered
+    assert _NIST_PATH in rendered
+
+
+def test_a_citation_names_the_document_it_came_from() -> None:
+    """The owner's third decision: retrieval searches the whole tenant corpus,
+    so what makes an answer checkable is that each citation says which document
+    it is from."""
+    rendered = build_grounded_prompt("q", [_pageless_citation()])
+    assert f"[1] ({_NIST_KEY}," in rendered
+
+
+def test_document_titles_appear_once_rather_than_in_every_citation() -> None:
+    """The GDPR's catalogue title is 280 characters and `search_chunks` runs at
+    a default limit of 5, so naming the document inline would put ~1,400
+    characters of identical text in one prompt. Asserted as a count, because
+    "it's shorter" is not a property a test can hold."""
+    citations = [_pageless_citation() for _ in range(5)]
+    rendered = build_grounded_prompt("q", citations)
+    assert rendered.count(CATALOGUE[_NIST_KEY].title) == 1
+    assert rendered.count(f"({_NIST_KEY},") == 5

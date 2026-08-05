@@ -1,16 +1,22 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { CatalogueEntry } from '@/lib/api';
+import { useDocuments } from '@/lib/use-documents';
 import type { Tenant, Turn } from '@/lib/use-lexloom';
 import { Documents } from './documents';
 import { OrgSwitcher } from './org-switcher';
 import { Sources } from './sources';
 
 /**
- * Questions that return citations against the seeded corpus. Retrieval is
- * Postgres full-text search rather than an embedding lookup, so a typed
- * question in ordinary words works too — these are a starting point, not a
- * menu of the only things the demo can answer.
+ * Questions that return citations against the *seeded* corpus — the 30 GDPR
+ * excerpts every tenant starts with, so these work from the first paint and
+ * need no ingest. A document's own questions arrive with the catalogue instead
+ * and appear only once that document has landed; see `suggesting` below.
+ *
+ * Retrieval is Postgres full-text search rather than an embedding lookup, so a
+ * typed question in ordinary words works too — these are a starting point, not
+ * a menu of the only things the demo can answer.
  */
 const SUGGESTIONS = [
   'What are the processor’s obligations?',
@@ -49,6 +55,10 @@ export function Chat({
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Called once, here, and read in two places: the cards below the header and
+  // the questions in the empty state. Two callers of the hook would poll the
+  // status route twice.
+  const documents = useDocuments(activeTenant);
 
   const last = turns.length > 0 ? turns[turns.length - 1] : null;
   const answerLength = last?.answer.length ?? 0;
@@ -101,7 +111,7 @@ export function Chat({
           {/* Who you are, then what you hold, then the conversation, then the
               question. The header is `shrink-0`, so this stays on screen after
               the tenth answer — which the transcript would not have done. */}
-          <Documents tenant={activeTenant} />
+          <Documents documents={documents} hasTenant={activeTenant !== null} />
         </div>
       </header>
 
@@ -121,6 +131,7 @@ export function Chat({
             <EmptyState
               tenant={activeTenant}
               elsewhereHasHistory={elsewhereHasHistory}
+              suggesting={documents.suggesting}
               onPick={submit}
               disabled={busy || !activeTenant}
             />
@@ -180,11 +191,14 @@ export function Chat({
 function EmptyState({
   tenant,
   elsewhereHasHistory,
+  suggesting,
   onPick,
   disabled,
 }: {
   tenant: Tenant | null;
   elsewhereHasHistory: boolean;
+  /** Sources this tenant has ingested that carry questions of their own. */
+  suggesting: CatalogueEntry[];
   onPick: (question: string) => void;
   disabled: boolean;
 }) {
@@ -202,23 +216,25 @@ function EmptyState({
         Ask something, and watch the sources land first.
       </p>
 
-      <ul className="mt-5 space-y-2">
-        {SUGGESTIONS.map((question) => (
-          <li key={question}>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onPick(question)}
-              className="group flex w-full items-baseline gap-2.5 rounded-sm border border-rule bg-paper-raised px-3.5 py-2.5 text-left text-[1rem] text-ink transition-colors hover:border-ink/35 disabled:opacity-50"
-            >
-              <span aria-hidden className="text-brass">
-                ›
-              </span>
-              {question}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <SuggestionList questions={SUGGESTIONS} onPick={onPick} disabled={disabled} />
+
+      {/* A document's own questions, offered only once this tenant actually
+          holds it. They come down with the catalogue rather than being written
+          here: a question is a property of the document, and every one of them
+          is checked against the real corpus by
+          `backend/tests/test_suggested_questions.py`. Offering them before the
+          ingest would put a question on screen whose honest answer is "no
+          passage matched" — the one first impression this page cannot afford. */}
+      {suggesting.map((entry) => (
+        <div key={entry.key} className="mt-7">
+          <p className="text-[0.9375rem] leading-relaxed text-ink-soft">
+            This tenant now holds{' '}
+            <span className="font-mono text-[0.875rem] text-ink">{entry.key}</span>, so these are
+            answerable too.
+          </p>
+          <SuggestionList questions={entry.suggestions} onPick={onPick} disabled={disabled} />
+        </div>
+      ))}
 
       <p className="mt-5 text-[0.875rem] leading-relaxed text-ink-soft">
         Or type your own. Retrieval is Postgres full-text search over this tenant’s private copy of the
@@ -228,6 +244,36 @@ function EmptyState({
 
       <CallSequence />
     </div>
+  );
+}
+
+function SuggestionList({
+  questions,
+  onPick,
+  disabled,
+}: {
+  questions: readonly string[];
+  onPick: (question: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <ul className="mt-4 space-y-2">
+      {questions.map((question) => (
+        <li key={question}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(question)}
+            className="flex w-full items-baseline gap-2.5 rounded-sm border border-rule bg-paper-raised px-3.5 py-2.5 text-left text-[1rem] text-ink transition-colors hover:border-ink/35 disabled:opacity-50"
+          >
+            <span aria-hidden className="text-brass">
+              ›
+            </span>
+            {question}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

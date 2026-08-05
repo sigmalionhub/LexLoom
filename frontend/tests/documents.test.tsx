@@ -12,15 +12,24 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Documents } from '@/components/documents';
+import { useDocuments } from '@/lib/use-documents';
 import type { Tenant } from '@/lib/use-lexloom';
 
+const NIST_QUESTION = 'What cryptography must an AAL3 authenticator use?';
+
 const CATALOGUE = [
-  { key: 'gdpr-full', title: 'Regulation (EU) 2016/679 …', media_type: 'application/pdf' },
+  {
+    key: 'gdpr-full',
+    title: 'Regulation (EU) 2016/679 …',
+    media_type: 'application/pdf',
+    suggestions: [],
+  },
   {
     key: 'nist-sp-800-63b',
     title: 'NIST Special Publication 800-63B rev 4 …',
     media_type:
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    suggestions: [NIST_QUESTION],
   },
 ];
 
@@ -69,6 +78,29 @@ vi.mock('@/lib/api', async () => {
   };
 });
 
+/**
+ * `Documents` is presentational; the fetching lives in `useDocuments`. The
+ * harness is the smallest thing that wires the two together, so these tests
+ * still exercise the poll, the catalogue fetch and the `POST` rather than a
+ * hand-built props object that could drift from what the hook really returns.
+ *
+ * It also reports `suggesting`, which is the hook's other consumer: the empty
+ * state offers a document's own questions only once that document has landed.
+ */
+function Harness() {
+  const documents = useDocuments(tenant);
+  return (
+    <>
+      <Documents documents={documents} hasTenant />
+      <ul data-testid="suggesting">
+        {documents.suggesting.flatMap((entry) =>
+          entry.suggestions.map((question) => <li key={question}>{question}</li>),
+        )}
+      </ul>
+    </>
+  );
+}
+
 beforeEach(() => {
   startIngest.mockClear();
   serveStatus(statusMap());
@@ -80,7 +112,7 @@ afterEach(() => {
 
 describe('Documents', () => {
   it('renders one card per catalogue source, with its format visible', async () => {
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
 
     expect(await screen.findByText('gdpr-full')).toBeTruthy();
     expect(screen.getByText('nist-sp-800-63b')).toBeTruthy();
@@ -93,7 +125,7 @@ describe('Documents', () => {
   });
 
   it('shows a source the tenant has never touched as not ingested, not as loaded', async () => {
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
     await screen.findByText('gdpr-full');
     expect(screen.getAllByText('Not ingested')).toHaveLength(2);
   });
@@ -101,7 +133,7 @@ describe('Documents', () => {
   it('reports the real state of an ingested source rather than assuming it', async () => {
     serveStatus(statusMap({ 'gdpr-full': COMPLETE_GDPR }));
 
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
 
     // The completion statement is the count, not the word "complete": a reader
     // comparing two cards needs to see what is actually in the corpus.
@@ -125,7 +157,7 @@ describe('Documents', () => {
       }),
     );
 
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
 
     const bar = await screen.findByRole('progressbar');
     // Brass means measured, so the bar has to be fed by the counts rather than
@@ -149,7 +181,7 @@ describe('Documents', () => {
       }),
     );
 
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
 
     const bar = await screen.findByRole('progressbar');
     // No count exists yet, so none is claimed. `aria-valuenow` on a bar with no
@@ -159,7 +191,7 @@ describe('Documents', () => {
   });
 
   it('starts an ingest for the source that was clicked, and only that one', async () => {
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
     const buttons = await screen.findAllByRole('button', { name: /Ingest this/ });
     expect(buttons).toHaveLength(2);
 
@@ -172,9 +204,46 @@ describe('Documents', () => {
   it('offers no button for a source that is already complete', async () => {
     serveStatus(statusMap({ 'gdpr-full': COMPLETE_GDPR }));
 
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
     await screen.findByText(/passages in this tenant/);
     expect(screen.getAllByRole('button', { name: /Ingest this/ })).toHaveLength(1);
+  });
+
+  it('offers a document’s own questions only once the tenant holds it', async () => {
+    render(<Harness />);
+    await screen.findByText('nist-sp-800-63b');
+
+    // Idle. Asking this now would retrieve nothing, and "no passage matched" is
+    // not what a visitor should get from a question the page put in front of
+    // them.
+    expect(screen.queryByText(NIST_QUESTION)).toBeNull();
+  });
+
+  it('offers them as soon as that document has landed', async () => {
+    serveStatus(
+      statusMap({
+        'nist-sp-800-63b': {
+          stage: 'complete',
+          chunks_done: 746,
+          chunks_total: 746,
+          error: null,
+          started_at: null,
+        },
+      }),
+    );
+
+    render(<Harness />);
+    expect(await screen.findByText(NIST_QUESTION)).toBeTruthy();
+  });
+
+  it('offers nothing for a complete document that carries no questions', async () => {
+    // `gdpr-full` deliberately ships none: every tenant is seeded with excerpts
+    // of it, so the page already offers GDPR questions from the first paint.
+    serveStatus(statusMap({ 'gdpr-full': COMPLETE_GDPR }));
+
+    render(<Harness />);
+    await screen.findByText(/passages in this tenant/);
+    expect(screen.getByTestId('suggesting').children).toHaveLength(0);
   });
 
   it('renders an error code as a sentence, and an unknown one as itself', async () => {
@@ -197,7 +266,7 @@ describe('Documents', () => {
       }),
     );
 
-    render(<Documents tenant={tenant} />);
+    render(<Harness />);
     expect(await screen.findByText(/The ingest failed/)).toBeTruthy();
     // A code this table has not caught up with is still more use on screen than
     // a generic apology.

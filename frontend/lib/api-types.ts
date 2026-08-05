@@ -329,7 +329,7 @@ export interface components {
   schemas: {
     /**
      * CatalogueEntry
-     * @description What a caller may know about a source: three fields, and no more.
+     * @description What a caller may know about a source: four fields, and no more.
      *
      *     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
      *     `document_xml_sha256` and `conversion`. None of them leave the server.
@@ -345,6 +345,11 @@ export interface components {
       title: string;
       /** Media Type */
       media_type: string;
+      /**
+       * Suggestions
+       * @description Questions the page offers once a tenant holds this document. May be empty. They travel with the catalogue rather than living in the frontend for the same reason this route exists: a question is a property of the document, and a copy in the page would drift from the corpus that has to answer it.
+       */
+      suggestions: string[];
     };
     /** CreateConversationRequest */
     CreateConversationRequest: {

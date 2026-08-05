@@ -59,6 +59,20 @@ class Source:
     # makes BOTH digests reproducible — this field exists so the claim can be
     # checked against the part that carries the text, not just the container.
     document_xml_sha256: str | None = None
+    # Questions the empty state offers once a tenant holds this document.
+    #
+    # Here and not in the frontend for the reason `GET /api/v1/catalogue` gives
+    # for existing at all: hard-coding per-document copy in the page would put
+    # the catalogue in two places that drift. A question is a property of the
+    # document, like its title.
+    #
+    # Every one of these is verified by `test_suggested_questions.py` against a
+    # tenant holding BOTH documents — a suggestion that returns nothing, or that
+    # answers out of the other source, is the exact failure this demo's whole
+    # claim rests on not making. Empty is a legitimate value: `gdpr-full` needs
+    # none, because every tenant is seeded with excerpts of it and the page
+    # already offers three questions those excerpts answer.
+    suggestions: tuple[str, ...] = ()
     # Measured against the committed file by `parse_source()`, never guessed.
     # Last field and defaulted so a source can be committed before its chunking
     # exists — but `test_ingest_catalogue.py` refuses to let a `None` survive
@@ -173,6 +187,22 @@ CATALOGUE: dict[str, Source] = {
         # being planned (597, 636, 440) were all wrong, each derived from a
         # probe packing that did not exist as code.
         #
+        # Chosen by running retrieval, not by reading the document and guessing.
+        # Twelve candidates were put through `search_chunks` in FTS mode against
+        # a tenant holding this document AND the GDPR; all twelve returned five
+        # of five hits from this source, so routing was never the discriminator.
+        # These three won on the passage that came back: each lands in a section
+        # that answers the question asked, starting at a sentence boundary. Four
+        # of the rejected candidates retrieved from this document and still
+        # answered badly — "What are the requirements for memorized secrets?"
+        # landed in the Change Log, and "What is the minimum length of a
+        # memorized secret?" answered about look-up secrets, which are a
+        # different authenticator type.
+        suggestions=(
+            "How should passwords be checked against breached password lists?",
+            "What cryptography must an AAL3 authenticator use?",
+            "How is an authenticator bound to a subscriber account?",
+        ),
         # 746 is higher than any of them for a reason worth recording: the
         # chunker flushes the packing buffer at every one of the document's 145
         # headings, so a chunk never straddles a section and its `locator` is

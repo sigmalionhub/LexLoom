@@ -78,7 +78,7 @@ class IngestRequest(BaseModel):
 
 
 class CatalogueEntry(BaseModel):
-    """What a caller may know about a source: three fields, and no more.
+    """What a caller may know about a source: four fields, and no more.
 
     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
     `document_xml_sha256` and `conversion`. None of them leave the server.
@@ -91,6 +91,15 @@ class CatalogueEntry(BaseModel):
     key: str
     title: str
     media_type: str
+    suggestions: list[str] = Field(
+        description=(
+            "Questions the page offers once a tenant holds this document. May "
+            "be empty. They travel with the catalogue rather than living in the "
+            "frontend for the same reason this route exists: a question is a "
+            "property of the document, and a copy in the page would drift from "
+            "the corpus that has to answer it."
+        ),
+    )
 
 
 class IngestStatusResponse(BaseModel):
@@ -145,7 +154,12 @@ async def get_catalogue() -> list[CatalogueEntry]:
     iteration would reshuffle the visitor's rows between polls.
     """
     return [
-        CatalogueEntry(key=source.key, title=source.title, media_type=source.media_type)
+        CatalogueEntry(
+            key=source.key,
+            title=source.title,
+            media_type=source.media_type,
+            suggestions=list(source.suggestions),
+        )
         for source in CATALOGUE.values()
     ]
 

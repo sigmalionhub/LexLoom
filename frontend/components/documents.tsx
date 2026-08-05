@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { api, ApiError, type CatalogueEntry, type IngestStage, type IngestStatusMap } from '@/lib/api';
-import type { Tenant } from '@/lib/use-lexloom';
+import type { CatalogueEntry, IngestStage } from '@/lib/api';
+import type { DocumentsState } from '@/lib/use-documents';
 
 /**
  * The documents this tenant can hold, and what each of them is doing.
@@ -16,14 +15,17 @@ import type { Tenant } from '@/lib/use-lexloom';
  * still on screen after the tenth question. Putting it in the transcript would
  * have scrolled it away after the first one.
  *
+ * Presentational only: the fetching, the polling and the `POST` live in
+ * `lib/use-documents.ts`, because the empty state reads the same status map to
+ * decide which questions are worth offering, and two callers of one hook would
+ * poll the same route twice.
+ *
  * Nothing here is scripted, which is the standing rule for both halves of the
  * page. Every stage, every count and every elapsed second is read off
  * `GET /api/v1/ingest/status` for this tenant, and a source this tenant has
  * never touched reports `idle` because the server says so rather than because
  * this component assumed it.
  */
-
-const POLL_MS = 500;
 
 const ORDERED_STAGES: IngestStage[] = [
   'queued',
@@ -67,106 +69,16 @@ function errorMessage(code: string): string {
   return ERROR_MESSAGES[code] ?? code;
 }
 
-function errorDetail(error: unknown): string {
-  if (error instanceof ApiError) return error.problem.detail ?? error.message;
-  return String(error);
-}
+export function Documents({
+  documents,
+  hasTenant,
+}: {
+  documents: DocumentsState;
+  hasTenant: boolean;
+}) {
+  const { catalogue, statuses, starting, startError, start } = documents;
 
-/**
- * Plain fetch, deliberately not `api.ingestStatus` — the same reasoning as
- * `panel/service-status.tsx`'s own poll: every call through `lib/api.ts` is
- * reported to the panel's REQUESTS block, and a poll every 500 ms would fill a
- * visitor's request log with this section watching itself. The one-shot `POST`
- * that starts an ingest is a real, rare, visitor-initiated action and does go
- * through `api.startIngest`.
- */
-async function pollStatus(token: string): Promise<IngestStatusMap | null> {
-  try {
-    const response = await fetch('/api/v1/ingest/status', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) return null;
-    return (await response.json()) as IngestStatusMap;
-  } catch {
-    return null;
-  }
-}
-
-export function Documents({ tenant }: { tenant: Tenant | null }) {
-  const token = tenant?.token ?? null;
-  const orgId = tenant?.orgId ?? null;
-
-  const [catalogue, setCatalogue] = useState<CatalogueEntry[]>([]);
-  const [statuses, setStatuses] = useState<IngestStatusMap>({});
-  const [starting, setStarting] = useState<string | null>(null);
-  const [startError, setStartError] = useState<string | null>(null);
-
-  // The catalogue is a property of the deployment, not of the tenant, so it is
-  // fetched once and never re-fetched on a tenant switch.
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .catalogue()
-      .then((entries) => {
-        if (!cancelled) setCatalogue(entries);
-      })
-      .catch(() => {
-        /* The section renders nothing rather than a guess; see below. */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // One read per organisation, not a poll: a status this section did not itself
-  // start — the same tenant reached again after a re-render — still has to show
-  // what actually happened rather than default to "not ingested" until a click.
-  useEffect(() => {
-    setStatuses({});
-    setStartError(null);
-    if (!token) return;
-    let cancelled = false;
-    pollStatus(token).then((body) => {
-      if (!cancelled && body) setStatuses(body);
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId]);
-
-  const inFlight = Object.values(statuses).some(
-    (status) => status.stage !== 'idle' && status.stage !== 'complete' && status.stage !== 'error',
-  );
-
-  useEffect(() => {
-    if (!token || !inFlight) return;
-    const id = setInterval(() => {
-      // A hidden tab polls nothing — the demo box is shared, and a tab left
-      // open for a day is otherwise over a hundred thousand requests.
-      if (document.visibilityState !== 'visible') return;
-      pollStatus(token).then((body) => {
-        if (body) setStatuses(body);
-      });
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [token, inFlight]);
-
-  async function start(sourceKey: string) {
-    if (!token) return;
-    setStarting(sourceKey);
-    setStartError(null);
-    try {
-      const status = await api.startIngest(token, sourceKey);
-      setStatuses((current) => ({ ...current, [sourceKey]: status }));
-    } catch (error) {
-      setStartError(errorDetail(error));
-    } finally {
-      setStarting(null);
-    }
-  }
-
-  if (!tenant || catalogue.length === 0) return null;
+  if (!hasTenant || catalogue.length === 0) return null;
 
   return (
     <section className="mt-5">

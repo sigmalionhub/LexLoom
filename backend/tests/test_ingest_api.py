@@ -372,13 +372,17 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
 async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     client: AsyncClient,
 ) -> None:
-    """Three fields, and the ones deliberately absent.
+    """Four fields, and the ones deliberately absent.
 
     `Source` also carries `path` (an absolute path inside the image), `sha256`,
     `document_xml_sha256` and `conversion` (which names the build tool and its
     exact version). A response model that mirrored the dataclass would have
     published all four; `CatalogueEntry` is what stops it, so the absence is
     asserted rather than trusted.
+
+    The set is pinned rather than sampled, which is why adding `suggestions`
+    failed here first. That is the test working: a field reaches the public
+    catalogue only when someone writes it down here.
     """
     response = await client.get("/api/v1/catalogue")
     assert response.status_code == 200
@@ -386,7 +390,11 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     body = response.json()
     assert [entry["key"] for entry in body] == list(CATALOGUE)
     for entry in body:
-        assert set(entry) == {"key", "title", "media_type"}
+        assert set(entry) == {"key", "title", "media_type", "suggestions"}
+        # Carried through as sent, not reordered or deduplicated: the page
+        # renders them in this order and `test_suggested_questions.py` verifies
+        # them in it.
+        assert entry["suggestions"] == list(CATALOGUE[entry["key"]].suggestions)
 
     serialised = response.text
     for leaked in ("/app/", "sha256", "LibreOffice", "build_docx_source"):

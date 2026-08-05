@@ -488,16 +488,25 @@
           "media_type": {
             "type": "string",
             "title": "Media Type"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suggestions",
+            "description": "Questions the page offers once a tenant holds this document. May be empty. They travel with the catalogue rather than living in the frontend for the same reason this route exists: a question is a property of the document, and a copy in the page would drift from the corpus that has to answer it."
           }
         },
         "type": "object",
         "required": [
           "key",
           "title",
-          "media_type"
+          "media_type",
+          "suggestions"
         ],
         "title": "CatalogueEntry",
-        "description": "What a caller may know about a source: three fields, and no more.\n\n`Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,\n`document_xml_sha256` and `conversion`. None of them leave the server.\n`path` is an absolute path inside the image, and `conversion` names the\nbuild tool and its exact version \u2014 neither is any of a visitor's business,\nand a response model that listed the dataclass's fields by default would\nhave shipped both. The model is the boundary, not a convenience."
+        "description": "What a caller may know about a source: four fields, and no more.\n\n`Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,\n`document_xml_sha256` and `conversion`. None of them leave the server.\n`path` is an absolute path inside the image, and `conversion` names the\nbuild tool and its exact version \u2014 neither is any of a visitor's business,\nand a response model that listed the dataclass's fields by default would\nhave shipped both. The model is the boundary, not a convenience."
       },
       "CreateConversationRequest": {
         "properties": {

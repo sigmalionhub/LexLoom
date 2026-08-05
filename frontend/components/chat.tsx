@@ -97,7 +97,10 @@ export function Chat({
         </div>
       </header>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 px-6 py-8 sm:px-10 lg:overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="relative min-h-0 flex-1 px-6 py-8 sm:px-10 lg:overflow-y-auto"
+      >
         <div className="mx-auto w-full max-w-[70ch]">
           {fatal && (
             <div className="mb-7 border-l-2 border-alarm bg-paper-raised px-4 py-3">

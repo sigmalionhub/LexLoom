@@ -69,7 +69,7 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
         </p>
       </header>
 
-      <div className="min-h-0 flex-1 px-6 pb-6 lg:overflow-y-auto">
+      <div className="no-scrollbar relative min-h-0 flex-1 px-6 pb-6 lg:overflow-y-auto">
         <Section label="Tenant">
           {tenant ? (
             <>

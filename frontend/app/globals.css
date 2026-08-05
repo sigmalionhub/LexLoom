@@ -47,6 +47,20 @@
   .figure {
     @apply font-mono tabular-nums;
   }
+
+  /* Hides the scrollbar and nothing else. The element still scrolls by wheel,
+     by keyboard and programmatically — `overflow-hidden` would take all three
+     away, which is why it is not used here. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

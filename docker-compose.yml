@@ -161,7 +161,7 @@ services:
       # lexloom_app — the role this service connects as — and not to
       # lexloom_worker, which would have nothing to do with a ceiling it only
       # discovered after the task was already in the queue.
-      INGEST_ORG_CAP: ${INGEST_ORG_CAP:-8}
+      INGEST_ORG_CAP: ${INGEST_ORG_CAP:-16}
       # Only this service: the worker and beat never generate an answer, so
       # they have no use for the key, and `docker inspect` on either would
       # otherwise show it to anyone in the `docker` group on this shared box.

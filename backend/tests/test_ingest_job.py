@@ -35,7 +35,7 @@ import pytest
 from conftest import LIMITS_TEST_REDIS_URL
 from sqlalchemy import text
 
-from app.auth.demo import DEMO_TOKEN_TTL_SECONDS
+from app.auth.demo import DEMO_ORG_TTL, DEMO_TOKEN_TTL_SECONDS
 from app.chat.corpus import copy_corpus_into
 from app.chat.embedding import DIMENSIONS
 from app.db.session import system_session, tenant_session
@@ -44,6 +44,7 @@ from app.ingest.catalogue import CATALOGUE
 from app.ingest.jobs import (
     _INGEST_ORG_TTL_SECONDS,
     _RELEASE_SLOT_SQL,
+    _RESERVATION_TTL_SECONDS,
     IngestAbandoned,
     IngestAlreadyComplete,
     _guard_write_transaction,
@@ -908,3 +909,45 @@ async def test_an_ingest_the_organisation_will_not_outlive_is_refused(created_or
     roomy = await _make_org(created_orgs, expires_at_sql="now() + interval '2 hours'")
     await _add_fake_ingested_chunk(roomy, PRELOADED_KEY)
     await ensure_ingest_admitted(roomy, SOURCE_KEY)
+
+def test_the_cap_bounds_a_two_hour_window_and_the_queue_still_fits_inside_it() -> None:
+    """The two numbers behind `INGEST_ORG_CAP`, held to each other.
+
+    Both were got wrong in conversation before they were got right here, so
+    both are asserted rather than described.
+
+    **What the cap bounds.** Not ingests per day. Admission floors an
+    organisation's expiry to `_INGEST_ORG_TTL_SECONDS` (migration 0011's
+    `LEAST`), and `count_orgs_with_corpus` skips expired organisations, so a
+    slot returns two hours after it was taken however long that tenant's own
+    TTL is. `test_admission_shortens_an_ingesting_organisations_ttl` measures the
+    flooring itself; this one pins the constant it floors to well
+    below the tenant TTL, which is what makes the window the binding thing.
+
+    **Why the cap could double for free.** The worst-case queue backlog between
+    two hourly purges is `cap x ingestable sources x task_time_limit`. Only one
+    source is ingestable now — every tenant is *given* `gdpr-full`
+    (`PRELOADED_SOURCE_KEYS`) and asking to ingest it answers 409 — so raising
+    the cap from 8 to 16 left that product where it was, and
+    `_RESERVATION_TTL_SECONDS` did not have to move. If a second ingestable
+    document is ever added, this assertion is what fails.
+    """
+    from app.config import get_settings  # noqa: PLC2701 - a defaults check, not a fixture
+    from app.ingest.catalogue import CATALOGUE
+    from app.ingest.preload import PRELOADED_SOURCE_KEYS
+    from app.worker.celery_app import celery_app
+
+    cap = get_settings().ingest_org_cap
+    ingestable = [key for key in CATALOGUE if key not in PRELOADED_SOURCE_KEYS]
+    assert ingestable, "nothing is ingestable, so the cap bounds nothing"
+
+    backlog = cap * len(ingestable) * celery_app.conf.task_time_limit
+    assert backlog <= _RESERVATION_TTL_SECONDS, (
+        f"a queued ingest can wait {backlog}s but its slot expires after "
+        f"{_RESERVATION_TTL_SECONDS}s, so it would lose the slot to a newcomer "
+        f"while it was about to run"
+    )
+
+    # The window the cap actually bounds is shorter than a tenant's life, which
+    # is the whole reason the cap is about concurrency rather than daily volume.
+    assert _INGEST_ORG_TTL_SECONDS < DEMO_ORG_TTL.total_seconds()

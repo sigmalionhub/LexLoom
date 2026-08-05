@@ -182,7 +182,7 @@ Edit `.env` before starting anything:
   `.env` the same way as every other secret in this list and nowhere else; `.env` is
   `.gitignore`d, and pasting the key into a command line or a committed file defeats the
   point of the header.
-- optionally set `INGEST_ORG_CAP` (default `8`) to change how many organisations may
+- optionally set `INGEST_ORG_CAP` (default `16`) to change how many organisations may
   hold an ingested corpus at once — see the comment beside it in `.env.example` for the
   memory arithmetic behind the default. Note what it does **not** bound: it is a global
   ceiling, so one address filling it denies the ingest feature to every later visitor
@@ -243,11 +243,17 @@ Re-run it whenever the corpus changes — a new catalogue document, a re-parsed 
 different embedding model. Nothing detects a stale template: the rows are a copy taken
 whenever this last ran, and tenants keep receiving the old one.
 
-**Capacity, changed by this.** `INGEST_ORG_CAP` (8) no longer bounds the GDPR — it only
-bounds the second document. Every live tenant now holds ~978 chunks for its full
-`DEMO_ORG_TTL` of 24 h, at roughly 2.4 KB a chunk, so ~2.4 MB per visitor per day
-(derived from a 384-dimensional float32 vector plus ~500 characters of text, not
-measured end to end). A hundred visitors in a day is ~240 MB of Postgres growth resident
+**Capacity, changed by this.** `INGEST_ORG_CAP` no longer bounds the GDPR — it only bounds
+the second document, and it was raised from 8 to 16 because of that. What it bounds is
+*concurrency in a two-hour window*, not ingests per day: admission floors an
+organisation's expiry to `_INGEST_ORG_TTL_SECONDS` = 2 h (migration 0011), so a slot comes
+back two hours after it was taken however long the tenant's own TTL is. Measured, not
+reasoned: a tenant reports 24.00 h of life at sign-in and 2.00 h immediately after
+admission.
+
+Every live tenant now holds 1008 chunks for its full `DEMO_ORG_TTL` of 24 h — **1.95 MiB of
+heap, measured** (389 KiB of text, 1518 KiB of embeddings), not counting shared indexes. A
+hundred visitors in a day is ~195 MiB of Postgres growth resident
 at the peak, on a box shared with other applications. The lever for that is the TTL, not
 the cap.
 

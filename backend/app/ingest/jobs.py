@@ -165,19 +165,21 @@ _RESERVE_SLOT_SQL = text("SELECT public.reserve_ingest_slot(:cap, :reservation_t
 _RELEASE_SLOT_SQL = text("UPDATE organizations SET ingest_reserved_at = NULL WHERE id = :org")
 
 # How long an admitted-but-unfinished ingest keeps its slot. It has to exceed
-# the worst case a queued job can actually take, and that worst case doubled
-# when a tenant became able to ingest more than one document: `INGEST_ORG_CAP`
-# tenants x 2 sources x `task_time_limit` = 360 s is 8 x 2 x 360 = 96 minutes at
-# the default cap of 8, so the previous hour is now *under* the backlog it was
-# sized against and a job still in the queue would lose its slot to a newcomer
-# while it was about to run. Two hours is the smallest round number above 96
-# minutes. Too long and a worker that died holds a slot for no reason; that
-# direction is the safe one, because the reservation is cleared in the same
-# transaction as the write.
+# the worst case a queued job can actually take: `INGEST_ORG_CAP` tenants x the
+# number of *ingestable* sources x `task_time_limit` = 360 s. That is
+# 16 x 1 x 360 = 96 minutes at the current cap, so two hours — the smallest
+# round number above it — still holds. Too long and a worker that died holds a
+# slot for no reason; that direction is the safe one, because the reservation is
+# cleared in the same transaction as the write.
 #
-# The previous derivation read "8 x 360 s = 48 minutes ... so an hour is the
-# smallest round number above it", which was correct for one document per
-# tenant. `config.py` carries the same arithmetic and moves with it.
+# This number has been re-derived twice and the arithmetic changed both times,
+# so the history is worth keeping. It read "8 x 360 s = 48 minutes, so an hour",
+# correct while a tenant could hold one document. It became "8 x 2 x 360 = 96
+# minutes" when a tenant could hold two, which is what moved it to 7200. The
+# multiplier then went back to 1 — every tenant is now *given* `gdpr-full` at
+# sign-in and asking to ingest it answers 409, so only one source is ever
+# queued — and that slack is exactly what let the cap double to 16 without this
+# number moving. `config.py` carries the same arithmetic and moves with it.
 _RESERVATION_TTL_SECONDS = 7200
 
 # What an organisation's TTL is shortened to when it starts an ingest — never

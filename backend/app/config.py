@@ -197,19 +197,30 @@ class Settings(BaseSettings):
     # more than one document, and both were re-derived rather than left to
     # drift.
     #
-    # Storage: 8 x (978 + 746) chunks x (~500 chars + a 384-float embedding) is
-    # ~15 MB of Postgres held by ingested corpora at once, on a container
-    # limited to 384 MB (docker-compose.yml) - still noise, and still the
-    # smaller of the two concerns.
+    # Storage: 16 x 746 chunks x (~500 chars + a 384-float embedding) is ~12 MB
+    # of Postgres held by ingested corpora at once, on a container limited to
+    # 384 MB (docker-compose.yml) - still noise, and still the smaller of the
+    # two concerns. It went *down* with the cap going up, because only one
+    # document is ingestable now: every tenant is given `gdpr-full` at sign-in
+    # (app/ingest/preload.py) and asking to ingest it answers 409.
     #
     # Queue backlog: at most one ingest task per (organisation, source) - see
     # `app.ingest.jobs`'s per-source duplicate guard - so at most
-    # INGEST_ORG_CAP x len(CATALOGUE) tasks stand between two runs of the hourly
-    # purge, and the worst-case delay the purge can suffer is that times
-    # task_time_limit: 8 x 2 x 360 s = 96 minutes, where it was 48. That is what
-    # `_RESERVATION_TTL_SECONDS` (app/ingest/jobs.py) had to move above; it is
-    # now 7200. See app/worker/celery_app.py.
-    ingest_org_cap: int = Field(default=8, ge=1)
+    # INGEST_ORG_CAP x (ingestable sources) tasks stand between two runs of the
+    # hourly purge, and the worst-case delay the purge can suffer is that times
+    # task_time_limit: 16 x 1 x 360 s = 96 minutes. Unchanged, and that is the
+    # whole reason the cap could double for free: preloading halved the
+    # multiplier. `_RESERVATION_TTL_SECONDS` (app/ingest/jobs.py) still has to
+    # sit above it and still does at 7200. See app/worker/celery_app.py.
+    #
+    # Why 16 rather than 8. A slot is held for at most `_INGEST_ORG_TTL_SECONDS`
+    # = 2 h, because admission floors the organisation's expiry (migration
+    # 0011), so the cap bounds *concurrency in a two-hour window*, not ingests
+    # per day. At 8 that is ~96 ingests a day and, more to the point, 8 people
+    # at once; the owner's traffic estimate is up to ~100 visitors a day, which
+    # is about 8 an hour, so 8 concurrent would have been reached routinely and
+    # the demo's one interactive action would have answered 503 to the ninth.
+    ingest_org_cap: int = Field(default=16, ge=1)
 
     @field_validator("trusted_proxies")
     @classmethod

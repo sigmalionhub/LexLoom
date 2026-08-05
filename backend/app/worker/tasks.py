@@ -283,7 +283,7 @@ def ingest_source(self, org_id: str, source_key: str) -> int:
             await engine.dispose()
 
     async def _mark_error(code: str) -> None:
-        await _write_progress(org_id, stage="error", error=code)
+        await _write_progress(org_id, source_key, stage="error", error=code)
 
     try:
         return asyncio.run(_run())

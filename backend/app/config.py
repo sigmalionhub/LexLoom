@@ -193,15 +193,22 @@ class Settings(BaseSettings):
     # the function's own docstring explains why the obvious unscoped query
     # returns 0 instead.
     #
-    # 8 x ~1.1 MB (978 chunks x (~500 chars + a 384-float embedding)) is
-    # ~10 MB of Postgres held by ingested corpora at once, on a container
-    # limited to 384 MB (docker-compose.yml). It also bounds the worker's
-    # queue backlog: at most one ingest task per organisation
-    # (app.ingest.jobs, the per-org duplicate guard) and at most this many
-    # organisations between two runs of the hourly purge, so the worst-case
-    # delay the purge itself can suffer is INGEST_ORG_CAP x task_time_limit -
-    # see app/worker/celery_app.py and the worked arithmetic in the task 23
-    # report.
+    # Both halves of this arithmetic doubled when a tenant became able to hold
+    # more than one document, and both were re-derived rather than left to
+    # drift.
+    #
+    # Storage: 8 x (978 + 746) chunks x (~500 chars + a 384-float embedding) is
+    # ~15 MB of Postgres held by ingested corpora at once, on a container
+    # limited to 384 MB (docker-compose.yml) - still noise, and still the
+    # smaller of the two concerns.
+    #
+    # Queue backlog: at most one ingest task per (organisation, source) - see
+    # `app.ingest.jobs`'s per-source duplicate guard - so at most
+    # INGEST_ORG_CAP x len(CATALOGUE) tasks stand between two runs of the hourly
+    # purge, and the worst-case delay the purge can suffer is that times
+    # task_time_limit: 8 x 2 x 360 s = 96 minutes, where it was 48. That is what
+    # `_RESERVATION_TTL_SECONDS` (app/ingest/jobs.py) had to move above; it is
+    # now 7200. See app/worker/celery_app.py.
     ingest_org_cap: int = Field(default=8, ge=1)
 
     @field_validator("trusted_proxies")

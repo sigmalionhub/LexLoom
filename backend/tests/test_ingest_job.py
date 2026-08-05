@@ -37,6 +37,7 @@ from sqlalchemy import text
 
 from app.auth.demo import DEMO_TOKEN_TTL_SECONDS
 from app.chat.corpus import copy_corpus_into
+from app.chat.embedding import DIMENSIONS
 from app.db.session import system_session, tenant_session
 from app.errors import ProblemError
 from app.ingest.catalogue import CATALOGUE
@@ -51,6 +52,7 @@ from app.ingest.jobs import (
     read_ingest_status,
     run_ingest,
 )
+from app.ingest.parse import Chunk
 from app.worker.tasks import ingest_source
 
 SOURCE_KEY = "gdpr-full"
@@ -148,7 +150,7 @@ async def test_the_global_cap_refuses_once_the_ceiling_is_held(
 
     one_more = await _make_org(created_orgs)
     with pytest.raises(ProblemError) as refused:
-        await ensure_ingest_admitted(one_more)
+        await ensure_ingest_admitted(one_more, SOURCE_KEY)
     assert refused.value.code == "capacity_unavailable"
     assert refused.value.status == 503
 
@@ -162,7 +164,7 @@ async def test_ensure_ingest_admitted_refuses_a_second_ingest_for_the_same_org(
     org_id = await _make_org(created_orgs)
     await _add_fake_ingested_chunk(org_id)
     with pytest.raises(ProblemError) as refused:
-        await ensure_ingest_admitted(org_id)
+        await ensure_ingest_admitted(org_id, SOURCE_KEY)
     assert refused.value.code == "already_ingested"
     assert refused.value.status == 409
 
@@ -173,7 +175,7 @@ async def test_ensure_ingest_admitted_permits_an_org_holding_only_the_seed(
     org_id = await _make_org(created_orgs)
     async with tenant_session(org_id) as session:
         await copy_corpus_into(session, org_id)
-    await ensure_ingest_admitted(org_id)  # does not raise
+    await ensure_ingest_admitted(org_id, SOURCE_KEY)  # does not raise
 
 
 # --- The progress hash: written before Redis, read from the rows without it -
@@ -185,8 +187,8 @@ async def test_mark_ingest_queued_then_read_ingest_status_round_trip(
     settings_override(redis_url=LIMITS_TEST_REDIS_URL)
     org_id = await _make_org(created_orgs)
 
-    await mark_ingest_queued(org_id)
-    status = await read_ingest_status(org_id)
+    await mark_ingest_queued(org_id, SOURCE_KEY)
+    status = await read_ingest_status(org_id, SOURCE_KEY)
 
     assert status["stage"] == "queued"
     assert status["chunks_done"] == 0
@@ -201,12 +203,12 @@ async def test_read_ingest_status_falls_back_to_the_rows_when_the_hash_is_absent
     settings_override(redis_url=LIMITS_TEST_REDIS_URL)
     org_id = await _make_org(created_orgs)
 
-    idle = await read_ingest_status(org_id)
+    idle = await read_ingest_status(org_id, SOURCE_KEY)
     assert idle["stage"] == "idle"
     assert idle["chunks_done"] == 0
 
     await _add_fake_ingested_chunk(org_id)
-    complete = await read_ingest_status(org_id)
+    complete = await read_ingest_status(org_id, SOURCE_KEY)
     assert complete["stage"] == "complete"
     assert complete["chunks_done"] == 1
     assert complete["chunks_total"] == 1
@@ -293,13 +295,13 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
         )
     assert ordinals == list(range(expected))
 
-    status = await read_ingest_status(org_id)
+    status = await read_ingest_status(org_id, SOURCE_KEY)
     assert status["stage"] == "complete"
     assert status["chunks_done"] == expected
     assert status["chunks_total"] == expected
 
     with pytest.raises(ProblemError) as refused:
-        await ensure_ingest_admitted(org_id)
+        await ensure_ingest_admitted(org_id, SOURCE_KEY)
     assert refused.value.code == "already_ingested"
 
 
@@ -338,7 +340,7 @@ async def test_the_liveness_guard_can_take_its_row_lock_as_the_worker_role(
     """
     org_id = await _make_org(created_orgs)
     async with tenant_session(org_id) as session:
-        await _guard_write_transaction(session, org_id)  # does not raise
+        await _guard_write_transaction(session, org_id, SOURCE_KEY)  # does not raise
 
 
 async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
@@ -371,7 +373,7 @@ async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
 
     try:
         async with tenant_session(org_id) as session:
-            await _guard_write_transaction(session, org_id)  # alive: the lock is taken
+            await _guard_write_transaction(session, org_id, SOURCE_KEY)  # alive: the lock is taken
 
             # Past the TTL, still inside the transaction that holds the lock.
             await asyncio.sleep(2.5)
@@ -434,7 +436,7 @@ async def _reservation_of(org_id: str):
 async def _admit(org_id: str) -> str | None:
     """Admit, and report the refusal code instead of raising."""
     try:
-        await ensure_ingest_admitted(org_id)
+        await ensure_ingest_admitted(org_id, SOURCE_KEY)
     except ProblemError as refused:
         return refused.code
     return None
@@ -509,14 +511,14 @@ async def test_a_committed_ingest_hands_its_reservation_over_to_its_corpus(
     settings_override(ingest_org_cap=committed + 5)
 
     org_id = await _make_org(created_orgs)
-    await ensure_ingest_admitted(org_id)
+    await ensure_ingest_admitted(org_id, SOURCE_KEY)
     assert await _reservation_of(org_id) is not None
 
     # The write transaction's own two statements, without the parse and the
     # embed: `run_ingest`'s INSERT is covered by the round-trip test above, and
     # what is under test here is that the release travels with it.
     async with tenant_session(org_id) as session:
-        await _guard_write_transaction(session, org_id)
+        await _guard_write_transaction(session, org_id, SOURCE_KEY)
         await session.execute(
             text(
                 "INSERT INTO document_chunks "
@@ -586,7 +588,7 @@ async def test_admission_shortens_an_ingesting_organisations_ttl(
     settings_override(ingest_org_cap=committed + 5)
 
     org_id = await _make_org(created_orgs, expires_at_sql="now() + interval '24 hours'")
-    await ensure_ingest_admitted(org_id)
+    await ensure_ingest_admitted(org_id, SOURCE_KEY)
 
     async with tenant_session(org_id) as session:
         remaining = await session.scalar(
@@ -603,21 +605,28 @@ async def test_admission_never_extends_an_organisations_ttl(
     """`LEAST`, not an assignment. A tenant that already expires sooner than the
     ingest TTL must not be handed extra life by starting an ingest — and neither
     must one with no expiry at all, which is the seed-corpus organisation.
+
+    Thirty minutes, not the five this used before migration 0011. Five is now
+    below the life an admission requires, so that tenant is refused outright and
+    the question of extending it never arises — see
+    `test_an_ingest_the_organisation_will_not_outlive_is_refused`. Thirty is
+    still well under the two-hour ingest TTL, which is what makes it the case
+    this test is about: `LEAST` must leave it alone rather than raise it.
     """
     async with system_session() as session:
         committed = await session.scalar(text("SELECT public.count_orgs_with_corpus()"))
     settings_override(ingest_org_cap=committed + 5)
 
-    short = await _make_org(created_orgs, expires_at_sql="now() + interval '5 minutes'")
-    await ensure_ingest_admitted(short)
+    short = await _make_org(created_orgs, expires_at_sql="now() + interval '30 minutes'")
+    await ensure_ingest_admitted(short, SOURCE_KEY)
     async with tenant_session(short) as session:
         remaining = await session.scalar(
             text("SELECT expires_at - now() FROM organizations WHERE id = :o"), {"o": short}
         )
-    assert remaining.total_seconds() <= 300
+    assert remaining.total_seconds() <= 1800
 
     permanent = await _make_org(created_orgs, expires_at_sql="NULL")
-    await ensure_ingest_admitted(permanent)
+    await ensure_ingest_admitted(permanent, SOURCE_KEY)
     async with tenant_session(permanent) as session:
         expires_at = await session.scalar(
             text("SELECT expires_at FROM organizations WHERE id = :o"), {"o": permanent}
@@ -720,3 +729,167 @@ async def test_the_admission_function_is_still_executable_by_the_api_role() -> N
             )
         )
     assert allowed is True
+
+
+# --- Per-source ingest: the pair (organisation, source), not the organisation -
+
+NIST_KEY = "nist-sp-800-63b"
+
+
+class _StubEmbedder:
+    """384 dimensions of nothing, so a test can drive `run_ingest` end to end
+    without paying ~40 s of ONNX inference. What changed in this task is the
+    plumbing around the embedding — the guards, the progress key, the write —
+    and that is what these tests exercise. The real weights are still exercised
+    by `test_ingest_source_embeds_and_writes_the_full_catalogue_source`.
+    """
+
+    def encode(self, texts):
+        return [[0.0] * DIMENSIONS for _ in texts]
+
+
+@pytest.fixture
+def cheap_ingest(monkeypatch):
+    """Two chunks per parse and a stub embedder, patched where `run_ingest`
+    looks them up rather than where they are defined."""
+
+    def fake_parse(source):
+        return [
+            Chunk(chunk_ordinal=0, content=f"first chunk of {source.key}", page_from=1, page_to=1),
+            Chunk(chunk_ordinal=1, content=f"second chunk of {source.key}", page_from=1, page_to=2),
+        ]
+
+    monkeypatch.setattr("app.ingest.parse.parse_source", fake_parse)
+    monkeypatch.setattr("app.chat.embedding.get_embedder", lambda: _StubEmbedder())
+
+
+async def test_a_second_source_ingests_end_to_end_for_a_tenant_that_already_has_one(
+    created_orgs, cheap_ingest
+) -> None:
+    """The invariant this task replaces, driven through the whole job.
+
+    Admission alone is not enough to test: an implementation that fixes
+    `ensure_ingest_admitted` and leaves `_guard_write_transaction` asking "does
+    ANY non-seed chunk exist" passes an admission-only test and then dies inside
+    the write transaction, in production, after a full parse and embed.
+    """
+    org_id = await _make_org(created_orgs)
+    await _add_fake_ingested_chunk(org_id, SOURCE_KEY)
+
+    written = await run_ingest(org_id, NIST_KEY)
+    assert written == 2
+
+    async with tenant_session(org_id) as session:
+        by_source = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT source_key, count(*) FROM document_chunks "
+                        "WHERE source_key IS NOT NULL GROUP BY source_key"
+                    )
+                )
+            ).all()
+        )
+    assert by_source[SOURCE_KEY] == 1
+    assert by_source[NIST_KEY] == 2
+
+
+async def test_the_same_source_twice_is_still_refused(created_orgs) -> None:
+    """Loosening the invariant must not remove it: the per-source guard is what
+    keeps a double POST from writing one document's chunks twice."""
+    org_id = await _make_org(created_orgs)
+    await _add_fake_ingested_chunk(org_id, NIST_KEY)
+
+    with pytest.raises(ProblemError) as refused:
+        await ensure_ingest_admitted(org_id, NIST_KEY)
+    assert refused.value.code == "already_ingested"
+
+    # ...and the other source is still admitted.
+    await ensure_ingest_admitted(org_id, SOURCE_KEY)
+
+
+async def test_progress_for_one_source_does_not_overwrite_the_other(
+    created_orgs, cheap_ingest
+) -> None:
+    """Both sources wrote `lexloom:ingest:{org_id}` before this task, so each
+    reported the other's stage. Driven through `run_ingest`, because its own
+    `_write_progress` calls are half the ones that had to change."""
+    org_id = await _make_org(created_orgs)
+
+    await mark_ingest_queued(org_id, SOURCE_KEY)
+    await run_ingest(org_id, NIST_KEY)
+
+    assert (await read_ingest_status(org_id, NIST_KEY))["stage"] == "complete"
+    assert (await read_ingest_status(org_id, SOURCE_KEY))["stage"] == "queued"
+
+
+async def test_two_tenants_ingesting_different_sources_stay_isolated(
+    created_orgs, cheap_ingest
+) -> None:
+    """Per-source, the fail-open-to-zero-rows trap changes meaning.
+
+    Zero rows used to read "never ingested"; it now reads "*this source* not
+    ingested". So a silent loss of tenant context would let `ensure_ingest_
+    admitted` re-admit and write a second copy. Both tenants are seeded, so a
+    failure of isolation shows up as a WRONG row rather than a missing one —
+    the same construction the RLS tests use.
+    """
+    first = await _make_org(created_orgs)
+    second = await _make_org(created_orgs)
+    await run_ingest(first, SOURCE_KEY)
+    await run_ingest(second, NIST_KEY)
+
+    async with tenant_session(first) as session:
+        rows = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT source_key FROM document_chunks "
+                        "WHERE source_key IS NOT NULL"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert set(rows) == {SOURCE_KEY}
+
+
+async def test_an_unknown_source_key_never_reaches_redis(client, demo_auth) -> None:
+    """`api/v1/ingest.py` validates against the catalogue before anything else,
+    and the progress key interpolates `source_key` directly. That ordering is
+    what makes the interpolation safe, so it is asserted rather than assumed."""
+    response = await client.post(
+        "/api/v1/ingest",
+        json={"source_key": "../../etc/passwd"},
+        headers=demo_auth,
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "source_not_found"
+
+
+async def test_an_ingest_the_organisation_will_not_outlive_is_refused(created_orgs) -> None:
+    """Migration 0011, and it refuses rather than extends.
+
+    A tenant whose first ingest pinned `expires_at` to `now() + 2 h` comes back
+    for a second document near the end of that window. `LEAST` leaves it minutes
+    of life against a `task_time_limit` of 360 s, so the purge — not the job —
+    would kill it, after a full parse and embed the visitor already paid for.
+
+    A first draft floored the new expiry instead. That worked and was wrong: it
+    extends a tenant's life, which is exactly what
+    `test_admission_never_extends_an_organisations_ttl` exists to forbid.
+    Refusing spends nothing, and a fresh login gives a fresh organisation.
+    """
+    org_id = await _make_org(created_orgs, expires_at_sql="now() + interval '5 minutes'")
+    await _add_fake_ingested_chunk(org_id, SOURCE_KEY)
+
+    with pytest.raises(ProblemError) as refused:
+        await ensure_ingest_admitted(org_id, NIST_KEY)
+    assert refused.value.code == "capacity_unavailable"
+
+    # And a tenant with a full window is admitted, so the guard is a threshold
+    # rather than a blanket refusal of anything that has ever ingested.
+    roomy = await _make_org(created_orgs, expires_at_sql="now() + interval '2 hours'")
+    await _add_fake_ingested_chunk(roomy, SOURCE_KEY)
+    await ensure_ingest_admitted(roomy, NIST_KEY)

@@ -15,7 +15,10 @@ state — see its own docstring and migration 0008 for what inferring cost.
 The residual, and it is a documented limitation rather than a mechanism.
 `INGEST_ORG_CAP` is global, so filling it denies the feature to everyone, and
 one address can fill it: 30 demo logins per hour is well over the eight
-organisations the default cap allows. `_INGEST_ORG_TTL_SECONDS` shortens an
+organisations the default cap allows, and since a tenant may now ingest every
+document in the catalogue, one login buys as many ingests as there are sources
+rather than one. That halves the effective cost of the attack the paragraph
+below describes; it does not change which mechanism bounds it. `_INGEST_ORG_TTL_SECONDS` shortens an
 ingesting tenant's life from 24 hours to 2, which turns a one-shot day-long
 outage into one that has to be re-mounted every couple of hours, and the
 liveness term in `count_orgs_with_corpus()` (0008) makes the slot come back
@@ -53,7 +56,6 @@ from redis.exceptions import RedisError
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.corpus import SEED_SOURCE_KEY
 from app.chat.embedding import DIMENSIONS
 from app.config import Settings, get_settings
 from app.db.session import tenant_session
@@ -66,7 +68,14 @@ logger = structlog.get_logger(__name__)
 # `limits.py`'s `lexloom:limits:`, not inside it: this hash is progress, not
 # admission control, and the two must stay tellable apart by prefix alone on
 # a Redis shared with Celery's own broker keys.
-_PROGRESS_KEY = "lexloom:ingest:{org_id}"
+#
+# The `source_key` segment arrived when a tenant became able to hold more than
+# one document. Without it two ingests for the same organisation write the same
+# hash and each reports the other's stage. The segment is safe to interpolate
+# because `api/v1/ingest.py` rejects any key that is not in `CATALOGUE` before
+# anything here is reached — that ordering is load-bearing and is asserted by
+# `test_an_unknown_source_key_never_reaches_redis`.
+_PROGRESS_KEY = "lexloom:ingest:{org_id}:{source_key}"
 
 # An order of magnitude above the job's own runtime (task_time_limit=360,
 # celery_app.py), so a status poll during a retry still finds the hash, and
@@ -143,8 +152,7 @@ _ALIVE_SQL = text(
     " FOR KEY SHARE"
 )
 _ALREADY_INGESTED_SQL = text(
-    "SELECT EXISTS (SELECT 1 FROM document_chunks "
-    " WHERE source_key IS NOT NULL AND source_key <> :seed)"
+    "SELECT EXISTS (SELECT 1 FROM document_chunks WHERE source_key = :key)"
 )
 
 # Migration 0008. Takes no organisation: it reads `app.current_org_id` itself,
@@ -157,14 +165,20 @@ _RESERVE_SLOT_SQL = text("SELECT public.reserve_ingest_slot(:cap, :reservation_t
 _RELEASE_SLOT_SQL = text("UPDATE organizations SET ingest_reserved_at = NULL WHERE id = :org")
 
 # How long an admitted-but-unfinished ingest keeps its slot. It has to exceed
-# the worst case a queued job can actually take: `INGEST_ORG_CAP` jobs ahead of
-# it at `task_time_limit` = 360 s each is 48 minutes at the default cap of 8, so
-# an hour is the smallest round number above it. Too short and a job still in
-# the queue loses its slot to a newcomer while it is about to run; too long and
-# a worker that died holds a slot for no reason. Matches `_PROGRESS_TTL_SECONDS`
-# for the same reason that one is 3600: it is sized against how long anyone
-# keeps looking, not against the data.
-_RESERVATION_TTL_SECONDS = 3600
+# the worst case a queued job can actually take, and that worst case doubled
+# when a tenant became able to ingest more than one document: `INGEST_ORG_CAP`
+# tenants x 2 sources x `task_time_limit` = 360 s is 8 x 2 x 360 = 96 minutes at
+# the default cap of 8, so the previous hour is now *under* the backlog it was
+# sized against and a job still in the queue would lose its slot to a newcomer
+# while it was about to run. Two hours is the smallest round number above 96
+# minutes. Too long and a worker that died holds a slot for no reason; that
+# direction is the safe one, because the reservation is cleared in the same
+# transaction as the write.
+#
+# The previous derivation read "8 x 360 s = 48 minutes ... so an hour is the
+# smallest round number above it", which was correct for one document per
+# tenant. `config.py` carries the same arithmetic and moves with it.
+_RESERVATION_TTL_SECONDS = 7200
 
 # What an organisation's TTL is shortened to when it starts an ingest — never
 # extended (migration 0008 uses LEAST), and never applied to an organisation
@@ -228,8 +242,8 @@ class IngestAlreadyComplete(RuntimeError):
     a separate statement that could observe a stale answer."""
 
 
-def _progress_key(org_id: str) -> str:
-    return _PROGRESS_KEY.format(org_id=org_id)
+def _progress_key(org_id: str, source_key: str) -> str:
+    return _PROGRESS_KEY.format(org_id=org_id, source_key=source_key)
 
 
 def _redis(settings: Settings) -> aioredis.Redis:
@@ -245,7 +259,7 @@ def _redis(settings: Settings) -> aioredis.Redis:
     return aioredis.from_url(settings.redis_url, decode_responses=True)
 
 
-async def _write_progress(org_id: str, **fields: object) -> None:
+async def _write_progress(org_id: str, source_key: str, **fields: object) -> None:
     """Merge-update the progress hash and refresh its TTL.
 
     Best-effort and silent on failure: `allkeys-lru` may evict this key at
@@ -257,7 +271,7 @@ async def _write_progress(org_id: str, **fields: object) -> None:
     if not fields:
         return
     settings = get_settings()
-    key = _progress_key(org_id)
+    key = _progress_key(org_id, source_key)
     mapping = {name: "" if value is None else str(value) for name, value in fields.items()}
     try:
         async with _redis(settings) as redis:
@@ -269,7 +283,7 @@ async def _write_progress(org_id: str, **fields: object) -> None:
         logger.warning("ingest_progress_not_recorded", org_id=org_id, fields=sorted(fields))
 
 
-async def mark_ingest_queued(org_id: str) -> None:
+async def mark_ingest_queued(org_id: str, source_key: str) -> None:
     """Reset the progress hash for a fresh attempt. Called from the admission
     path, before the task is enqueued — not from the worker.
 
@@ -286,7 +300,7 @@ async def mark_ingest_queued(org_id: str) -> None:
     behind, and a plain HSET would not clear fields it does not mention.
     """
     settings = get_settings()
-    key = _progress_key(org_id)
+    key = _progress_key(org_id, source_key)
     mapping = {
         "stage": "queued",
         "chunks_done": "0",
@@ -305,7 +319,7 @@ async def mark_ingest_queued(org_id: str) -> None:
         logger.warning("ingest_progress_not_recorded", org_id=org_id, stage="queued")
 
 
-async def _rows_fallback_status(org_id: str) -> dict[str, object]:
+async def _rows_fallback_status(org_id: str, source_key: str) -> dict[str, object]:
     """What `read_ingest_status` returns when the progress hash is absent —
     evicted, expired, or an ingest that never wrote one. Answers from the
     same durable fact both ceilings read: a chunk actually present means
@@ -313,11 +327,8 @@ async def _rows_fallback_status(org_id: str) -> dict[str, object]:
     """
     async with tenant_session(org_id) as session:
         count = await session.scalar(
-            text(
-                "SELECT count(*) FROM document_chunks "
-                "WHERE source_key IS NOT NULL AND source_key <> :seed"
-            ),
-            {"seed": SEED_SOURCE_KEY},
+            text("SELECT count(*) FROM document_chunks WHERE source_key = :key"),
+            {"key": source_key},
         )
     return {
         "stage": "complete" if count else "idle",
@@ -328,7 +339,7 @@ async def _rows_fallback_status(org_id: str) -> dict[str, object]:
     }
 
 
-async def read_ingest_status(org_id: str) -> dict[str, object]:
+async def read_ingest_status(org_id: str, source_key: str) -> dict[str, object]:
     """This organisation's ingest, as a caller would want to render it.
 
     Never treats a missing or unreadable hash as an error — it falls back to
@@ -337,7 +348,7 @@ async def read_ingest_status(org_id: str) -> dict[str, object]:
     "never started" apart, and nothing needs to.
     """
     settings = get_settings()
-    key = _progress_key(org_id)
+    key = _progress_key(org_id, source_key)
     try:
         async with _redis(settings) as redis:
             raw = await redis.hgetall(key)
@@ -346,7 +357,7 @@ async def read_ingest_status(org_id: str) -> dict[str, object]:
         raw = {}
 
     if not raw:
-        return await _rows_fallback_status(org_id)
+        return await _rows_fallback_status(org_id, source_key)
 
     return {
         "stage": raw.get("stage", "idle"),
@@ -379,7 +390,7 @@ def _capacity_unavailable(retry_after: int) -> ProblemError:
     )
 
 
-async def ensure_ingest_admitted(org_id: str) -> None:
+async def ensure_ingest_admitted(org_id: str, source_key: str) -> None:
     """Both ceilings, read from the rows themselves rather than from a counter.
 
     A Redis key would be cheaper and would be a ceiling that `allkeys-lru`
@@ -415,7 +426,7 @@ async def ensure_ingest_admitted(org_id: str) -> None:
     """
     settings = get_settings()
     async with tenant_session(org_id) as session:
-        already = await session.scalar(_ALREADY_INGESTED_SQL, {"seed": SEED_SOURCE_KEY})
+        already = await session.scalar(_ALREADY_INGESTED_SQL, {"key": source_key})
         if already:
             raise _already_ingested()
         reserved = await session.scalar(
@@ -436,7 +447,7 @@ async def ensure_ingest_admitted(org_id: str) -> None:
         raise _capacity_unavailable(_INGEST_RETRY_AFTER_SECONDS)
 
 
-async def _guard_write_transaction(session: AsyncSession, org_id: str) -> None:
+async def _guard_write_transaction(session: AsyncSession, org_id: str, source_key: str) -> None:
     """Both guards, evaluated on `session`'s connection and snapshot.
 
     Called twice per job: once as a fast-path before parsing and embedding
@@ -453,7 +464,7 @@ async def _guard_write_transaction(session: AsyncSession, org_id: str) -> None:
     alive = await session.scalar(_ALIVE_SQL, {"org": org_id})
     if not alive:
         raise IngestAbandoned(org_id)
-    already = await session.scalar(_ALREADY_INGESTED_SQL, {"seed": SEED_SOURCE_KEY})
+    already = await session.scalar(_ALREADY_INGESTED_SQL, {"key": source_key})
     if already:
         raise IngestAlreadyComplete(org_id)
 
@@ -497,30 +508,30 @@ async def run_ingest(org_id: str, source_key: str) -> int:
     source = CATALOGUE[source_key]
 
     async with tenant_session(org_id) as session:
-        await _guard_write_transaction(session, org_id)
+        await _guard_write_transaction(session, org_id, source_key)
 
-    await _write_progress(org_id, stage="parsing")
+    await _write_progress(org_id, source_key, stage="parsing")
 
     from app.ingest.parse import parse_source
 
     chunks = parse_source(source)
 
-    await _write_progress(org_id, stage="chunking", chunks_total=len(chunks))
+    await _write_progress(org_id, source_key, stage="chunking", chunks_total=len(chunks))
 
     from app.chat.embedding import get_embedder
 
     embedder = get_embedder()
     vectors: list[list[float]] = []
-    await _write_progress(org_id, stage="embedding")
+    await _write_progress(org_id, source_key, stage="embedding")
     for start in range(0, len(chunks), EMBED_BATCH):
         batch = chunks[start : start + EMBED_BATCH]
         vectors.extend(embedder.encode([chunk.content for chunk in batch]))
-        await _write_progress(org_id, chunks_done=len(vectors))
+        await _write_progress(org_id, source_key, chunks_done=len(vectors))
 
-    await _write_progress(org_id, stage="indexing")
+    await _write_progress(org_id, source_key, stage="indexing")
 
     async with tenant_session(org_id) as session:
-        await _guard_write_transaction(session, org_id)
+        await _guard_write_transaction(session, org_id, source_key)
         await session.execute(
             _INSERT_CHUNK,
             [
@@ -551,5 +562,5 @@ async def run_ingest(org_id: str, source_key: str) -> int:
         # needs: the reservation is still there and still this tenant's.
         await session.execute(_RELEASE_SLOT_SQL, {"org": org_id})
 
-    await _write_progress(org_id, stage="complete", chunks_done=len(chunks))
+    await _write_progress(org_id, source_key, stage="complete", chunks_done=len(chunks))
     return len(chunks)

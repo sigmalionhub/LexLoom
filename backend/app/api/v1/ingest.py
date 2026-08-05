@@ -3,12 +3,22 @@ over `app.ingest.jobs` (Task 23's admission, staged progress and write).
 
 Two routes, not three. Revision 1 of this task returned `202 {job_id}` from
 the POST and sketched a matching `GET /api/v1/ingest/{job_id}`. Nothing
-consumes `job_id`: status is keyed on the organisation, because a tenant gets
-exactly one ingest for its whole life (Task 23, Step 4) — `GET .../status`
-takes no parameter and needs none. An id returned and never used is not
-neutral, it is an invitation for the next author to build a third route
-around it, and the obvious value for it (the Celery task id) is an internal
-Redis key shared with the broker and result backend. So the POST returns
+consumes `job_id`, and that is still true: status is keyed on the pair
+(organisation, source), and `GET .../status` returns every catalogue source at
+once rather than taking a parameter, so there is nothing an id would address.
+
+What did change is the "one ingest for a tenant's whole life" rule this
+docstring used to rest on. A tenant may now hold every document in the
+catalogue, one ingest per (organisation, source); the duplicate guard, the
+progress key and the rows fallback are all keyed on that pair. The global
+`INGEST_ORG_CAP` still counts *tenants*, not documents — see migration 0010,
+which had to stop counting an ingesting tenant twice once both could be true of
+it at once.
+
+An id returned and never used is not neutral: it is an invitation for the next
+author to build a third route around it, and the obvious value for it (the
+Celery task id) is an internal Redis key shared with the broker and result
+backend. So the POST returns
 **the same body the GET does** — the initial status snapshot, read back
 after `mark_ingest_queued` rather than assembled by hand, so a Redis write
 that silently failed is visible here too rather than papered over with an
@@ -49,10 +59,11 @@ router = APIRouter(prefix="/api/v1", tags=["ingest"])
 
 class IngestStage(StrEnum):
     """The stages `app.ingest.jobs.run_ingest` writes, in order, plus the two
-    it does not: `idle` (nothing ever queued for this organisation) and
-    `error` (the job raised — see `app.worker.tasks.ingest_source`)."""
+    it does not: `idle` (nothing ever queued for this organisation *and this
+    source* — the pair, since a tenant may hold several documents) and `error`
+    (the job raised — see `app.worker.tasks.ingest_source`)."""
 
-    IDLE = "idle"
+    IDLE = "idle"  # nothing ever queued for this organisation AND this source
     QUEUED = "queued"
     PARSING = "parsing"
     CHUNKING = "chunking"
@@ -96,9 +107,7 @@ def _source_not_found() -> ProblemError:
 
 
 @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
-async def start_ingest(
-    payload: IngestRequest, principal: CurrentPrincipal
-) -> IngestStatusResponse:
+async def start_ingest(payload: IngestRequest, principal: CurrentPrincipal) -> IngestStatusResponse:
     """Admit, queue and dispatch — in that order, and none of it skipped on
     a race. `ensure_ingest_admitted` raises `ProblemError` for both ceilings
     (409 already_ingested, 503 capacity_unavailable with Retry-After); a
@@ -108,13 +117,30 @@ async def start_ingest(
     if payload.source_key not in CATALOGUE:
         raise _source_not_found()
 
-    await ensure_ingest_admitted(principal.org_id)
-    await mark_ingest_queued(principal.org_id)
+    await ensure_ingest_admitted(principal.org_id, payload.source_key)
+    await mark_ingest_queued(principal.org_id, payload.source_key)
     ingest_source.delay(principal.org_id, payload.source_key)
 
-    return IngestStatusResponse(**await read_ingest_status(principal.org_id))
+    return IngestStatusResponse(**await read_ingest_status(principal.org_id, payload.source_key))
 
 
 @router.get("/ingest/status")
-async def get_ingest_status(principal: CurrentPrincipal) -> IngestStatusResponse:
-    return IngestStatusResponse(**await read_ingest_status(principal.org_id))
+async def get_ingest_status(principal: CurrentPrincipal) -> dict[str, IngestStatusResponse]:
+    """Every catalogue source's status for this organisation, keyed by source.
+
+    A map rather than one status, and rather than a `?source_key=` parameter,
+    because the panel polls this twice a second while anything is in flight: one
+    request describing the whole catalogue costs what one source used to, where
+    a parameterised route would cost one request per document. The exclusion in
+    `app/observability.py`'s `_NOT_MEASURED` was granted on that poll rate and
+    still holds for the same reason.
+
+    Every key in the catalogue appears, whether or not this tenant has touched
+    it — a source the tenant has never ingested reports `idle`. A caller that
+    had to distinguish "absent from the map" from "not started" would be
+    deciding something the server already knows.
+    """
+    return {
+        key: IngestStatusResponse(**await read_ingest_status(principal.org_id, key))
+        for key in CATALOGUE
+    }

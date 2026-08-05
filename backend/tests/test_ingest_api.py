@@ -178,11 +178,13 @@ async def test_get_ingest_status_reports_idle_before_any_ingest(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "idle"
-    assert body["chunks_done"] == 0
-    assert body["chunks_total"] == 0
-    assert body["error"] is None
-    assert body["started_at"] is None
+    # A map now, one entry per catalogue source; see the route's docstring.
+    assert set(body) == set(CATALOGUE)
+    assert body[SOURCE_KEY]["stage"] == "idle"
+    assert body[SOURCE_KEY]["chunks_done"] == 0
+    assert body[SOURCE_KEY]["chunks_total"] == 0
+    assert body[SOURCE_KEY]["error"] is None
+    assert body[SOURCE_KEY]["started_at"] is None
 
 
 async def test_get_ingest_status_requires_authentication(client: AsyncClient) -> None:
@@ -206,8 +208,11 @@ async def test_get_ingest_status_reflects_a_queued_post(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "queued"
-    assert isinstance(body["started_at"], int)
+    assert body[SOURCE_KEY]["stage"] == "queued"
+    assert isinstance(body[SOURCE_KEY]["started_at"], int)
+    # The other source is untouched and says so, rather than being absent.
+    other = next(k for k in CATALOGUE if k != SOURCE_KEY)
+    assert body[other]["stage"] == "idle"
 
 
 # --- Step 3: the metrics exception this task depends on, checked rather than
@@ -344,8 +349,8 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
     response = await client.get("/api/v1/ingest/status", headers=demo_auth)
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "error"
-    assert body["error"] == "ingest_failed"
+    assert body[SOURCE_KEY]["stage"] == "error"
+    assert body[SOURCE_KEY]["error"] == "ingest_failed"
 
     # Asserted on the whole serialised response, not on the field, because the
     # point is that nothing anywhere in what the visitor receives carries it.
@@ -354,4 +359,4 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
         assert leaked not in raw, f"the ingest error still leaks {leaked!r}"
     # A code, not a paragraph: the value also goes into a 48 MB allkeys-lru
     # Redis, where multi-kilobyte writes evict the rate-limit counters.
-    assert len(body["error"]) < 64
+    assert len(body[SOURCE_KEY]["error"]) < 64

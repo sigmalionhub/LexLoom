@@ -253,3 +253,71 @@ async def test_search_chunks_never_sees_another_tenants_chunk(
         hits = await search_chunks(session, "obligations under clause 4", mode=SearchMode.FTS)
 
     assert [hit["org_id"] for hit in hits] == [mine]
+
+async def _seed_identified_chunk(
+    org_id: str, content: str, source_key: str, ordinal: int, page: int = 1
+) -> None:
+    async with tenant_session(org_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(id, org_id, content, page_from, page_to, source_key, chunk_ordinal) "
+                "VALUES (:i, :o, :c, :p, :p, :s, :n)"
+            ),
+            {
+                "i": str(uuid.uuid4()),
+                "o": org_id,
+                "c": content,
+                "p": page,
+                "s": source_key,
+                "n": ordinal,
+            },
+        )
+
+async def test_chunks_with_the_same_score_come_back_in_a_stable_order(
+    created_orgs: list[str],
+) -> None:
+    """Equal scores must not mean an arbitrary order, and that is not cosmetic.
+
+    `ts_rank` returns `real`, and on a single document most rows score exactly
+    alike: measured over the eval gold set's thirty questions, 288 of the 570
+    adjacent pairs in the top-20 lists carried byte-identical scores. Whatever
+    order the plan happened to emit inside those groups was the order every
+    retrieval metric then read, so permuting only the ties moved `fts` MRR@10 by
+    up to 0.022 and `hybrid` MRR@10 by up to 0.040 — drift indistinguishable
+    from a retrieval regression, and the reason `app/evals/floors.json` can
+    carry a threshold at all.
+
+    Identical content, so the scores are identical by construction; inserted in
+    the reverse of the expected order, so passing cannot be an accident of
+    insertion order. The tie-break is `(source_key, chunk_ordinal)` and not `id`
+    — see the comment on `_SEARCH_SQL`.
+    """
+    org = await _new_org(created_orgs)
+    body = "The controller shall document every processing activity."
+    for ordinal in (4, 2, 0, 3, 1):
+        await _seed_identified_chunk(org, body, "gdpr-full", ordinal)
+    await _seed_identified_chunk(org, body, "a-earlier-source", 9)
+
+    async with tenant_session(org) as session:
+        hits = await search_chunks(session, "controller document processing", mode=SearchMode.FTS)
+        again = await search_chunks(session, "controller document processing", mode=SearchMode.FTS)
+
+    assert len({hit["score"] for hit in hits}) == 1, "the fixture must produce a genuine tie"
+    assert [hit["chunk_id"] for hit in hits] == [hit["chunk_id"] for hit in again]
+    async with tenant_session(org) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, source_key, chunk_ordinal FROM document_chunks "
+                    "WHERE org_id = :o"
+                ),
+                {"o": org},
+            )
+        ).mappings().all()
+    identity = {str(row["id"]): (row["source_key"], row["chunk_ordinal"]) for row in rows}
+    ordered = [identity[hit["chunk_id"]] for hit in hits]
+    assert ordered == sorted(ordered), (
+        "tied rows did not come back in (source_key, chunk_ordinal) order; the ORDER BY "
+        "lost its total order and every eval metric is arbitrary again"
+    )

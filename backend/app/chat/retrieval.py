@@ -126,6 +126,37 @@ _MAX_QUERY_CHARS = 200
 # in tests/test_demo_orgs.py pins every relation by name on purpose — so when M2
 # brings corpora large enough to need one, the index and the inventory entry go
 # in together.
+#
+# `ORDER BY score DESC, source_key, chunk_ordinal, page_from` is a TOTAL order,
+# and that is the point of the last three columns rather than a tidy-up.
+# `ts_rank` returns `real`, and on a corpus of one document most rows share a
+# rank exactly: measured over the thirty eval questions' top-20 lists, **288 of
+# 570 adjacent pairs (50.5%) carry byte-identical scores**, and the smallest
+# non-zero gap is one float4 ULP (6.6e-08 relative). `score DESC, page_from`
+# left every one of those groups in whatever order the plan happened to emit,
+# and rank — not score — is what every retrieval metric reads. Permuting only
+# the tied groups moved `fts` MRR@10 by up to 0.022 and `hybrid` MRR@10 by up
+# to 0.040 across six measured runs, which is drift a reviewer would read as a
+# retrieval regression and could not act on.
+#
+# `(source_key, chunk_ordinal)` and NOT `id`. `document_chunks.id` is
+# `default=uuid.uuid4`, generated at insert, so it differs per tenant and per
+# reseed: ordering by it would fix the cross-machine drift while destroying the
+# property that the eval metrics reproduce exactly across an independent
+# reseed — which is the property the committed `app/evals/results.json` and its
+# CI freshness check both rest on. The pair is stable across tenants, across
+# reseeds and across machines, and it is the same pair the gold set uses as a
+# chunk's identity, for exactly this reason.
+#
+# `page_from` stays, last. It decides nothing once the pair is known, and it is
+# there only for rows whose pair is NULL — chunks written before migration 0006
+# — so that this change strictly ADDS order rather than trading one partial
+# order for another.
+#
+# Both statements below carry the same three columns. The hybrid mode inherits
+# determinism from them rather than needing its own: `_search_hybrid` sorts the
+# fused scores with Python's stable `sorted`, so equal RRF values keep the order
+# the two legs delivered them in.
 _SEARCH_SQL = text(
     r"""
     WITH question AS (
@@ -144,7 +175,7 @@ _SEARCH_SQL = text(
     FROM document_chunks, question
     WHERE question.query IS NOT NULL
       AND to_tsvector(CAST(:config AS regconfig), content) @@ question.query
-    ORDER BY score DESC, page_from
+    ORDER BY score DESC, source_key, chunk_ordinal, page_from
     LIMIT :limit
     """
 )
@@ -193,13 +224,20 @@ _SEARCH_SQL = text(
 # second-order effect on RRF, is in the design spec under "RLS and approximate
 # indexes". Because there is no index there is also no new relation, so
 # `EXPECTED_RELATIONS` in tests/test_demo_orgs.py is untouched by this task.
+#
+# This leg carries the tie-break for symmetry, not because it needed rescuing:
+# measured over the same 570 adjacent pairs, cosine similarity produced **zero**
+# exact ties, and the closest pair was 6.8e-06 apart in relative terms — about
+# 57 float32 ULPs. That is the number behind the claim that a different SIMD
+# reduction order cannot reorder this leg on this corpus, and it is worth
+# re-measuring rather than re-asserting when the corpus changes.
 _VECTOR_SQL = text(
     """
     SELECT id, org_id, content, page_from, page_to,
            1 - (embedding OPERATOR(public.<=>) :qvec) AS score
       FROM document_chunks
      WHERE embedding IS NOT NULL
-     ORDER BY embedding OPERATOR(public.<=>) :qvec
+     ORDER BY embedding OPERATOR(public.<=>) :qvec, source_key, chunk_ordinal, page_from
      LIMIT :limit
     """
 ).bindparams(bindparam("qvec", type_=Vector(DIMENSIONS)))

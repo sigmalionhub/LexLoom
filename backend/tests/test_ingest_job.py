@@ -42,6 +42,7 @@ from app.ingest.catalogue import CATALOGUE
 from app.ingest.jobs import (
     IngestAbandoned,
     IngestAlreadyComplete,
+    _guard_write_transaction,
     ensure_ingest_admitted,
     mark_ingest_queued,
     read_ingest_status,
@@ -295,3 +296,101 @@ async def test_ingest_source_embeds_and_writes_the_full_catalogue_source(
     with pytest.raises(ProblemError) as refused:
         await ensure_ingest_admitted(org_id)
     assert refused.value.code == "already_ingested"
+
+# --- The purge window `_ALIVE_SQL`'s row lock closes -------------------------
+#
+# Migration 0004's residual has been re-derived four times, and every previous
+# derivation ended at "a narrowed residual, not a closed window": the guard was
+# a plain `SELECT EXISTS`, so an ingest whose write transaction committed
+# strictly between `purge_expired_orgs`'s two statements left chunks that
+# statement 2's fresh snapshot had already passed. Those rows are unreachable
+# forever — RLS keys on an org_id no `organizations` row carries — and they
+# counted against `INGEST_ORG_CAP`.
+#
+# `FOR KEY SHARE` closes it, and these two tests are the evidence rather than
+# the argument.
+
+async def _purge_as_worker(sessions) -> int:
+    # `tenant_scoped=False`, the same declaration `system_session()` makes: the
+    # purge is unscoped by definition, and `_require_tenant_context` raises for
+    # any session that does not say so.
+    async with sessions(info={"tenant_scoped": False}) as session:
+        purged = await session.scalar(text("SELECT public.purge_expired_orgs()"))
+        await session.commit()
+        return purged
+
+async def test_the_liveness_guard_can_take_its_row_lock_as_the_worker_role(
+    created_orgs, worker_role
+) -> None:
+    """A locking clause needs UPDATE on the table, and the whole point of
+    `worker_role` is that `lexloom_worker` holds a different grant set from
+    `lexloom_app` (migration 0004). `run_ingest` runs as the worker, so a
+    `FOR KEY SHARE` the worker may not take would be a permission error in
+    production and nowhere else.
+    """
+    org_id = await _make_org(created_orgs)
+    async with tenant_session(org_id) as session:
+        await _guard_write_transaction(session, org_id)  # does not raise
+
+async def test_the_write_transaction_blocks_the_purge_rather_than_racing_it(
+    created_orgs,
+) -> None:
+    """The measurement, not the reasoning.
+
+    An organisation is given two seconds to live and its row lock is taken
+    while it is still alive — which is exactly the state a real job is in when
+    it finishes embedding. The TTL then lapses *inside* the write transaction,
+    the purge runs, and the two assertions are the two halves of the claim:
+    the purge is still blocked while the ingest holds the lock, and once the
+    ingest commits the purge collects the chunks it wrote rather than leaving
+    them orphaned.
+
+    Sabotage: drop `FOR KEY SHARE` from `_ALIVE_SQL` and the first assertion
+    fails immediately — the purge sails through — and the second fails after
+    it, with the chunk still present and its organisation gone.
+
+    The purge runs on its own engine as `lexloom_worker` rather than through
+    the `worker_role` fixture, because that fixture's engine is `pool_size=1`
+    and this test needs two connections open at once.
+    """
+    from conftest import WORKER_DATABASE_URL  # noqa: PLC2701
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    org_id = await _make_org(created_orgs, expires_at_sql="now() + interval '2 seconds'")
+    worker_engine = create_async_engine(WORKER_DATABASE_URL, pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(worker_engine, expire_on_commit=False)
+
+    try:
+        async with tenant_session(org_id) as session:
+            await _guard_write_transaction(session, org_id)  # alive: the lock is taken
+
+            # Past the TTL, still inside the transaction that holds the lock.
+            await asyncio.sleep(2.5)
+            purge = asyncio.create_task(_purge_as_worker(sessions))
+            await asyncio.sleep(1.0)
+            assert not purge.done(), (
+                "the purge deleted the organisation while an ingest transaction held "
+                "its row lock — FOR KEY SHARE is not being taken"
+            )
+
+            await session.execute(
+                text(
+                    "INSERT INTO document_chunks "
+                    "(id, org_id, content, page_from, page_to, source_key, chunk_ordinal) "
+                    "VALUES (:i, :o, 'written under the lock', 1, 1, :sk, 0)"
+                ),
+                {"i": str(uuid.uuid4()), "o": org_id, "sk": SOURCE_KEY},
+            )
+
+        assert await purge >= 1, "the purge did not collect the expired organisation"
+
+        async with tenant_session(org_id) as session:
+            left_behind = await session.scalar(
+                text("SELECT count(*) FROM document_chunks WHERE org_id = :o"), {"o": org_id}
+            )
+        assert left_behind == 0, (
+            f"{left_behind} chunk(s) survived the purge of their own organisation — "
+            "the residual window is open"
+        )
+    finally:
+        await worker_engine.dispose()

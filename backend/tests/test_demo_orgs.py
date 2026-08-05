@@ -1281,14 +1281,26 @@ EXPECTED_ROUTES = {
     # re-checks the organisation is alive *inside the same transaction* that
     # writes the chunks (called twice — once as a fast-path before
     # parsing/embedding, once authoritatively immediately before the INSERT).
-    # The residual left over is narrower than the one above: an ingest
-    # transaction that committed strictly between `purge_expired_orgs`'s two
-    # statements — the DELETE FROM organizations and the child-table DELETEs
-    # that follow it on a fresh snapshot (0004:45-50) — in the same purge run.
-    # That is a gap between two statements inside one function call, not a gap
-    # between two scheduled runs, and it is exactly what `0004`'s statement 2
-    # already exists to catch on its own next tick regardless. Verified by
-    # `test_ingest_job.py::test_run_ingest_raises_when_the_organisation_has_already_expired`.
+    #
+    # For four re-derivations that left a residual, stated each time as narrower
+    # than the one above rather than absent: an ingest transaction that committed
+    # strictly between `purge_expired_orgs`'s two statements — the DELETE FROM
+    # organizations and the child-table DELETEs that follow it on a fresh
+    # snapshot (0004:45-50) — in the same purge run. It is closed now. The
+    # liveness check is `SELECT ... FOR KEY SHARE`, not a plain read, and
+    # `FOR KEY SHARE` conflicts with the `FOR UPDATE`-strength lock a DELETE
+    # takes: the purge's first statement blocks on a live ingest rather than
+    # passing it, so there is no longer an interval between the two statements
+    # an ingest can commit inside. Either it commits first and statement 2's
+    # fresh snapshot collects its chunks, or the purge commits first and the
+    # ingest finds no row and raises `IngestAbandoned`.
+    #
+    # Verified by
+    # `test_ingest_job.py::test_run_ingest_raises_when_the_organisation_has_already_expired`
+    # for the second ordering and
+    # `test_ingest_job.py::test_the_write_transaction_blocks_the_purge_rather_than_racing_it`
+    # for the first — which asserts both that the purge is still blocked while
+    # the ingest holds the lock and that the chunks it wrote are collected.
     ("/api/v1/ingest", frozenset({"POST"})),
     ("/api/v1/ingest/status", frozenset({"GET"})),
     # Re-derived rather than re-read, which is the whole point of this test going

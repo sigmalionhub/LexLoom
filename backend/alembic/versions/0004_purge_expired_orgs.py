@@ -71,6 +71,24 @@ down_revision = "0003"
 # properly would then need a time-bounded sweep, which means `document_chunks`
 # growing a `created_at` it does not have.
 #
+# The *ingest* writer is the one path that never had that protection, because it
+# holds no token: `POST /api/v1/ingest` only queues, and the INSERT runs in a
+# Celery worker calling `tenant_session(org_id)` directly, with no TTL of its own
+# tying it to the organisation's. Four re-derivations of this comment concluded
+# that the guard inside its write transaction narrowed the residual without
+# closing it — an ingest committing strictly between statement 1 and statement 2
+# would leave chunks statement 2's snapshot had already passed. That is closed
+# now, and not by anything in this file: `app/ingest/jobs.py`'s `_ALIVE_SQL`
+# takes `FOR KEY SHARE` on the organisation row inside the same transaction as
+# the INSERT. `FOR KEY SHARE` conflicts with the `FOR UPDATE`-strength lock a
+# DELETE takes, so statement 1 above *blocks* on a live ingest instead of racing
+# it: either the ingest commits first and statement 2's fresh snapshot collects
+# its chunks, or the purge commits first and the ingest's own SELECT finds no row
+# and abandons. Measured, both orderings, in
+# `test_ingest_job.py::test_the_write_transaction_blocks_the_purge_rather_than_racing_it`.
+# The cost is that this function waits out one INSERT; the embedding happens
+# before that transaction opens.
+#
 # Why every operator and function call is schema-qualified: SECURITY DEFINER
 # runs as the owner, and the owner here is the Compose bootstrap superuser. The
 # pinned search_path is the primary defence, but it is one `ALTER FUNCTION`

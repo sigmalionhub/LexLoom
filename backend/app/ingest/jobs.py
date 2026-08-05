@@ -87,9 +87,40 @@ EMBED_BATCH = 32
 # window even though the worker itself never runs two tasks at once
 # (--concurrency=1): a check taken only at the start would not see a TTL
 # that expired an hour into an unusually large job.
+#
+# `FOR KEY SHARE`, and it closes the residual four previous derivations each
+# concluded was only narrowed. Without it this is a read: the purge could
+# delete the organisation between this SELECT and the INSERT that follows it,
+# and — worse — an ingest committing strictly *between* `purge_expired_orgs`'s
+# two statements (0004) left chunks that statement 2's fresh snapshot had
+# already passed, unreachable forever and counted against `INGEST_ORG_CAP`.
+#
+# `FOR KEY SHARE` is the weakest row lock Postgres has and it conflicts with
+# exactly one thing: `FOR UPDATE`, which is the strength a `DELETE` takes. So
+# the two orderings are now both safe, rather than one of them being narrow:
+#
+#   lock first  — the purge's `DELETE FROM organizations` blocks until this
+#                 transaction commits its chunks. It then deletes the
+#                 organisation, and statement 2 takes a *fresh* snapshot
+#                 (0004's whole reason for being two statements) in which
+#                 those chunks are visible, so they are collected.
+#   purge first — this SELECT blocks on the purge's uncommitted delete, and
+#                 when the purge commits it re-evaluates and finds no row, so
+#                 `IngestAbandoned` is raised and nothing is written.
+#
+# It costs the purge a wait bounded by one INSERT (the embedding happens
+# before this transaction opens), and it introduces no new deadlock: this
+# takes `organizations` before `document_chunks`, which is the order
+# `purge_expired_orgs` already takes them in.
+#
+# Permitted for both roles this runs as — a locking clause needs UPDATE on the
+# table, and `deploy/postgres/init/01-roles.sh` grants it to `lexloom_app` and
+# `lexloom_worker` alike. Checked rather than assumed:
+# `test_the_liveness_guard_can_take_its_row_lock_as_the_worker_role`.
 _ALIVE_SQL = text(
-    "SELECT EXISTS (SELECT 1 FROM organizations "
-    " WHERE id = :org AND (expires_at IS NULL OR expires_at > now()))"
+    "SELECT 1 FROM organizations "
+    " WHERE id = :org AND (expires_at IS NULL OR expires_at > now()) "
+    " FOR KEY SHARE"
 )
 _ALREADY_INGESTED_SQL = text(
     "SELECT EXISTS (SELECT 1 FROM document_chunks "
@@ -319,6 +350,12 @@ async def _guard_write_transaction(session: AsyncSession, org_id: str) -> None:
     even start (its own short-lived session, own snapshot — see the module
     docstring's note on why that is only an optimisation), and once
     authoritatively inside the same transaction that performs the INSERT.
+
+    The liveness check takes a `FOR KEY SHARE` row lock, so on the
+    authoritative call the purge cannot run past this organisation while the
+    chunks are being written — see `_ALIVE_SQL`. On the fast-path call the lock
+    is released microseconds later with that short transaction, which is
+    harmless and is why the same statement serves both.
     """
     alive = await session.scalar(_ALIVE_SQL, {"org": org_id})
     if not alive:

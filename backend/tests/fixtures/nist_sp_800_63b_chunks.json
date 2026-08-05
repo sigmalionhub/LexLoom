@@ -1,0 +1,3732 @@
+[
+ {
+  "ordinal": 0,
+  "locator": "ABSTRACT",
+  "chars": 477
+ },
+ {
+  "ordinal": 1,
+  "locator": "ABSTRACT",
+  "chars": 218
+ },
+ {
+  "ordinal": 2,
+  "locator": "Keywords",
+  "chars": 114
+ },
+ {
+  "ordinal": 3,
+  "locator": "Preface",
+  "chars": 358
+ },
+ {
+  "ordinal": 4,
+  "locator": "Introduction",
+  "chars": 41
+ },
+ {
+  "ordinal": 5,
+  "locator": "Introduction",
+  "chars": 488
+ },
+ {
+  "ordinal": 6,
+  "locator": "Introduction",
+  "chars": 224
+ },
+ {
+  "ordinal": 7,
+  "locator": "Introduction",
+  "chars": 442
+ },
+ {
+  "ordinal": 8,
+  "locator": "Introduction",
+  "chars": 374
+ },
+ {
+  "ordinal": 9,
+  "locator": "Introduction",
+  "chars": 433
+ },
+ {
+  "ordinal": 10,
+  "locator": "Introduction",
+  "chars": 421
+ },
+ {
+  "ordinal": 11,
+  "locator": "Introduction",
+  "chars": 514
+ },
+ {
+  "ordinal": 12,
+  "locator": "Introduction",
+  "chars": 534
+ },
+ {
+  "ordinal": 13,
+  "locator": "Introduction",
+  "chars": 523
+ },
+ {
+  "ordinal": 14,
+  "locator": "Introduction",
+  "chars": 405
+ },
+ {
+  "ordinal": 15,
+  "locator": "Introduction",
+  "chars": 480
+ },
+ {
+  "ordinal": 16,
+  "locator": "Introduction",
+  "chars": 334
+ },
+ {
+  "ordinal": 17,
+  "locator": "Introduction › Notations",
+  "chars": 396
+ },
+ {
+  "ordinal": 18,
+  "locator": "Introduction › Notations",
+  "chars": 496
+ },
+ {
+  "ordinal": 19,
+  "locator": "Introduction › Notations",
+  "chars": 226
+ },
+ {
+  "ordinal": 20,
+  "locator": "Introduction › Document Structure",
+  "chars": 490
+ },
+ {
+  "ordinal": 21,
+  "locator": "Introduction › Document Structure",
+  "chars": 461
+ },
+ {
+  "ordinal": 22,
+  "locator": "Introduction › Document Structure",
+  "chars": 406
+ },
+ {
+  "ordinal": 23,
+  "locator": "Introduction › Document Structure",
+  "chars": 154
+ },
+ {
+  "ordinal": 24,
+  "locator": "Authentication Assurance Levels",
+  "chars": 471
+ },
+ {
+  "ordinal": 25,
+  "locator": "Authentication Assurance Levels",
+  "chars": 313
+ },
+ {
+  "ordinal": 26,
+  "locator": "Authentication Assurance Levels",
+  "chars": 491
+ },
+ {
+  "ordinal": 27,
+  "locator": "Authentication Assurance Levels",
+  "chars": 526
+ },
+ {
+  "ordinal": 28,
+  "locator": "Authentication Assurance Levels",
+  "chars": 318
+ },
+ {
+  "ordinal": 29,
+  "locator": "Authentication Assurance Levels",
+  "chars": 421
+ },
+ {
+  "ordinal": 30,
+  "locator": "Authentication Assurance Levels",
+  "chars": 228
+ },
+ {
+  "ordinal": 31,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1",
+  "chars": 32
+ },
+ {
+  "ordinal": 32,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1",
+  "chars": 506
+ },
+ {
+  "ordinal": 33,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Permitted Authenticator Types",
+  "chars": 467
+ },
+ {
+  "ordinal": 34,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Permitted Authenticator Types",
+  "chars": 341
+ },
+ {
+  "ordinal": 35,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Permitted Authenticator Types",
+  "chars": 434
+ },
+ {
+  "ordinal": 36,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Authenticator and Verifier Requirements",
+  "chars": 473
+ },
+ {
+  "ordinal": 37,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Reauthentication",
+  "chars": 368
+ },
+ {
+  "ordinal": 38,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 1 › Reauthentication",
+  "chars": 316
+ },
+ {
+  "ordinal": 39,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2",
+  "chars": 341
+ },
+ {
+  "ordinal": 40,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Permitted Authenticator Types",
+  "chars": 496
+ },
+ {
+  "ordinal": 41,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Permitted Authenticator Types",
+  "chars": 493
+ },
+ {
+  "ordinal": 42,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Permitted Authenticator Types",
+  "chars": 131
+ },
+ {
+  "ordinal": 43,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Permitted Authenticator Types",
+  "chars": 498
+ },
+ {
+  "ordinal": 44,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Permitted Authenticator Types",
+  "chars": 265
+ },
+ {
+  "ordinal": 45,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Authenticator and Verifier Requirements",
+  "chars": 444
+ },
+ {
+  "ordinal": 46,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Authenticator and Verifier Requirements",
+  "chars": 333
+ },
+ {
+  "ordinal": 47,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Authenticator and Verifier Requirements",
+  "chars": 477
+ },
+ {
+  "ordinal": 48,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Reauthentication",
+  "chars": 278
+ },
+ {
+  "ordinal": 49,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 2 › Reauthentication",
+  "chars": 315
+ },
+ {
+  "ordinal": 50,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3",
+  "chars": 32
+ },
+ {
+  "ordinal": 51,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3",
+  "chars": 489
+ },
+ {
+  "ordinal": 52,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Permitted Authenticator Types",
+  "chars": 305
+ },
+ {
+  "ordinal": 53,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Permitted Authenticator Types",
+  "chars": 508
+ },
+ {
+  "ordinal": 54,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Permitted Authenticator Types",
+  "chars": 265
+ },
+ {
+  "ordinal": 55,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Authenticator and Verifier Requirements",
+  "chars": 459
+ },
+ {
+  "ordinal": 56,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Authenticator and Verifier Requirements",
+  "chars": 354
+ },
+ {
+  "ordinal": 57,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Authenticator and Verifier Requirements",
+  "chars": 533
+ },
+ {
+  "ordinal": 58,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Authenticator and Verifier Requirements",
+  "chars": 274
+ },
+ {
+  "ordinal": 59,
+  "locator": "Authentication Assurance Levels › Authentication Assurance Level 3 › Reauthentication",
+  "chars": 351
+ },
+ {
+  "ordinal": 60,
+  "locator": "Authentication Assurance Levels › General Requirements",
+  "chars": 84
+ },
+ {
+  "ordinal": 61,
+  "locator": "Authentication Assurance Levels › General Requirements › Security Controls",
+  "chars": 354
+ },
+ {
+  "ordinal": 62,
+  "locator": "Authentication Assurance Levels › General Requirements › Records Retention Policy",
+  "chars": 24
+ },
+ {
+  "ordinal": 63,
+  "locator": "Authentication Assurance Levels › General Requirements › Records Retention Policy",
+  "chars": 513
+ },
+ {
+  "ordinal": 64,
+  "locator": "Authentication Assurance Levels › General Requirements › Records Retention Policy",
+  "chars": 137
+ },
+ {
+  "ordinal": 65,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 144
+ },
+ {
+  "ordinal": 66,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 418
+ },
+ {
+  "ordinal": 67,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 331
+ },
+ {
+  "ordinal": 68,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 224
+ },
+ {
+  "ordinal": 69,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 426
+ },
+ {
+  "ordinal": 70,
+  "locator": "Authentication Assurance Levels › General Requirements › Privacy Requirements",
+  "chars": 374
+ },
+ {
+  "ordinal": 71,
+  "locator": "Authentication Assurance Levels › General Requirements › Redress Requirements",
+  "chars": 399
+ },
+ {
+  "ordinal": 72,
+  "locator": "Authentication Assurance Levels › Summary of Requirements",
+  "chars": 452
+ },
+ {
+  "ordinal": 73,
+  "locator": "Authentication Assurance Levels › Summary of Requirements",
+  "chars": 472
+ },
+ {
+  "ordinal": 74,
+  "locator": "Authentication Assurance Levels › Summary of Requirements",
+  "chars": 237
+ },
+ {
+  "ordinal": 75,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 439
+ },
+ {
+  "ordinal": 76,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 274
+ },
+ {
+  "ordinal": 77,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 494
+ },
+ {
+  "ordinal": 78,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 419
+ },
+ {
+  "ordinal": 79,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 435
+ },
+ {
+  "ordinal": 80,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 420
+ },
+ {
+  "ordinal": 81,
+  "locator": "Authenticator and Verifier Requirements",
+  "chars": 166
+ },
+ {
+  "ordinal": 82,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type",
+  "chars": 100
+ },
+ {
+  "ordinal": 83,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords",
+  "chars": 408
+ },
+ {
+  "ordinal": 84,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords",
+  "chars": 408
+ },
+ {
+  "ordinal": 85,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords",
+  "chars": 307
+ },
+ {
+  "ordinal": 86,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Authenticators",
+  "chars": 449
+ },
+ {
+  "ordinal": 87,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 487
+ },
+ {
+  "ordinal": 88,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 460
+ },
+ {
+  "ordinal": 89,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 402
+ },
+ {
+  "ordinal": 90,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 384
+ },
+ {
+  "ordinal": 91,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 384
+ },
+ {
+  "ordinal": 92,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 252
+ },
+ {
+  "ordinal": 93,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 452
+ },
+ {
+  "ordinal": 94,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 141
+ },
+ {
+  "ordinal": 95,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 476
+ },
+ {
+  "ordinal": 96,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 261
+ },
+ {
+  "ordinal": 97,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 311
+ },
+ {
+  "ordinal": 98,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 231
+ },
+ {
+  "ordinal": 99,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 481
+ },
+ {
+  "ordinal": 100,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 390
+ },
+ {
+  "ordinal": 101,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 248
+ },
+ {
+  "ordinal": 102,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 425
+ },
+ {
+  "ordinal": 103,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 163
+ },
+ {
+  "ordinal": 104,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 494
+ },
+ {
+  "ordinal": 105,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 390
+ },
+ {
+  "ordinal": 106,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 224
+ },
+ {
+  "ordinal": 107,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 489
+ },
+ {
+  "ordinal": 108,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 381
+ },
+ {
+  "ordinal": 109,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Passwords › Password Verifiers",
+  "chars": 366
+ },
+ {
+  "ordinal": 110,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets",
+  "chars": 15
+ },
+ {
+  "ordinal": 111,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets",
+  "chars": 498
+ },
+ {
+  "ordinal": 112,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets",
+  "chars": 226
+ },
+ {
+  "ordinal": 113,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Authenticators",
+  "chars": 351
+ },
+ {
+  "ordinal": 114,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Authenticators",
+  "chars": 478
+ },
+ {
+  "ordinal": 115,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Verifiers",
+  "chars": 437
+ },
+ {
+  "ordinal": 116,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Verifiers",
+  "chars": 440
+ },
+ {
+  "ordinal": 117,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Verifiers",
+  "chars": 546
+ },
+ {
+  "ordinal": 118,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Look-Up Secrets › Look-Up Secret Verifiers",
+  "chars": 356
+ },
+ {
+  "ordinal": 119,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 427
+ },
+ {
+  "ordinal": 120,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 330
+ },
+ {
+  "ordinal": 121,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 411
+ },
+ {
+  "ordinal": 122,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 400
+ },
+ {
+  "ordinal": 123,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 492
+ },
+ {
+  "ordinal": 124,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 412
+ },
+ {
+  "ordinal": 125,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 468
+ },
+ {
+  "ordinal": 126,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices",
+  "chars": 256
+ },
+ {
+  "ordinal": 127,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 429
+ },
+ {
+  "ordinal": 128,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 496
+ },
+ {
+  "ordinal": 129,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 499
+ },
+ {
+  "ordinal": 130,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 501
+ },
+ {
+  "ordinal": 131,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 349
+ },
+ {
+  "ordinal": 132,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 337
+ },
+ {
+  "ordinal": 133,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 480
+ },
+ {
+  "ordinal": 134,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 424
+ },
+ {
+  "ordinal": 135,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Authenticators",
+  "chars": 187
+ },
+ {
+  "ordinal": 136,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 469
+ },
+ {
+  "ordinal": 137,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 278
+ },
+ {
+  "ordinal": 138,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 395
+ },
+ {
+  "ordinal": 139,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 513
+ },
+ {
+  "ordinal": 140,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 301
+ },
+ {
+  "ordinal": 141,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 504
+ },
+ {
+  "ordinal": 142,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Out-of-Band Verifiers",
+  "chars": 445
+ },
+ {
+  "ordinal": 143,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Authentication Using the Public Switched Telephone Network",
+  "chars": 356
+ },
+ {
+  "ordinal": 144,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Authentication Using the Public Switched Telephone Network",
+  "chars": 477
+ },
+ {
+  "ordinal": 145,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Authentication Using the Public Switched Telephone Network",
+  "chars": 481
+ },
+ {
+  "ordinal": 146,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Multi-Factor Out-of-Band Authenticators",
+  "chars": 480
+ },
+ {
+  "ordinal": 147,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Multi-Factor Out-of-Band Authenticators",
+  "chars": 127
+ },
+ {
+  "ordinal": 148,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Out-of-Band Devices › Multi-Factor Out-of-Band Authenticators",
+  "chars": 530
+ },
+ {
+  "ordinal": 149,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP",
+  "chars": 17
+ },
+ {
+  "ordinal": 150,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP",
+  "chars": 488
+ },
+ {
+  "ordinal": 151,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP",
+  "chars": 425
+ },
+ {
+  "ordinal": 152,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP",
+  "chars": 169
+ },
+ {
+  "ordinal": 153,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Authenticators",
+  "chars": 284
+ },
+ {
+  "ordinal": 154,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Authenticators",
+  "chars": 356
+ },
+ {
+  "ordinal": 155,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Authenticators",
+  "chars": 520
+ },
+ {
+  "ordinal": 156,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Authenticators",
+  "chars": 462
+ },
+ {
+  "ordinal": 157,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Verifiers",
+  "chars": 390
+ },
+ {
+  "ordinal": 158,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Verifiers",
+  "chars": 306
+ },
+ {
+  "ordinal": 159,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Verifiers",
+  "chars": 543
+ },
+ {
+  "ordinal": 160,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Verifiers",
+  "chars": 275
+ },
+ {
+  "ordinal": 161,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor OTP › Single-Factor OTP Verifiers",
+  "chars": 325
+ },
+ {
+  "ordinal": 162,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs",
+  "chars": 453
+ },
+ {
+  "ordinal": 163,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs",
+  "chars": 379
+ },
+ {
+  "ordinal": 164,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 386
+ },
+ {
+  "ordinal": 165,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 336
+ },
+ {
+  "ordinal": 166,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 353
+ },
+ {
+  "ordinal": 167,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 515
+ },
+ {
+  "ordinal": 168,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 454
+ },
+ {
+  "ordinal": 169,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Authenticators",
+  "chars": 544
+ },
+ {
+  "ordinal": 170,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Verifiers",
+  "chars": 400
+ },
+ {
+  "ordinal": 171,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Verifiers",
+  "chars": 305
+ },
+ {
+  "ordinal": 172,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Verifiers",
+  "chars": 543
+ },
+ {
+  "ordinal": 173,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor OTPs › Multi-Factor OTP Verifiers",
+  "chars": 483
+ },
+ {
+  "ordinal": 174,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication",
+  "chars": 424
+ },
+ {
+  "ordinal": 175,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication",
+  "chars": 414
+ },
+ {
+  "ordinal": 176,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication",
+  "chars": 146
+ },
+ {
+  "ordinal": 177,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Authenticators",
+  "chars": 384
+ },
+ {
+  "ordinal": 178,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Authenticators",
+  "chars": 302
+ },
+ {
+  "ordinal": 179,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Authenticators",
+  "chars": 298
+ },
+ {
+  "ordinal": 180,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Authenticators",
+  "chars": 416
+ },
+ {
+  "ordinal": 181,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Authenticators",
+  "chars": 206
+ },
+ {
+  "ordinal": 182,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Verifiers",
+  "chars": 376
+ },
+ {
+  "ordinal": 183,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Verifiers",
+  "chars": 377
+ },
+ {
+  "ordinal": 184,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Single-Factor Cryptographic Authentication › Single-Factor Cryptographic Verifiers",
+  "chars": 530
+ },
+ {
+  "ordinal": 185,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication",
+  "chars": 451
+ },
+ {
+  "ordinal": 186,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication",
+  "chars": 520
+ },
+ {
+  "ordinal": 187,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication",
+  "chars": 146
+ },
+ {
+  "ordinal": 188,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Authenticators",
+  "chars": 41
+ },
+ {
+  "ordinal": 189,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Authenticators",
+  "chars": 513
+ },
+ {
+  "ordinal": 190,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Authenticators",
+  "chars": 467
+ },
+ {
+  "ordinal": 191,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Authenticators",
+  "chars": 488
+ },
+ {
+  "ordinal": 192,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Authenticators",
+  "chars": 292
+ },
+ {
+  "ordinal": 193,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Verifiers",
+  "chars": 424
+ },
+ {
+  "ordinal": 194,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Multi-Factor Cryptographic Verifiers",
+  "chars": 182
+ },
+ {
+  "ordinal": 195,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 40
+ },
+ {
+  "ordinal": 196,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 510
+ },
+ {
+  "ordinal": 197,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 260
+ },
+ {
+  "ordinal": 198,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 331
+ },
+ {
+  "ordinal": 199,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 506
+ },
+ {
+  "ordinal": 200,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 538
+ },
+ {
+  "ordinal": 201,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Usage With Subscriber-Controlled Wallets",
+  "chars": 174
+ },
+ {
+  "ordinal": 202,
+  "locator": "Authenticator and Verifier Requirements › Requirements by Authenticator Type › Multi-Factor Cryptographic Authentication › Syncable Authenticators",
+  "chars": 361
+ },
+ {
+  "ordinal": 203,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements",
+  "chars": 99
+ },
+ {
+  "ordinal": 204,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Physical Authenticators",
+  "chars": 317
+ },
+ {
+  "ordinal": 205,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Physical Authenticators",
+  "chars": 443
+ },
+ {
+  "ordinal": 206,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Physical Authenticators",
+  "chars": 198
+ },
+ {
+  "ordinal": 207,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 429
+ },
+ {
+  "ordinal": 208,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 414
+ },
+ {
+  "ordinal": 209,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 496
+ },
+ {
+  "ordinal": 210,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 372
+ },
+ {
+  "ordinal": 211,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 466
+ },
+ {
+  "ordinal": 212,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Rate Limiting (Throttling)",
+  "chars": 428
+ },
+ {
+  "ordinal": 213,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 445
+ },
+ {
+  "ordinal": 214,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 515
+ },
+ {
+  "ordinal": 215,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 435
+ },
+ {
+  "ordinal": 216,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 434
+ },
+ {
+  "ordinal": 217,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 286
+ },
+ {
+  "ordinal": 218,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 345
+ },
+ {
+  "ordinal": 219,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 468
+ },
+ {
+  "ordinal": 220,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 164
+ },
+ {
+  "ordinal": 221,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics",
+  "chars": 441
+ },
+ {
+  "ordinal": 222,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Biometric Accuracy",
+  "chars": 486
+ },
+ {
+  "ordinal": 223,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Biometric Accuracy",
+  "chars": 252
+ },
+ {
+  "ordinal": 224,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Presentation Attack Detection",
+  "chars": 344
+ },
+ {
+  "ordinal": 225,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Presentation Attack Detection",
+  "chars": 334
+ },
+ {
+  "ordinal": 226,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 26
+ },
+ {
+  "ordinal": 227,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 497
+ },
+ {
+  "ordinal": 228,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 410
+ },
+ {
+  "ordinal": 229,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 472
+ },
+ {
+  "ordinal": 230,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 370
+ },
+ {
+  "ordinal": 231,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 300
+ },
+ {
+  "ordinal": 232,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 346
+ },
+ {
+  "ordinal": 233,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 415
+ },
+ {
+  "ordinal": 234,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Injection Attack Detection",
+  "chars": 308
+ },
+ {
+  "ordinal": 235,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Use of Biometric Samples",
+  "chars": 491
+ },
+ {
+  "ordinal": 236,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Use of Biometrics › Use of Biometric Samples",
+  "chars": 161
+ },
+ {
+  "ordinal": 237,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Attestation",
+  "chars": 414
+ },
+ {
+  "ordinal": 238,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Attestation",
+  "chars": 322
+ },
+ {
+  "ordinal": 239,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Attestation",
+  "chars": 255
+ },
+ {
+  "ordinal": 240,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Attestation",
+  "chars": 296
+ },
+ {
+  "ordinal": 241,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance",
+  "chars": 362
+ },
+ {
+  "ordinal": 242,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance",
+  "chars": 415
+ },
+ {
+  "ordinal": 243,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance",
+  "chars": 482
+ },
+ {
+  "ordinal": 244,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance",
+  "chars": 512
+ },
+ {
+  "ordinal": 245,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance",
+  "chars": 370
+ },
+ {
+  "ordinal": 246,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Channel Binding",
+  "chars": 441
+ },
+ {
+  "ordinal": 247,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Channel Binding",
+  "chars": 356
+ },
+ {
+  "ordinal": 248,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Channel Binding",
+  "chars": 496
+ },
+ {
+  "ordinal": 249,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Verifier Name Binding",
+  "chars": 306
+ },
+ {
+  "ordinal": 250,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Verifier Name Binding",
+  "chars": 541
+ },
+ {
+  "ordinal": 251,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Phishing Resistance › Verifier Name Binding",
+  "chars": 359
+ },
+ {
+  "ordinal": 252,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Verifier-CSP or IdP Communications",
+  "chars": 331
+ },
+ {
+  "ordinal": 253,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Replay Resistance",
+  "chars": 371
+ },
+ {
+  "ordinal": 254,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Replay Resistance",
+  "chars": 437
+ },
+ {
+  "ordinal": 255,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Replay Resistance",
+  "chars": 198
+ },
+ {
+  "ordinal": 256,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Authentication Intent",
+  "chars": 446
+ },
+ {
+  "ordinal": 257,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Authentication Intent",
+  "chars": 153
+ },
+ {
+  "ordinal": 258,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Authentication Intent",
+  "chars": 471
+ },
+ {
+  "ordinal": 259,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Authentication Intent",
+  "chars": 528
+ },
+ {
+  "ordinal": 260,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 274
+ },
+ {
+  "ordinal": 261,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 391
+ },
+ {
+  "ordinal": 262,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 212
+ },
+ {
+  "ordinal": 263,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 483
+ },
+ {
+  "ordinal": 264,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 215
+ },
+ {
+  "ordinal": 265,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 498
+ },
+ {
+  "ordinal": 266,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 401
+ },
+ {
+  "ordinal": 267,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Restricted Authenticators",
+  "chars": 269
+ },
+ {
+  "ordinal": 268,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 325
+ },
+ {
+  "ordinal": 269,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 440
+ },
+ {
+  "ordinal": 270,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 203
+ },
+ {
+  "ordinal": 271,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 476
+ },
+ {
+  "ordinal": 272,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 186
+ },
+ {
+  "ordinal": 273,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 374
+ },
+ {
+  "ordinal": 274,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 539
+ },
+ {
+  "ordinal": 275,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Activation Secrets",
+  "chars": 76
+ },
+ {
+  "ordinal": 276,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators",
+  "chars": 417
+ },
+ {
+  "ordinal": 277,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators",
+  "chars": 349
+ },
+ {
+  "ordinal": 278,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wired Connections",
+  "chars": 280
+ },
+ {
+  "ordinal": 279,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 333
+ },
+ {
+  "ordinal": 280,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 409
+ },
+ {
+  "ordinal": 281,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 239
+ },
+ {
+  "ordinal": 282,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 543
+ },
+ {
+  "ordinal": 283,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 179
+ },
+ {
+  "ordinal": 284,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 424
+ },
+ {
+  "ordinal": 285,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 483
+ },
+ {
+  "ordinal": 286,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 314
+ },
+ {
+  "ordinal": 287,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Wireless Connections",
+  "chars": 389
+ },
+ {
+  "ordinal": 288,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Hybrid Connections",
+  "chars": 438
+ },
+ {
+  "ordinal": 289,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Hybrid Connections",
+  "chars": 403
+ },
+ {
+  "ordinal": 290,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Hybrid Connections",
+  "chars": 448
+ },
+ {
+  "ordinal": 291,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Connected Authenticators › Hybrid Connections",
+  "chars": 270
+ },
+ {
+  "ordinal": 292,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Random Values",
+  "chars": 425
+ },
+ {
+  "ordinal": 293,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 265
+ },
+ {
+  "ordinal": 294,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 448
+ },
+ {
+  "ordinal": 295,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 276
+ },
+ {
+  "ordinal": 296,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 358
+ },
+ {
+  "ordinal": 297,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 341
+ },
+ {
+  "ordinal": 298,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 473
+ },
+ {
+  "ordinal": 299,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 370
+ },
+ {
+  "ordinal": 300,
+  "locator": "Authenticator and Verifier Requirements › General Authenticator Requirements › Exportability",
+  "chars": 455
+ },
+ {
+  "ordinal": 301,
+  "locator": "Authenticator Event Management",
+  "chars": 342
+ },
+ {
+  "ordinal": 302,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 449
+ },
+ {
+  "ordinal": 303,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 172
+ },
+ {
+  "ordinal": 304,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 408
+ },
+ {
+  "ordinal": 305,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 310
+ },
+ {
+  "ordinal": 306,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 409
+ },
+ {
+  "ordinal": 307,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 379
+ },
+ {
+  "ordinal": 308,
+  "locator": "Authenticator Event Management › Authenticator Binding",
+  "chars": 229
+ },
+ {
+  "ordinal": 309,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding at Enrollment",
+  "chars": 139
+ },
+ {
+  "ordinal": 310,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding",
+  "chars": 23
+ },
+ {
+  "ordinal": 311,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding an Additional Authenticator",
+  "chars": 35
+ },
+ {
+  "ordinal": 312,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding an Additional Authenticator",
+  "chars": 498
+ },
+ {
+  "ordinal": 313,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding an Additional Authenticator",
+  "chars": 422
+ },
+ {
+  "ordinal": 314,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding an Additional Authenticator",
+  "chars": 405
+ },
+ {
+  "ordinal": 315,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 449
+ },
+ {
+  "ordinal": 316,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 471
+ },
+ {
+  "ordinal": 317,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 441
+ },
+ {
+  "ordinal": 318,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 460
+ },
+ {
+  "ordinal": 319,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 382
+ },
+ {
+  "ordinal": 320,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 311
+ },
+ {
+  "ordinal": 321,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 441
+ },
+ {
+  "ordinal": 322,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 541
+ },
+ {
+  "ordinal": 323,
+  "locator": "Authenticator Event Management › Authenticator Binding › Post-Enrollment Binding › Binding Across Endpoints",
+  "chars": 177
+ },
+ {
+  "ordinal": 324,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 301
+ },
+ {
+  "ordinal": 325,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 275
+ },
+ {
+  "ordinal": 326,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 419
+ },
+ {
+  "ordinal": 327,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 405
+ },
+ {
+  "ordinal": 328,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 307
+ },
+ {
+  "ordinal": 329,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 403
+ },
+ {
+  "ordinal": 330,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 453
+ },
+ {
+  "ordinal": 331,
+  "locator": "Authenticator Event Management › Authenticator Binding › Binding to a Subscriber-Provided Authenticator",
+  "chars": 161
+ },
+ {
+  "ordinal": 332,
+  "locator": "Authenticator Event Management › Authenticator Binding › Renewal",
+  "chars": 486
+ },
+ {
+  "ordinal": 333,
+  "locator": "Authenticator Event Management › Account Recovery",
+  "chars": 444
+ },
+ {
+  "ordinal": 334,
+  "locator": "Authenticator Event Management › Account Recovery",
+  "chars": 307
+ },
+ {
+  "ordinal": 335,
+  "locator": "Authenticator Event Management › Account Recovery",
+  "chars": 334
+ },
+ {
+  "ordinal": 336,
+  "locator": "Authenticator Event Management › Account Recovery",
+  "chars": 264
+ },
+ {
+  "ordinal": 337,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods",
+  "chars": 433
+ },
+ {
+  "ordinal": 338,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Saved Recovery Codes",
+  "chars": 20
+ },
+ {
+  "ordinal": 339,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Saved Recovery Codes",
+  "chars": 505
+ },
+ {
+  "ordinal": 340,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Saved Recovery Codes",
+  "chars": 160
+ },
+ {
+  "ordinal": 341,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Saved Recovery Codes",
+  "chars": 441
+ },
+ {
+  "ordinal": 342,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Saved Recovery Codes",
+  "chars": 196
+ },
+ {
+  "ordinal": 343,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Issued Recovery Codes",
+  "chars": 396
+ },
+ {
+  "ordinal": 344,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Issued Recovery Codes",
+  "chars": 448
+ },
+ {
+  "ordinal": 345,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Issued Recovery Codes",
+  "chars": 312
+ },
+ {
+  "ordinal": 346,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Issued Recovery Codes",
+  "chars": 542
+ },
+ {
+  "ordinal": 347,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Recovery Contacts",
+  "chars": 302
+ },
+ {
+  "ordinal": 348,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Recovery Contacts",
+  "chars": 486
+ },
+ {
+  "ordinal": 349,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Recovery Contacts",
+  "chars": 275
+ },
+ {
+  "ordinal": 350,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Repeated Identity Proofing",
+  "chars": 444
+ },
+ {
+  "ordinal": 351,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Methods › Repeated Identity Proofing",
+  "chars": 314
+ },
+ {
+  "ordinal": 352,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL",
+  "chars": 147
+ },
+ {
+  "ordinal": 353,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery Without Identity Proofing",
+  "chars": 292
+ },
+ {
+  "ordinal": 354,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery Without Identity Proofing",
+  "chars": 323
+ },
+ {
+  "ordinal": 355,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery at AAL2",
+  "chars": 434
+ },
+ {
+  "ordinal": 356,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery at AAL2",
+  "chars": 131
+ },
+ {
+  "ordinal": 357,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery at AAL3",
+  "chars": 164
+ },
+ {
+  "ordinal": 358,
+  "locator": "Authenticator Event Management › Account Recovery › Recovery Requirements by IAL/AAL › Recovery at AAL3",
+  "chars": 434
+ },
+ {
+  "ordinal": 359,
+  "locator": "Authenticator Event Management › Account Recovery › Account Recovery Notification",
+  "chars": 161
+ },
+ {
+  "ordinal": 360,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 35
+ },
+ {
+  "ordinal": 361,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 523
+ },
+ {
+  "ordinal": 362,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 253
+ },
+ {
+  "ordinal": 363,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 417
+ },
+ {
+  "ordinal": 364,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 387
+ },
+ {
+  "ordinal": 365,
+  "locator": "Authenticator Event Management › Loss, Theft, Damage, and Compromise",
+  "chars": 460
+ },
+ {
+  "ordinal": 366,
+  "locator": "Authenticator Event Management › Expiration",
+  "chars": 492
+ },
+ {
+  "ordinal": 367,
+  "locator": "Authenticator Event Management › Expiration",
+  "chars": 185
+ },
+ {
+  "ordinal": 368,
+  "locator": "Authenticator Event Management › Invalidation",
+  "chars": 184
+ },
+ {
+  "ordinal": 369,
+  "locator": "Authenticator Event Management › Invalidation",
+  "chars": 479
+ },
+ {
+  "ordinal": 370,
+  "locator": "Authenticator Event Management › Invalidation",
+  "chars": 459
+ },
+ {
+  "ordinal": 371,
+  "locator": "Authenticator Event Management › Invalidation",
+  "chars": 128
+ },
+ {
+  "ordinal": 372,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 300
+ },
+ {
+  "ordinal": 373,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 456
+ },
+ {
+  "ordinal": 374,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 463
+ },
+ {
+  "ordinal": 375,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 207
+ },
+ {
+  "ordinal": 376,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 514
+ },
+ {
+  "ordinal": 377,
+  "locator": "Authenticator Event Management › Account Notifications",
+  "chars": 201
+ },
+ {
+  "ordinal": 378,
+  "locator": "Session Management",
+  "chars": 465
+ },
+ {
+  "ordinal": 379,
+  "locator": "Session Management",
+  "chars": 532
+ },
+ {
+  "ordinal": 380,
+  "locator": "Session Management",
+  "chars": 349
+ },
+ {
+  "ordinal": 381,
+  "locator": "Session Management › Session Bindings",
+  "chars": 441
+ },
+ {
+  "ordinal": 382,
+  "locator": "Session Management › Session Bindings",
+  "chars": 497
+ },
+ {
+  "ordinal": 383,
+  "locator": "Session Management › Session Bindings",
+  "chars": 115
+ },
+ {
+  "ordinal": 384,
+  "locator": "Session Management › Session Bindings",
+  "chars": 546
+ },
+ {
+  "ordinal": 385,
+  "locator": "Session Management › Session Bindings",
+  "chars": 523
+ },
+ {
+  "ordinal": 386,
+  "locator": "Session Management › Session Bindings",
+  "chars": 214
+ },
+ {
+  "ordinal": 387,
+  "locator": "Session Management › Session Bindings",
+  "chars": 419
+ },
+ {
+  "ordinal": 388,
+  "locator": "Session Management › Session Bindings",
+  "chars": 428
+ },
+ {
+  "ordinal": 389,
+  "locator": "Session Management › Session Bindings",
+  "chars": 415
+ },
+ {
+  "ordinal": 390,
+  "locator": "Session Management › Session Bindings",
+  "chars": 453
+ },
+ {
+  "ordinal": 391,
+  "locator": "Session Management › Session Bindings",
+  "chars": 299
+ },
+ {
+  "ordinal": 392,
+  "locator": "Session Management › Session Bindings",
+  "chars": 374
+ },
+ {
+  "ordinal": 393,
+  "locator": "Session Management › Session Bindings",
+  "chars": 363
+ },
+ {
+  "ordinal": 394,
+  "locator": "Session Management › Session Bindings › Browser Cookies",
+  "chars": 484
+ },
+ {
+  "ordinal": 395,
+  "locator": "Session Management › Session Bindings › Browser Cookies",
+  "chars": 466
+ },
+ {
+  "ordinal": 396,
+  "locator": "Session Management › Session Bindings › Access Tokens",
+  "chars": 469
+ },
+ {
+  "ordinal": 397,
+  "locator": "Session Management › Reauthentication",
+  "chars": 221
+ },
+ {
+  "ordinal": 398,
+  "locator": "Session Management › Reauthentication",
+  "chars": 336
+ },
+ {
+  "ordinal": 399,
+  "locator": "Session Management › Reauthentication",
+  "chars": 449
+ },
+ {
+  "ordinal": 400,
+  "locator": "Session Management › Reauthentication",
+  "chars": 419
+ },
+ {
+  "ordinal": 401,
+  "locator": "Session Management › Reauthentication",
+  "chars": 414
+ },
+ {
+  "ordinal": 402,
+  "locator": "Session Management › Reauthentication",
+  "chars": 421
+ },
+ {
+  "ordinal": 403,
+  "locator": "Session Management › Reauthentication",
+  "chars": 418
+ },
+ {
+  "ordinal": 404,
+  "locator": "Session Management › Reauthentication",
+  "chars": 487
+ },
+ {
+  "ordinal": 405,
+  "locator": "Session Management › Reauthentication",
+  "chars": 172
+ },
+ {
+  "ordinal": 406,
+  "locator": "Session Management › Session Monitoring",
+  "chars": 18
+ },
+ {
+  "ordinal": 407,
+  "locator": "Session Management › Session Monitoring",
+  "chars": 503
+ },
+ {
+  "ordinal": 408,
+  "locator": "Session Management › Session Monitoring",
+  "chars": 363
+ },
+ {
+  "ordinal": 409,
+  "locator": "Session Management › Session Monitoring",
+  "chars": 411
+ },
+ {
+  "ordinal": 410,
+  "locator": "Session Management › Session Monitoring",
+  "chars": 289
+ },
+ {
+  "ordinal": 411,
+  "locator": "Threats and Security Considerations",
+  "chars": 64
+ },
+ {
+  "ordinal": 412,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 271
+ },
+ {
+  "ordinal": 413,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 509
+ },
+ {
+  "ordinal": 414,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 174
+ },
+ {
+  "ordinal": 415,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 508
+ },
+ {
+  "ordinal": 416,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 215
+ },
+ {
+  "ordinal": 417,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 471
+ },
+ {
+  "ordinal": 418,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 452
+ },
+ {
+  "ordinal": 419,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 454
+ },
+ {
+  "ordinal": 420,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 442
+ },
+ {
+  "ordinal": 421,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 475
+ },
+ {
+  "ordinal": 422,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 493
+ },
+ {
+  "ordinal": 423,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 421
+ },
+ {
+  "ordinal": 424,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 449
+ },
+ {
+  "ordinal": 425,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 490
+ },
+ {
+  "ordinal": 426,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 439
+ },
+ {
+  "ordinal": 427,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 467
+ },
+ {
+  "ordinal": 428,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 456
+ },
+ {
+  "ordinal": 429,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 491
+ },
+ {
+  "ordinal": 430,
+  "locator": "Threats and Security Considerations › Authenticator Threats",
+  "chars": 416
+ },
+ {
+  "ordinal": 431,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 461
+ },
+ {
+  "ordinal": 432,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 469
+ },
+ {
+  "ordinal": 433,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 499
+ },
+ {
+  "ordinal": 434,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 485
+ },
+ {
+  "ordinal": 435,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 494
+ },
+ {
+  "ordinal": 436,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 456
+ },
+ {
+  "ordinal": 437,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 378
+ },
+ {
+  "ordinal": 438,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 430
+ },
+ {
+  "ordinal": 439,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 307
+ },
+ {
+  "ordinal": 440,
+  "locator": "Threats and Security Considerations › Threat Mitigation Strategies",
+  "chars": 427
+ },
+ {
+  "ordinal": 441,
+  "locator": "Threats and Security Considerations › Authenticator Recovery",
+  "chars": 22
+ },
+ {
+  "ordinal": 442,
+  "locator": "Threats and Security Considerations › Authenticator Recovery",
+  "chars": 501
+ },
+ {
+  "ordinal": 443,
+  "locator": "Threats and Security Considerations › Authenticator Recovery",
+  "chars": 301
+ },
+ {
+  "ordinal": 444,
+  "locator": "Threats and Security Considerations › Session Attacks",
+  "chars": 380
+ },
+ {
+  "ordinal": 445,
+  "locator": "Threats and Security Considerations › Session Attacks",
+  "chars": 496
+ },
+ {
+  "ordinal": 446,
+  "locator": "Privacy Considerations",
+  "chars": 51
+ },
+ {
+  "ordinal": 447,
+  "locator": "Privacy Considerations › Privacy Risk Assessment",
+  "chars": 411
+ },
+ {
+  "ordinal": 448,
+  "locator": "Privacy Considerations › Privacy Risk Assessment",
+  "chars": 377
+ },
+ {
+  "ordinal": 449,
+  "locator": "Privacy Considerations › Privacy Controls",
+  "chars": 311
+ },
+ {
+  "ordinal": 450,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 14
+ },
+ {
+  "ordinal": 451,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 506
+ },
+ {
+  "ordinal": 452,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 179
+ },
+ {
+  "ordinal": 453,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 401
+ },
+ {
+  "ordinal": 454,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 345
+ },
+ {
+  "ordinal": 455,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 468
+ },
+ {
+  "ordinal": 456,
+  "locator": "Privacy Considerations › Use Limitation",
+  "chars": 231
+ },
+ {
+  "ordinal": 457,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 34
+ },
+ {
+  "ordinal": 458,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 496
+ },
+ {
+  "ordinal": 459,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 434
+ },
+ {
+  "ordinal": 460,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 415
+ },
+ {
+  "ordinal": 461,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 409
+ },
+ {
+  "ordinal": 462,
+  "locator": "Privacy Considerations › Agency-Specific Privacy Compliance",
+  "chars": 240
+ },
+ {
+  "ordinal": 463,
+  "locator": "Customer Experience Considerations",
+  "chars": 431
+ },
+ {
+  "ordinal": 464,
+  "locator": "Customer Experience Considerations",
+  "chars": 196
+ },
+ {
+  "ordinal": 465,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 408
+ },
+ {
+  "ordinal": 466,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 455
+ },
+ {
+  "ordinal": 467,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 384
+ },
+ {
+  "ordinal": 468,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 251
+ },
+ {
+  "ordinal": 469,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 513
+ },
+ {
+  "ordinal": 470,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 198
+ },
+ {
+  "ordinal": 471,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 443
+ },
+ {
+  "ordinal": 472,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 498
+ },
+ {
+  "ordinal": 473,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 432
+ },
+ {
+  "ordinal": 474,
+  "locator": "Customer Experience Considerations › Usability",
+  "chars": 323
+ },
+ {
+  "ordinal": 475,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 305
+ },
+ {
+  "ordinal": 476,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 510
+ },
+ {
+  "ordinal": 477,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 461
+ },
+ {
+  "ordinal": 478,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 187
+ },
+ {
+  "ordinal": 479,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 521
+ },
+ {
+  "ordinal": 480,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 377
+ },
+ {
+  "ordinal": 481,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 314
+ },
+ {
+  "ordinal": 482,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 408
+ },
+ {
+  "ordinal": 483,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 492
+ },
+ {
+  "ordinal": 484,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 480
+ },
+ {
+  "ordinal": 485,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 102
+ },
+ {
+  "ordinal": 486,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 466
+ },
+ {
+  "ordinal": 487,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 457
+ },
+ {
+  "ordinal": 488,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 439
+ },
+ {
+  "ordinal": 489,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 496
+ },
+ {
+  "ordinal": 490,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 495
+ },
+ {
+  "ordinal": 491,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 462
+ },
+ {
+  "ordinal": 492,
+  "locator": "Customer Experience Considerations › Usability › Common Usability Considerations for Authenticators",
+  "chars": 141
+ },
+ {
+  "ordinal": 493,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type",
+  "chars": 162
+ },
+ {
+  "ordinal": 494,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 438
+ },
+ {
+  "ordinal": 495,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 318
+ },
+ {
+  "ordinal": 496,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 492
+ },
+ {
+  "ordinal": 497,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 402
+ },
+ {
+  "ordinal": 498,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 414
+ },
+ {
+  "ordinal": 499,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Passwords",
+  "chars": 388
+ },
+ {
+  "ordinal": 500,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Look-Up Secrets",
+  "chars": 407
+ },
+ {
+  "ordinal": 501,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Look-Up Secrets",
+  "chars": 288
+ },
+ {
+  "ordinal": 502,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Out-of-Band",
+  "chars": 369
+ },
+ {
+  "ordinal": 503,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Out-of-Band",
+  "chars": 287
+ },
+ {
+  "ordinal": 504,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Out-of-Band",
+  "chars": 491
+ },
+ {
+  "ordinal": 505,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Out-of-Band",
+  "chars": 352
+ },
+ {
+  "ordinal": 506,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor OTP",
+  "chars": 301
+ },
+ {
+  "ordinal": 507,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor OTP",
+  "chars": 336
+ },
+ {
+  "ordinal": 508,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor OTP",
+  "chars": 30
+ },
+ {
+  "ordinal": 509,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor OTP",
+  "chars": 509
+ },
+ {
+  "ordinal": 510,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor OTP",
+  "chars": 482
+ },
+ {
+  "ordinal": 511,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor OTP",
+  "chars": 476
+ },
+ {
+  "ordinal": 512,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor Cryptographic Authenticator",
+  "chars": 200
+ },
+ {
+  "ordinal": 513,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor Cryptographic Authenticator",
+  "chars": 533
+ },
+ {
+  "ordinal": 514,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor Cryptographic Authenticator",
+  "chars": 305
+ },
+ {
+  "ordinal": 515,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Single-Factor Cryptographic Authenticator",
+  "chars": 338
+ },
+ {
+  "ordinal": 516,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor Cryptographic Authenticator",
+  "chars": 388
+ },
+ {
+  "ordinal": 517,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor Cryptographic Authenticator",
+  "chars": 514
+ },
+ {
+  "ordinal": 518,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor Cryptographic Authenticator",
+  "chars": 426
+ },
+ {
+  "ordinal": 519,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations by Authenticator Type › Multi-Factor Cryptographic Authenticator",
+  "chars": 327
+ },
+ {
+  "ordinal": 520,
+  "locator": "Customer Experience Considerations › Usability › Summary of Usability Considerations",
+  "chars": 487
+ },
+ {
+  "ordinal": 521,
+  "locator": "Customer Experience Considerations › Usability › Summary of Usability Considerations",
+  "chars": 241
+ },
+ {
+  "ordinal": 522,
+  "locator": "Customer Experience Considerations › Usability › Summary of Usability Considerations",
+  "chars": 416
+ },
+ {
+  "ordinal": 523,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 286
+ },
+ {
+  "ordinal": 524,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 512
+ },
+ {
+  "ordinal": 525,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 379
+ },
+ {
+  "ordinal": 526,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 381
+ },
+ {
+  "ordinal": 527,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 423
+ },
+ {
+  "ordinal": 528,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 497
+ },
+ {
+  "ordinal": 529,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 489
+ },
+ {
+  "ordinal": 530,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 490
+ },
+ {
+  "ordinal": 531,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 431
+ },
+ {
+  "ordinal": 532,
+  "locator": "Customer Experience Considerations › Usability › Usability Considerations for Biometrics",
+  "chars": 164
+ },
+ {
+  "ordinal": 533,
+  "locator": "Customer Experience Considerations › Customer Success Considerations",
+  "chars": 447
+ },
+ {
+  "ordinal": 534,
+  "locator": "Customer Experience Considerations › Customer Success Considerations",
+  "chars": 486
+ },
+ {
+  "ordinal": 535,
+  "locator": "Customer Experience Considerations › Customer Success Considerations",
+  "chars": 395
+ },
+ {
+  "ordinal": 536,
+  "locator": "Customer Experience Considerations › Customer Success Considerations",
+  "chars": 411
+ },
+ {
+  "ordinal": 537,
+  "locator": "Customer Experience Considerations › Customer Success Considerations",
+  "chars": 425
+ },
+ {
+  "ordinal": 538,
+  "locator": "References",
+  "chars": 495
+ },
+ {
+  "ordinal": 539,
+  "locator": "References",
+  "chars": 426
+ },
+ {
+  "ordinal": 540,
+  "locator": "References",
+  "chars": 324
+ },
+ {
+  "ordinal": 541,
+  "locator": "References",
+  "chars": 390
+ },
+ {
+  "ordinal": 542,
+  "locator": "References",
+  "chars": 325
+ },
+ {
+  "ordinal": 543,
+  "locator": "References",
+  "chars": 317
+ },
+ {
+  "ordinal": 544,
+  "locator": "References",
+  "chars": 339
+ },
+ {
+  "ordinal": 545,
+  "locator": "References",
+  "chars": 364
+ },
+ {
+  "ordinal": 546,
+  "locator": "References",
+  "chars": 488
+ },
+ {
+  "ordinal": 547,
+  "locator": "References",
+  "chars": 464
+ },
+ {
+  "ordinal": 548,
+  "locator": "References",
+  "chars": 286
+ },
+ {
+  "ordinal": 549,
+  "locator": "References",
+  "chars": 297
+ },
+ {
+  "ordinal": 550,
+  "locator": "References",
+  "chars": 317
+ },
+ {
+  "ordinal": 551,
+  "locator": "References",
+  "chars": 269
+ },
+ {
+  "ordinal": 552,
+  "locator": "References",
+  "chars": 281
+ },
+ {
+  "ordinal": 553,
+  "locator": "References",
+  "chars": 395
+ },
+ {
+  "ordinal": 554,
+  "locator": "References",
+  "chars": 377
+ },
+ {
+  "ordinal": 555,
+  "locator": "References",
+  "chars": 357
+ },
+ {
+  "ordinal": 556,
+  "locator": "References",
+  "chars": 457
+ },
+ {
+  "ordinal": 557,
+  "locator": "References",
+  "chars": 267
+ },
+ {
+  "ordinal": 558,
+  "locator": "References",
+  "chars": 367
+ },
+ {
+  "ordinal": 559,
+  "locator": "References",
+  "chars": 358
+ },
+ {
+  "ordinal": 560,
+  "locator": "References",
+  "chars": 369
+ },
+ {
+  "ordinal": 561,
+  "locator": "References",
+  "chars": 336
+ },
+ {
+  "ordinal": 562,
+  "locator": "References",
+  "chars": 419
+ },
+ {
+  "ordinal": 563,
+  "locator": "References",
+  "chars": 475
+ },
+ {
+  "ordinal": 564,
+  "locator": "References",
+  "chars": 438
+ },
+ {
+  "ordinal": 565,
+  "locator": "References",
+  "chars": 328
+ },
+ {
+  "ordinal": 566,
+  "locator": "References",
+  "chars": 347
+ },
+ {
+  "ordinal": 567,
+  "locator": "References",
+  "chars": 295
+ },
+ {
+  "ordinal": 568,
+  "locator": "References",
+  "chars": 346
+ },
+ {
+  "ordinal": 569,
+  "locator": "References",
+  "chars": 387
+ },
+ {
+  "ordinal": 570,
+  "locator": "References",
+  "chars": 359
+ },
+ {
+  "ordinal": 571,
+  "locator": "References",
+  "chars": 388
+ },
+ {
+  "ordinal": 572,
+  "locator": "References",
+  "chars": 327
+ },
+ {
+  "ordinal": 573,
+  "locator": "References",
+  "chars": 342
+ },
+ {
+  "ordinal": 574,
+  "locator": "References",
+  "chars": 343
+ },
+ {
+  "ordinal": 575,
+  "locator": "References",
+  "chars": 312
+ },
+ {
+  "ordinal": 576,
+  "locator": "References",
+  "chars": 300
+ },
+ {
+  "ordinal": 577,
+  "locator": "References",
+  "chars": 368
+ },
+ {
+  "ordinal": 578,
+  "locator": "References",
+  "chars": 399
+ },
+ {
+  "ordinal": 579,
+  "locator": "References",
+  "chars": 238
+ },
+ {
+  "ordinal": 580,
+  "locator": "References",
+  "chars": 337
+ },
+ {
+  "ordinal": 581,
+  "locator": "References",
+  "chars": 259
+ },
+ {
+  "ordinal": 582,
+  "locator": "References",
+  "chars": 292
+ },
+ {
+  "ordinal": 583,
+  "locator": "Strength of Passwords",
+  "chars": 184
+ },
+ {
+  "ordinal": 584,
+  "locator": "Strength of Passwords › Introduction",
+  "chars": 425
+ },
+ {
+  "ordinal": 585,
+  "locator": "Strength of Passwords › Introduction",
+  "chars": 436
+ },
+ {
+  "ordinal": 586,
+  "locator": "Strength of Passwords › Introduction",
+  "chars": 466
+ },
+ {
+  "ordinal": 587,
+  "locator": "Strength of Passwords › Introduction",
+  "chars": 456
+ },
+ {
+  "ordinal": 588,
+  "locator": "Strength of Passwords › Length",
+  "chars": 412
+ },
+ {
+  "ordinal": 589,
+  "locator": "Strength of Passwords › Length",
+  "chars": 479
+ },
+ {
+  "ordinal": 590,
+  "locator": "Strength of Passwords › Length",
+  "chars": 385
+ },
+ {
+  "ordinal": 591,
+  "locator": "Strength of Passwords › Length",
+  "chars": 320
+ },
+ {
+  "ordinal": 592,
+  "locator": "Strength of Passwords › Length",
+  "chars": 443
+ },
+ {
+  "ordinal": 593,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 477
+ },
+ {
+  "ordinal": 594,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 473
+ },
+ {
+  "ordinal": 595,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 396
+ },
+ {
+  "ordinal": 596,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 399
+ },
+ {
+  "ordinal": 597,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 414
+ },
+ {
+  "ordinal": 598,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 396
+ },
+ {
+  "ordinal": 599,
+  "locator": "Strength of Passwords › Complexity",
+  "chars": 425
+ },
+ {
+  "ordinal": 600,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 448
+ },
+ {
+  "ordinal": 601,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 410
+ },
+ {
+  "ordinal": 602,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 316
+ },
+ {
+  "ordinal": 603,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 446
+ },
+ {
+  "ordinal": 604,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 327
+ },
+ {
+  "ordinal": 605,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 444
+ },
+ {
+  "ordinal": 606,
+  "locator": "Strength of Passwords › Central vs. Local Verification",
+  "chars": 289
+ },
+ {
+  "ordinal": 607,
+  "locator": "Strength of Passwords › Summary",
+  "chars": 452
+ },
+ {
+  "ordinal": 608,
+  "locator": "Syncable Authenticators",
+  "chars": 51
+ },
+ {
+  "ordinal": 609,
+  "locator": "Syncable Authenticators › Introduction",
+  "chars": 305
+ },
+ {
+  "ordinal": 610,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 318
+ },
+ {
+  "ordinal": 611,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 402
+ },
+ {
+  "ordinal": 612,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 414
+ },
+ {
+  "ordinal": 613,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 448
+ },
+ {
+  "ordinal": 614,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 479
+ },
+ {
+  "ordinal": 615,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 232
+ },
+ {
+  "ordinal": 616,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 367
+ },
+ {
+  "ordinal": 617,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 486
+ },
+ {
+  "ordinal": 618,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 252
+ },
+ {
+  "ordinal": 619,
+  "locator": "Syncable Authenticators › Cloning Authentication Keys",
+  "chars": 383
+ },
+ {
+  "ordinal": 620,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 404
+ },
+ {
+  "ordinal": 621,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 481
+ },
+ {
+  "ordinal": 622,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 450
+ },
+ {
+  "ordinal": 623,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 522
+ },
+ {
+  "ordinal": 624,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 268
+ },
+ {
+  "ordinal": 625,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 535
+ },
+ {
+  "ordinal": 626,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 388
+ },
+ {
+  "ordinal": 627,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 415
+ },
+ {
+  "ordinal": 628,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 323
+ },
+ {
+  "ordinal": 629,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 406
+ },
+ {
+  "ordinal": 630,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 448
+ },
+ {
+  "ordinal": 631,
+  "locator": "Syncable Authenticators › Implementation Requirements",
+  "chars": 378
+ },
+ {
+  "ordinal": 632,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 344
+ },
+ {
+  "ordinal": 633,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 399
+ },
+ {
+  "ordinal": 634,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 523
+ },
+ {
+  "ordinal": 635,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 446
+ },
+ {
+  "ordinal": 636,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 487
+ },
+ {
+  "ordinal": 637,
+  "locator": "Syncable Authenticators › Sharing",
+  "chars": 434
+ },
+ {
+  "ordinal": 638,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 261
+ },
+ {
+  "ordinal": 639,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 396
+ },
+ {
+  "ordinal": 640,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 262
+ },
+ {
+  "ordinal": 641,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 363
+ },
+ {
+  "ordinal": 642,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 318
+ },
+ {
+  "ordinal": 643,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 476
+ },
+ {
+  "ordinal": 644,
+  "locator": "Syncable Authenticators › Example",
+  "chars": 461
+ },
+ {
+  "ordinal": 645,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 471
+ },
+ {
+  "ordinal": 646,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 380
+ },
+ {
+  "ordinal": 647,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 479
+ },
+ {
+  "ordinal": 648,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 489
+ },
+ {
+  "ordinal": 649,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 472
+ },
+ {
+  "ordinal": 650,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 359
+ },
+ {
+  "ordinal": 651,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 427
+ },
+ {
+  "ordinal": 652,
+  "locator": "Syncable Authenticators › Security Considerations",
+  "chars": 266
+ },
+ {
+  "ordinal": 653,
+  "locator": "List of Symbols, Abbreviations, and Acronyms",
+  "chars": 487
+ },
+ {
+  "ordinal": 654,
+  "locator": "List of Symbols, Abbreviations, and Acronyms",
+  "chars": 469
+ },
+ {
+  "ordinal": 655,
+  "locator": "List of Symbols, Abbreviations, and Acronyms",
+  "chars": 408
+ },
+ {
+  "ordinal": 656,
+  "locator": "Glossary",
+  "chars": 467
+ },
+ {
+  "ordinal": 657,
+  "locator": "Glossary",
+  "chars": 495
+ },
+ {
+  "ordinal": 658,
+  "locator": "Glossary",
+  "chars": 348
+ },
+ {
+  "ordinal": 659,
+  "locator": "Glossary",
+  "chars": 315
+ },
+ {
+  "ordinal": 660,
+  "locator": "Glossary",
+  "chars": 475
+ },
+ {
+  "ordinal": 661,
+  "locator": "Glossary",
+  "chars": 429
+ },
+ {
+  "ordinal": 662,
+  "locator": "Glossary",
+  "chars": 378
+ },
+ {
+  "ordinal": 663,
+  "locator": "Glossary",
+  "chars": 523
+ },
+ {
+  "ordinal": 664,
+  "locator": "Glossary",
+  "chars": 432
+ },
+ {
+  "ordinal": 665,
+  "locator": "Glossary",
+  "chars": 240
+ },
+ {
+  "ordinal": 666,
+  "locator": "Glossary",
+  "chars": 510
+ },
+ {
+  "ordinal": 667,
+  "locator": "Glossary",
+  "chars": 487
+ },
+ {
+  "ordinal": 668,
+  "locator": "Glossary",
+  "chars": 410
+ },
+ {
+  "ordinal": 669,
+  "locator": "Glossary",
+  "chars": 485
+ },
+ {
+  "ordinal": 670,
+  "locator": "Glossary",
+  "chars": 314
+ },
+ {
+  "ordinal": 671,
+  "locator": "Glossary",
+  "chars": 365
+ },
+ {
+  "ordinal": 672,
+  "locator": "Glossary",
+  "chars": 393
+ },
+ {
+  "ordinal": 673,
+  "locator": "Glossary",
+  "chars": 207
+ },
+ {
+  "ordinal": 674,
+  "locator": "Glossary",
+  "chars": 491
+ },
+ {
+  "ordinal": 675,
+  "locator": "Glossary",
+  "chars": 223
+ },
+ {
+  "ordinal": 676,
+  "locator": "Glossary",
+  "chars": 369
+ },
+ {
+  "ordinal": 677,
+  "locator": "Glossary",
+  "chars": 463
+ },
+ {
+  "ordinal": 678,
+  "locator": "Glossary",
+  "chars": 136
+ },
+ {
+  "ordinal": 679,
+  "locator": "Glossary",
+  "chars": 536
+ },
+ {
+  "ordinal": 680,
+  "locator": "Glossary",
+  "chars": 299
+ },
+ {
+  "ordinal": 681,
+  "locator": "Glossary",
+  "chars": 522
+ },
+ {
+  "ordinal": 682,
+  "locator": "Glossary",
+  "chars": 499
+ },
+ {
+  "ordinal": 683,
+  "locator": "Glossary",
+  "chars": 257
+ },
+ {
+  "ordinal": 684,
+  "locator": "Glossary",
+  "chars": 362
+ },
+ {
+  "ordinal": 685,
+  "locator": "Glossary",
+  "chars": 413
+ },
+ {
+  "ordinal": 686,
+  "locator": "Glossary",
+  "chars": 470
+ },
+ {
+  "ordinal": 687,
+  "locator": "Glossary",
+  "chars": 352
+ },
+ {
+  "ordinal": 688,
+  "locator": "Glossary",
+  "chars": 486
+ },
+ {
+  "ordinal": 689,
+  "locator": "Glossary",
+  "chars": 453
+ },
+ {
+  "ordinal": 690,
+  "locator": "Glossary",
+  "chars": 497
+ },
+ {
+  "ordinal": 691,
+  "locator": "Glossary",
+  "chars": 493
+ },
+ {
+  "ordinal": 692,
+  "locator": "Glossary",
+  "chars": 202
+ },
+ {
+  "ordinal": 693,
+  "locator": "Glossary",
+  "chars": 453
+ },
+ {
+  "ordinal": 694,
+  "locator": "Glossary",
+  "chars": 347
+ },
+ {
+  "ordinal": 695,
+  "locator": "Glossary",
+  "chars": 390
+ },
+ {
+  "ordinal": 696,
+  "locator": "Glossary",
+  "chars": 493
+ },
+ {
+  "ordinal": 697,
+  "locator": "Glossary",
+  "chars": 318
+ },
+ {
+  "ordinal": 698,
+  "locator": "Glossary",
+  "chars": 340
+ },
+ {
+  "ordinal": 699,
+  "locator": "Glossary",
+  "chars": 252
+ },
+ {
+  "ordinal": 700,
+  "locator": "Glossary",
+  "chars": 408
+ },
+ {
+  "ordinal": 701,
+  "locator": "Glossary",
+  "chars": 465
+ },
+ {
+  "ordinal": 702,
+  "locator": "Glossary",
+  "chars": 420
+ },
+ {
+  "ordinal": 703,
+  "locator": "Glossary",
+  "chars": 377
+ },
+ {
+  "ordinal": 704,
+  "locator": "Glossary",
+  "chars": 261
+ },
+ {
+  "ordinal": 705,
+  "locator": "Glossary",
+  "chars": 468
+ },
+ {
+  "ordinal": 706,
+  "locator": "Glossary",
+  "chars": 238
+ },
+ {
+  "ordinal": 707,
+  "locator": "Glossary",
+  "chars": 492
+ },
+ {
+  "ordinal": 708,
+  "locator": "Glossary",
+  "chars": 496
+ },
+ {
+  "ordinal": 709,
+  "locator": "Glossary",
+  "chars": 471
+ },
+ {
+  "ordinal": 710,
+  "locator": "Glossary",
+  "chars": 202
+ },
+ {
+  "ordinal": 711,
+  "locator": "Glossary",
+  "chars": 433
+ },
+ {
+  "ordinal": 712,
+  "locator": "Glossary",
+  "chars": 389
+ },
+ {
+  "ordinal": 713,
+  "locator": "Glossary",
+  "chars": 453
+ },
+ {
+  "ordinal": 714,
+  "locator": "Glossary",
+  "chars": 195
+ },
+ {
+  "ordinal": 715,
+  "locator": "Glossary",
+  "chars": 542
+ },
+ {
+  "ordinal": 716,
+  "locator": "Glossary",
+  "chars": 317
+ },
+ {
+  "ordinal": 717,
+  "locator": "Glossary",
+  "chars": 454
+ },
+ {
+  "ordinal": 718,
+  "locator": "Glossary",
+  "chars": 499
+ },
+ {
+  "ordinal": 719,
+  "locator": "Glossary",
+  "chars": 456
+ },
+ {
+  "ordinal": 720,
+  "locator": "Glossary",
+  "chars": 328
+ },
+ {
+  "ordinal": 721,
+  "locator": "Glossary",
+  "chars": 441
+ },
+ {
+  "ordinal": 722,
+  "locator": "Glossary",
+  "chars": 234
+ },
+ {
+  "ordinal": 723,
+  "locator": "Glossary",
+  "chars": 505
+ },
+ {
+  "ordinal": 724,
+  "locator": "Glossary",
+  "chars": 454
+ },
+ {
+  "ordinal": 725,
+  "locator": "Glossary",
+  "chars": 453
+ },
+ {
+  "ordinal": 726,
+  "locator": "Glossary",
+  "chars": 442
+ },
+ {
+  "ordinal": 727,
+  "locator": "Glossary",
+  "chars": 493
+ },
+ {
+  "ordinal": 728,
+  "locator": "Glossary",
+  "chars": 312
+ },
+ {
+  "ordinal": 729,
+  "locator": "Glossary",
+  "chars": 481
+ },
+ {
+  "ordinal": 730,
+  "locator": "Glossary",
+  "chars": 450
+ },
+ {
+  "ordinal": 731,
+  "locator": "Glossary",
+  "chars": 452
+ },
+ {
+  "ordinal": 732,
+  "locator": "Glossary",
+  "chars": 450
+ },
+ {
+  "ordinal": 733,
+  "locator": "Glossary",
+  "chars": 479
+ },
+ {
+  "ordinal": 734,
+  "locator": "Glossary",
+  "chars": 369
+ },
+ {
+  "ordinal": 735,
+  "locator": "Glossary",
+  "chars": 454
+ },
+ {
+  "ordinal": 736,
+  "locator": "Glossary",
+  "chars": 288
+ },
+ {
+  "ordinal": 737,
+  "locator": "Glossary",
+  "chars": 400
+ },
+ {
+  "ordinal": 738,
+  "locator": "Change Log",
+  "chars": 442
+ },
+ {
+  "ordinal": 739,
+  "locator": "Change Log",
+  "chars": 468
+ },
+ {
+  "ordinal": 740,
+  "locator": "Change Log",
+  "chars": 361
+ },
+ {
+  "ordinal": 741,
+  "locator": "Change Log",
+  "chars": 442
+ },
+ {
+  "ordinal": 742,
+  "locator": "Change Log",
+  "chars": 487
+ },
+ {
+  "ordinal": 743,
+  "locator": "Change Log",
+  "chars": 493
+ },
+ {
+  "ordinal": 744,
+  "locator": "Change Log",
+  "chars": 493
+ },
+ {
+  "ordinal": 745,
+  "locator": "Change Log",
+  "chars": 437
+ }
+]

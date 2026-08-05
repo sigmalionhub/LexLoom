@@ -168,11 +168,16 @@ CATALOGUE: dict[str, Source] = {
             "test that needs ground truth can quote the publisher rather than "
             "this repository's own extractor."
         ),
-        # Deliberately unset. The number has to come from a real parse, and the
-        # chunker does not exist yet; a plausible placeholder here would be a
-        # gate that passes without measuring anything, which is the failure this
-        # catalogue's other comments already document. The task that measures it
-        # also adds the guard to `test_ingest_catalogue.py` that refuses a None.
-        expected_chunks=None,
+        # Measured by `chunk_docx()` against the committed file on 2026-08-05,
+        # not guessed — and the three estimates that circulated while this was
+        # being planned (597, 636, 440) were all wrong, each derived from a
+        # probe packing that did not exist as code.
+        #
+        # 746 is higher than any of them for a reason worth recording: the
+        # chunker flushes the packing buffer at every one of the document's 145
+        # headings, so a chunk never straddles a section and its `locator` is
+        # exact by construction. That costs a short chunk at each boundary and
+        # is most of the difference.
+        expected_chunks=746,
     ),
 }

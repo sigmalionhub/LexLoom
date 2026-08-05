@@ -49,7 +49,7 @@ each has one:
   refuses to start as one that can bypass RLS).
 - **Redis `6379`** — `requirepass`, set from `REDIS_PASSWORD` in Step 3. Without it, any local
   account could run `KEYS lexloom:*` and read live organisation ids out of
-  `lexloom:ingest:{org_id}` and `lexloom:limits:streams:org:{org_id}` — and an organisation id
+  `lexloom:ingest:{org_id}:{source_key}` and `lexloom:limits:streams:org:{org_id}` — and an organisation id
   *is* the credential every row-level-security policy in this schema keys on — then queue
   `lexloom.ingest_source` for one of them behind the admission check's back, or `FLUSHALL`
   every rate-limit counter. The API, worker and beat reach Redis over the Compose network,
@@ -211,7 +211,7 @@ enforceable. Migrations run as the migration role, so both commands below carry 
 export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
 
 docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0004 (head)
+docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0011 (head)
 ```
 
 Without that DSN, `alembic current` fails with `permission denied for table
@@ -383,27 +383,38 @@ curl -fsS -X POST https://lexloom.sigmalion.io/api/v1/ingest \
   -H "authorization: Bearer $TOK" -H 'content-type: application/json' \
   -d '{"source_key":"gdpr-full"}' | jq
 # {"stage":"queued", "chunks_done":0, "chunks_total":0, "error":null, "started_at":...}
+#
+# The POST answers with THIS source's status. The GET answers with a map keyed by
+# source_key — one entry per catalogue document, `idle` for one never touched:
+# curl -fsS .../api/v1/catalogue | jq -r '.[].key'   # gdpr-full, nist-sp-800-63b
 
 while :; do
   S=$(curl -fsS https://lexloom.sigmalion.io/api/v1/ingest/status \
-      -H "authorization: Bearer $TOK" | jq -r .stage)
+      -H "authorization: Bearer $TOK" | jq -r '."gdpr-full".stage')
   echo "$S"; [ "$S" = complete ] || [ "$S" = error ] && break
   sleep 1
 done
 ```
 
 Expect `stage` to move `queued` → `parsing` → `chunking` → `embedding` → `indexing` →
-`complete`, `chunks_total` to hold once parsing finishes (`978` for `gdpr-full` as this
-file is written — read it back from the response rather than trusting this number, since
-the parser that produces it is exactly the kind of thing a later change moves; this
-sentence said `1027` until the extractor was replaced, which is the caveat proving
-itself), and
-`chunks_done` to climb to meet it. A second `POST` for the same organisation answers `409
-already_ingested` — that is the per-organisation cap doing its job, not a bug. The whole
-job runs against `task_soft_time_limit=300` / `task_time_limit=360`
-(`backend/app/worker/celery_app.py`); the full-catalogue round trip is measured at ~75 s
-wall-clock outside container CPU limits (`backend/tests/test_ingest_job.py`), so give it
-a couple of minutes on this box before treating a `queued`/`parsing` stage as stuck.
+`complete`, `chunks_total` to hold once parsing finishes (`978` for `gdpr-full` and `746`
+for `nist-sp-800-63b` as this file is written — read them back from the response rather
+than trusting these numbers, since the parser that produces them is exactly the kind of
+thing a later change moves; this sentence said `1027` until the extractor was replaced,
+which is the caveat proving itself), and `chunks_done` to climb to meet it.
+
+A second `POST` for the **same document** answers `409 already_ingested`. A second POST for
+the *other* document is admitted: a tenant may hold every source in the catalogue, one
+ingest per (tenant, source). `GET .../ingest/status` returns one entry per catalogue key,
+so `jq -r '."gdpr-full".stage'` rather than `jq -r .stage`.
+
+The whole job runs against `task_soft_time_limit=300` / `task_time_limit=360`
+(`backend/app/worker/celery_app.py`); the GDPR round trip is measured at ~75 s wall-clock
+outside container CPU limits (`backend/tests/test_ingest_job.py`) and the NIST one is
+smaller in proportion to its 746 chunks, so give either a couple of minutes on this box
+before treating a `queued`/`parsing` stage as stuck. An organisation with less life left
+than the task is allowed to take is refused outright rather than started and killed by the
+purge — see migration 0011.
 
 Then confirm the ceilings are on and that the proxy secret matches. The application says
 both, once, at start-up:
@@ -470,15 +481,53 @@ omission.
 
 ```bash
 cd /var/www/portfolio/lexloom/app && git pull
-GIT_SHA=$(git rev-parse --short HEAD) docker compose up -d --build
+
+# Build, do NOT restart yet. A new migration is invisible to a container built
+# before it existed: `alembic upgrade head` would report success and do nothing.
+GIT_SHA=$(git rev-parse --short HEAD) docker compose build
+
+# Drain first. The ingest progress key gained a `source_key` segment, so a job
+# in flight across the change is orphaned: its hash lives under the old key,
+# the new API reads the new one, sees nothing, and the panel offers the button
+# again. Nothing corrupts — the per-source write guard still refuses the
+# duplicate — but the tenant pays for a full parse and embed to be told no.
+docker compose exec redis redis-cli --scan --pattern 'lexloom:ingest:*'
+
 export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # check BEFORE assuming it ran
+docker compose run --rm -e DATABASE_URL="$MIG" api python -m alembic upgrade head
+docker compose run --rm -e DATABASE_URL="$MIG" api python -m alembic current   # expect 0011 (head)
+
+# Schema first, then producers, then consumers. Migrations 0009-0011 are
+# additive and backward-compatible — the old code inserts pages and ignores
+# `locator` — so the running containers keep working while the schema is ahead
+# of them. The reverse (new code, old schema) is what breaks, which is why the
+# migration runs before anything restarts.
+docker compose up -d --no-deps worker beat
+docker compose up -d --no-deps api
+
 cd frontend && npm ci && npm run build && cp -r out/. /var/www/portfolio/lexloom/web/
+
+# Confirm the worker against its budget. Measured on a workstation, one
+# process, real weights: the .docx path peaks at 473.3 MiB (746 chunks, 30.0 s)
+# and the PDF path at 482.1 MiB (978 chunks, 41.8 s), from a 79.3 MiB baseline
+# before either parse. Against the 650m limit that is ~168 MiB of headroom, and
+# the worker runs --concurrency=1 so the two never overlap. Container CPU
+# limits make this box slower than that measurement, not hungrier.
+docker stats --no-stream; free -h
 ```
 
-A new migration is invisible to a container built before it existed. `alembic upgrade
-head` will then report success and do nothing. Always confirm with `alembic current`.
+`docker compose run --rm` rather than `exec`, so the migration does not depend on a
+container already being up — and note this still puts the DSN on the process argv, where
+`/proc/<pid>/cmdline` is world-readable. That is a known defect carried from the previous
+milestone, not something this one introduced.
+
+## What is deliberately not installed here
+
+**LibreOffice.** `backend/scripts/build_docx_source.sh` uses it to build the committed
+`.docx` from NIST's HTML, and that is a build step run by a human on a workstation. Nothing
+at runtime and nothing in CI invokes it. Do not install it on this box: it is a large
+package on a machine with 2.2 GB of RAM and no swap, and the artefact it produces is already
+in the repository with both of its digests pinned.
 
 ## Rolling back
 

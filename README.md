@@ -230,6 +230,115 @@ itself without a test failing.
 
 ---
 
+## A second document, and what it cost to add one honestly
+
+The catalogue held one document — an 88-page PDF — and everything around it had been
+written against that: the ingest guard, the progress key, the page columns, the citation
+panel. Adding a second one in a different format is the kind of change that looks like an
+afternoon and is not.
+
+The document is **NIST SP 800-63B rev 4**, *Digital Identity Guidelines: Authentication and
+Authenticator Management*, as a `.docx`. Two things about it are worth stating before any
+of the numbers.
+
+**The committed file is ours, not NIST's.** NIST publishes this document as HTML and PDF and
+never as `.docx`, so `backend/scripts/build_docx_source.sh` builds it, and the catalogue
+entry says so in a `conversion` field rather than letting the artefact pass for the
+publisher's own. Both digests are pinned and both are reproducible — two runs over the same
+fetched HTML produce byte-identical output, because the build normalises the zip's per-entry
+timestamps. An earlier draft of this work asserted that byte-reproducibility was impossible
+for exactly that reason; it was true of the naive build and false of this one, which is the
+seventh entry in the table above in spirit if not in the list.
+
+**The page is not the document.** NIST's page carries a nav, a footer, a "View this document
+as" switch, and one `<p>` holding the page's *build timestamp* — and that timestamp is body
+text, so leaving it in would shift every `chunk_ordinal` on the next republish, silently, in
+a system whose chunk identity is `(source_key, chunk_ordinal)`. The build strips those,
+unwraps 616 anchors so the package carries **zero** external relationships (the raw
+conversion had 67, three of them dead `file:///` image targets), and asserts three invariants
+before it writes anything: 145 headings survive, the bibliography is still present, and no
+text precedes the first heading.
+
+The bibliography stays deliberately. It sits mid-document, ahead of appendices A–E, and
+removing it would leave a hundred-odd dangling `[FIPS140]`-style references and make the
+catalogue title — which names the full publication — an overstatement.
+
+### What a `.docx` has that a PDF does not
+
+The PDF path has to *infer* where paragraphs begin, which is why `parse.py` carries a regex
+written against the GDPR's own typesetting (`Article 4 `, `(30) `, `1. `). A `.docx` states
+its structure: which paragraphs are headings, at what level. That is the whole reason a
+second source in this format earns its place, and it is why a `.docx` chunk carries a
+**heading path** instead of a page number:
+
+```
+Authentication Assurance Levels › Authentication Assurance Level 3 › Reauthentication
+```
+
+Not a section number. NIST's own sub-section numbering — which the body of that document
+references 152 times — exists nowhere in the published HTML as data: `data-section` carries
+only the top-level chapter, so all three "Reauthentication" headings under AAL1, AAL2 and
+AAL3 share the value `2`, and a fourth sits under Session Management. Producing "3.1.1"
+would mean *inferring* it, and a citation that points at the wrong section is worse than one
+that points at a section by name.
+
+### Two measurements that changed the design
+
+**Putting the heading path inside the chunk text was tried and abandoned.** The paths run to
+a median of 88 characters and up to 166, against the 400-character truncation the citation
+panel applies — 22 % of every excerpt, 42 % at worst. Worse, `ts_rank` here is unnormalised
+and half this corpus's adjacent score pairs are already byte-identical, so a constant
+per-section prefix makes ties *more* common rather than less. The path lives in a column;
+`content` stays verbatim document text.
+
+**A chunk must never straddle a heading, and the number says why.** A locator is a scalar,
+so "the heading in effect at the chunk's start" has to actually hold — and by default it
+does not, because the packer carries 50 characters of the previous section forward as
+overlap. Measured both ways on this document:
+
+| | chunks | straddling a section |
+|---|---|---|
+| flushing the buffer at every heading | 746 | **0** |
+| not flushing | 712 | **132** |
+
+132 of 712 is 19 % of citations naming a section they hold a fragment of. The test asserts
+that on offsets — first and last character in the same section — rather than through a proxy.
+
+### The proof
+
+`backend/tests/test_second_source_proof.py`, and its ground truth was fixed **before** the
+run and taken from the publisher's HTML rather than from what retrieval returned:
+
+- question: *What cryptography must an AAL3 authenticator use?*
+- sentence: *"Authenticators used at AAL3 SHALL use approved cryptography."* — in exactly 1
+  of the document's 746 chunks
+- section: `Authentication Assurance Levels › Authentication Assurance Level 3 ›
+  Authenticator and Verifier Requirements`
+
+Four assertions, all of which must hold: the ingesting tenant's top citation comes from
+`nist-sp-800-63b`; its content carries that sentence **intact** (routing is not enough — a
+mangled chunk still matches keywords, which is exactly what `pypdf` produced on the other
+document); its locator names that section; and the tenant that did not ingest returns **no
+citation from that source at all**.
+
+That last one is a real negative control rather than a comparison. Full-text search ORs the
+question's lexemes, so "the other tenant answered worse" is satisfied by any corpus at all.
+Measured on the committed corpora: `AAL3`, `authenticator` and `approved cryptography`
+appear in **0** of the GDPR's 978 chunks.
+
+### What this did not fix
+
+A second document hands every score tie to the alphabetically earlier one, because ties
+break on `source_key` ascending — on a corpus where 288 of 570 adjacent pairs already tie.
+It is recorded in `app/chat/retrieval.py` as a known bias rather than fixed, because the fix
+is an `ORDER BY` change and permuting tied groups was measured to move MRR@10 by up to
+0.040, against floors that are frozen.
+
+The evals gate is also structurally blind to this document: `app/evals/corpus.py` pins
+`gdpr-full`. A green gate says nothing about NIST, and the README says so rather than
+letting the badge imply otherwise. What guards the second document is the extraction and
+chunking tests above, which take their expectations from the publisher's own HTML.
+
 ## What it does
 
 A question produces one HTTP stream. The frames arrive in a fixed order, and the ordering
@@ -335,7 +444,7 @@ docker compose exec \
 docker compose exec \
   -e DATABASE_URL='postgresql+asyncpg://lexloom_migrator:migrator@postgres:5432/lexloom' \
   api python -m alembic current
-# 0008 (head)
+# 0011 (head)
 ```
 
 Running it with the container's own `DATABASE_URL` fails with
@@ -409,11 +518,11 @@ it describes is not present in what gets deployed.
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 364 passed, 1 skipped
+.venv/bin/pytest -q          # 412 passed, 2 skipped
 ```
 
 ```bash
-cd frontend && npm test      # 22 passed, 6 files
+cd frontend && npm test      # 28 passed, 7 files
 ```
 
 The backend suite needs the Compose Postgres and Redis running. It is not a mock suite: it

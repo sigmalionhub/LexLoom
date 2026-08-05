@@ -27,6 +27,7 @@ Thirteen routes. That is the entire API.
 | `GET` | `/api/v1/conversations/{cid}/messages/{mid}/stream` | ticket | `200` (SSE) |
 | `GET` | `/api/v1/status` | none | `200` |
 | `GET` | `/api/v1/generators` | none | `200` |
+| `GET` | `/api/v1/catalogue` | none | `200` |
 | `POST` | `/api/v1/ingest` | bearer | `202` |
 | `GET` | `/api/v1/ingest/status` | bearer | `200` |
 | `GET` | `/api/v1/evals` | none | `200` / `503` |
@@ -41,7 +42,7 @@ both ways.
 Four of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
 is metered per client address and answers `429`; the stream endpoint has a
 concurrency ceiling and answers `503`; `POST /api/v1/ingest` answers `409` when the
-caller's organisation has already ingested something and `503` (with `Retry-After`, like
+caller's organisation has already ingested **this document** and `503` (with `Retry-After`, like
 the stream endpoint) when the global cap on organisations holding a corpus is held; and
 `GET /api/v1/evals` answers `503` (`code: "evals_unavailable"`) when the build does not
 carry `results.json`, which it decides before reading anything. See
@@ -52,8 +53,9 @@ that is the result of its work rather than a refusal to start it.
 no `GET /conversations/{id}`. A client holds the state it created, or it loses it on
 reload. This is a real limitation, not an omission from the document — see
 [§9](#9-what-this-api-does-not-have). It does not mean the surface has no `GET` route
-that returns data: four now do (`GET /api/v1/status`, `GET /api/v1/generators`,
-`GET /api/v1/ingest/status`, `GET /api/v1/evals`), and none of them is the exception the
+that returns data: five now do (`GET /api/v1/status`, `GET /api/v1/generators`,
+`GET /api/v1/catalogue`, `GET /api/v1/ingest/status`, `GET /api/v1/evals`), and none of them
+is the exception the
 paragraph above is guarding against — each for a different reason, worked out below.
 
 `GET /api/v1/status` reads back as a read endpoint by shape — it answers `GET` with a
@@ -66,6 +68,14 @@ nothing tenant-scoped in it for the missing token to have protected. Compare thi
 the four bearer-token routes above, every one of which reads or writes a specific
 organisation's rows and would be a different kind of hole if it took none.
 
+`GET /api/v1/catalogue` is the same argument as `GET /api/v1/generators`, re-derived rather
+than borrowed: it takes no token, names no organisation and reads no org-scoped table — its
+whole response is built from a literal `dict` in `app/ingest/catalogue.py`. It returns three
+fields per source (`key`, `title`, `media_type`) and deliberately not the four the catalogue
+also holds (`path`, `sha256`, `document_xml_sha256`, `conversion`): a filesystem path inside
+the image and the exact build tool that produced an artefact are not a visitor's business,
+and `CatalogueEntry` is the boundary that keeps them in.
+
 `GET /api/v1/generators` is the same argument as `GET /api/v1/status`, not a fourth one.
 It takes no token, accepts no `org_id`, and reads nothing tenant-scoped — the only thing
 it consults is `Settings.gemini_api_key`, a process-wide value from configuration, never
@@ -76,7 +86,9 @@ key still lists a working chat and simply never offers a choice it could not hon
 
 `GET /api/v1/ingest/status` is not that exception either, for the opposite reason: it
 *is* tenant-scoped — it takes a bearer token and answers with the calling organisation's
-own ingest progress — but it is not a general-purpose read. There is no parameter that
+own ingest progress, one entry per catalogue source keyed by `source_key`, with `idle` for a
+source this tenant has never touched — but it is not a general-purpose read. There is no
+parameter that
 selects which organisation's status comes back (the token's own `org_id` is the only
 input), no way to list past ingests, and nothing it returns was not already implied by
 the `202` its own `POST /api/v1/ingest` returned. It is the progress meter for a write

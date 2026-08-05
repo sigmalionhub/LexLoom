@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Tenant, Turn } from '@/lib/use-lexloom';
+import { Documents } from './documents';
 import { OrgSwitcher } from './org-switcher';
 import { Sources } from './sources';
 
@@ -80,8 +81,10 @@ export function Chat({
             <h1 className="font-serif text-[1.75rem] leading-none tracking-[-0.015em] text-ink">LexLoom</h1>
             <span aria-hidden className="h-px flex-1 bg-rule" />
           </div>
+          {/* Not "the GDPR corpus" any more: a tenant can hold two documents in
+              two formats, and the section below says which. */}
           <p className="mt-2.5 text-[0.9375rem] leading-snug text-ink-soft">
-            Ask the GDPR corpus in your tenant. Sources arrive before the first word — the panel measures by
+            Ask the documents in your tenant. Sources arrive before the first word — the panel measures by
             how much.
           </p>
           <div className="mt-4">
@@ -94,6 +97,11 @@ export function Chat({
               disabled={busy}
             />
           </div>
+
+          {/* Who you are, then what you hold, then the conversation, then the
+              question. The header is `shrink-0`, so this stays on screen after
+              the tenth answer — which the transcript would not have done. */}
+          <Documents tenant={activeTenant} />
         </div>
       </header>
 

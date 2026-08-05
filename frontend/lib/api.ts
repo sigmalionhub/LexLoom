@@ -320,7 +320,7 @@ export const api = {
 
   /**
    * Every catalogue source's ingest status for this organisation, keyed by
-   * source. Meant to be polled — see `components/panel/source-list.tsx`, which
+   * source. Meant to be polled — see `components/documents.tsx`, which
    * polls it twice a second and is the reason this route is excluded from the
    * request histogram (`app/observability.py`'s `_NOT_MEASURED`).
    *

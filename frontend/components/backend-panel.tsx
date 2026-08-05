@@ -5,7 +5,6 @@ import type { IsolationReport, Tenant, Turn } from '@/lib/use-lexloom';
 import { StreamTimeline } from './stream-timeline';
 import { GeneratorSelector } from './panel/generator-selector';
 import { SearchMode } from './panel/search-mode';
-import { SourceList } from './panel/source-list';
 import { ServiceStatus } from './panel/service-status';
 import { EvalsTable } from './panel/evals-table';
 import type { PanelSectionProps } from './panel/types';
@@ -86,9 +85,14 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
           )}
         </Section>
 
+        {/* The document list is not here. It was, and that was a category
+            error: every section of this panel reports, while that one *acts* —
+            its buttons rewrite the tenant's corpus. It now lives in the
+            document column's header, beside the question it changes the answer
+            to. What this panel still shows about it is the evidence: which
+            source each citation came from, and the requests that ingested it. */}
         <GeneratorSelector {...panelSectionProps} />
         <SearchMode {...panelSectionProps} />
-        <SourceList {...panelSectionProps} />
         <ServiceStatus {...panelSectionProps} />
         <EvalsTable {...panelSectionProps} />
 

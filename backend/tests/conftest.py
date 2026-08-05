@@ -1,5 +1,6 @@
 import os
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 from fastapi import FastAPI
@@ -7,10 +8,24 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
+# Imported above the environment block, unlike every other `app.` import in this
+# file, and safe there: `app.redis_auth` reads nothing from the environment at
+# import time (`app.config` only *defines* `Settings`; it is instantiated
+# lazily). Imported rather than copied because the same string has to appear in
+# `docker-compose.yml`, in that module and in the default below, and a copy that
+# drifted would show up as an authentication failure in whichever of the three
+# was not edited. `test_redis_auth.py` holds all three together.
+from app.redis_auth import DEV_REDIS_PASSWORD  # noqa: E402
+
 os.environ.setdefault(
     "DATABASE_URL", "postgresql+asyncpg://lexloom_app:app@localhost:5433/lexloom"
 )
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+# Carries the password `docker-compose.yml` starts Redis with, because that
+# Redis now requires one: it is published on the host's loopback and the
+# deployment host is shared, so "only 127.0.0.1" was never the access control it
+# was written up as (app/redis_auth.py). A developer running the suite against
+# some other Redis exports REDIS_URL and everything below follows it.
+os.environ.setdefault("REDIS_URL", f"redis://:{DEV_REDIS_PASSWORD}@localhost:6379/0")
 os.environ.setdefault("ENV", "ci")
 
 # The demo-login rate limit and the stream ceilings are OFF for this suite, and
@@ -29,12 +44,24 @@ os.environ.setdefault("ENV", "ci")
 # test_the_ceilings_cannot_be_switched_off_in_production.
 os.environ["LIMITS_ENABLED"] = "false"
 
+def redis_url_on_database(url: str, database: int) -> str:
+    """Same server, same credentials, a different logical database."""
+    return urlunsplit(urlsplit(url)._replace(path=f"/{database}"))
+
+
 # Rate-limit state for the tests that turn the ceilings back on. Database 1,
 # not 0: the development box shares one Redis with the running demo stack and
 # with Celery, both on database 0, so keys written here cannot be mistaken for
 # a real visitor's counter, cannot consume a real stream slot, and can be swept
 # by prefix on the way out without touching anything that matters.
-LIMITS_TEST_REDIS_URL = "redis://localhost:6379/1"
+#
+# Derived from `REDIS_URL` rather than written out, for the same reason
+# `WORKER_DATABASE_URL` is derived from `DATABASE_URL` below: the host, the port
+# and — now that the Compose instance requires AUTH — the password have to
+# follow wherever the suite is pointed. A literal here would authenticate
+# against the default while everything else in the run talked to the exported
+# server, and the failure would name Redis rather than this line.
+LIMITS_TEST_REDIS_URL = redis_url_on_database(os.environ["REDIS_URL"], 1)
 
 # The worker connects as lexloom_worker, which holds grants lexloom_app
 # deliberately does not (EXECUTE on the purge function, migration 0004). Derived

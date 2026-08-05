@@ -4,8 +4,17 @@ import os
 from celery import Celery
 
 from app.config import get_settings
+from app.redis_auth import assert_redis_requires_a_password
 
 settings = get_settings()
+
+# At import, which is where this process's other fatal configuration errors are
+# already raised (`_parse_purge_schedule_seconds` below). The worker and beat
+# hold the same broker as the API, so a public deployment whose Redis takes
+# anonymous connections must not have a worker either — a stack that keeps
+# consuming a queue anyone on the box can write to is worse than one that is
+# visibly down.
+assert_redis_requires_a_password(settings)
 
 celery_app = Celery("lexloom", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(

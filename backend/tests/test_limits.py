@@ -311,6 +311,13 @@ def test_a_demo_deployment_refuses_a_plaintext_jwks_url(settings_override) -> No
         limits_enabled="true",
         trusted_proxy_secret="s" * 32,
         auth_jwks_url="http://localhost:8100/.well-known/jwks.json",
+        # Not what this test is about, and required to reach what it is about:
+        # `create_app` refuses a public deployment whose Redis is anonymous or
+        # still on the committed development password (app/redis_auth.py), and
+        # that check runs before the JWKS cache is built. The suite's own
+        # REDIS_URL carries the development password by design, so it has to be
+        # replaced here or this test would pass on the wrong ValueError.
+        redis_url="redis://:not-the-committed-one@localhost:6379/0",
     )
     with pytest.raises(ValueError, match="HTTPS"):
         create_app()

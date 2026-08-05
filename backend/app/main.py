@@ -14,6 +14,7 @@ from app.errors import install_error_handlers
 from app.limits import report_configuration
 from app.logging import configure_logging
 from app.middleware import RequestContextMiddleware
+from app.redis_auth import assert_redis_requires_a_password
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +49,12 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging()
     settings = get_settings()
+    # Before anything is constructed and long before a port opens. The stream
+    # ceilings, the demo-login limiter and the ingest progress hash all live in
+    # this Redis, and on the shared box it is published on host loopback where
+    # every local account can reach it — see app/redis_auth.py for what an
+    # anonymous one hands a neighbour.
+    assert_redis_requires_a_password(settings)
     app = FastAPI(
         title="LexLoom API",
         version="0.1.0",

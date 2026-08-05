@@ -25,7 +25,7 @@ Read this whole file before running anything. Roughly ten minutes, most of it wa
 | Piece | Where | Notes |
 |---|---|---|
 | Postgres 16 + pgvector | container | `127.0.0.1:5433` only, never published publicly |
-| Redis | container | `127.0.0.1:6379` only |
+| Redis | container | published on `127.0.0.1:6379`, and **`requirepass` is what protects it** — see below |
 | API (FastAPI) | container | `127.0.0.1:8100` only |
 | Worker (Celery) | container | no ports |
 | Beat (Celery beat) | container | no ports — fires `purge_expired_orgs` once an hour (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`); that one task both enforces the 24-hour demo-organisation TTL and frees the slots `INGEST_ORG_CAP` counts, which would otherwise only grow |
@@ -35,6 +35,27 @@ Read this whole file before running anything. Roughly ten minutes, most of it wa
 The frontend and the API share one origin. That is a requirement, not a preference: the
 backend ships **no CORS headers at all**, so a frontend on a second origin could not call
 it.
+
+**"Bound to 127.0.0.1" is not a security property on this box, and reading it as one is how
+the Redis instance came to be unauthenticated.** This host is shared: every process running
+under any local account reaches host loopback, which is precisely why `TRUSTED_PROXY_SECRET`
+exists at all — the API is also on `127.0.0.1` and that is exactly not enough. Loopback
+keeps a service off the *internet*; it keeps it away from nobody on the machine.
+
+So each published port needs its own answer to "what stops a neighbouring process?", and
+each has one:
+
+- **Postgres `5433`** — a password per role, and the roles are unprivileged (`app/db/engine.py`
+  refuses to start as one that can bypass RLS).
+- **Redis `6379`** — `requirepass`, set from `REDIS_PASSWORD` in Step 3. Without it, any local
+  account could run `KEYS lexloom:*` and read live organisation ids out of
+  `lexloom:ingest:{org_id}` and `lexloom:limits:streams:org:{org_id}` — and an organisation id
+  *is* the credential every row-level-security policy in this schema keys on — then queue
+  `lexloom.ingest_source` for one of them behind the admission check's back, or `FLUSHALL`
+  every rate-limit counter. The API, worker and beat reach Redis over the Compose network,
+  never through this port; it is published only so `pytest` can reach it from the host.
+- **API `8100`** — a bearer token per request, plus `TRUSTED_PROXY_SECRET` so a forwarded
+  address is believed only when it came through this nginx.
 
 ---
 
@@ -122,6 +143,16 @@ Edit `.env` before starting anything:
   where `@` and `/` are structural and silently cut the DSN in the wrong place — the
   failure is "password authentication failed" for a user you did not name. Hex has no
   character that means anything in a URL, in shell, or in SQL.
+- **set `REDIS_PASSWORD`** to a fresh value — the same `openssl rand -hex 32`. The line in
+  `.env.example` is committed in this repository and therefore is not a secret; leaving it
+  is the same class of mistake as leaving the proxy secret's placeholder, and it fails the
+  same way: `app/redis_auth.py` refuses to start the API, the worker and beat under
+  `ENV=demo` while that value is in use, so `docker compose ps` shows containers that never
+  reach `Up` rather than a stack that looks healthy and takes anonymous connections. Compose
+  interpolates the value into `--requirepass` *and* into every service's `REDIS_URL`, so
+  there is nothing to keep in step by hand. Changing it later is safe and takes effect on
+  the next `docker compose up -d` — unlike the database passwords below, Redis holds no
+  volume that remembers the old one.
 - set `ERROR_TYPE_BASE_URL=https://lexloom.sigmalion.io`
 - set `AUTH_JWKS_URL=https://lexloom.sigmalion.io/.well-known/jwks.json` — the API
   verifies its own tokens against this, and `ENV=demo` refuses a plaintext URL because a

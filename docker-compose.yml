@@ -37,8 +37,43 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
+    # `--requirepass`, and it is not optional. Every other line in this service
+    # is about memory; this one is the access control, and it exists because
+    # the `ports:` block below publishes this instance on the *host's*
+    # loopback. "127.0.0.1 only" is a statement about the network and not about
+    # who may connect: every process on this shared box reaches host loopback,
+    # which is the entire reason `TRUSTED_PROXY_SECRET` exists two services
+    # down (see app/config.py's validator and app/limits.py). Treating loopback
+    # as the control here contradicted the threat model this repository already
+    # writes down everywhere else.
+    #
+    # What an unauthenticated instance handed a neighbouring process, with no
+    # credential: `KEYS lexloom:*` enumerates live organisation ids out of
+    # `lexloom:ingest:{org_id}` and `lexloom:limits:streams:org:{org_id}` — and
+    # an organisation id *is* the RLS credential (migrations 0004 and 0007 are
+    # built on nothing being able to enumerate one); `LPUSH` of a
+    # `lexloom.ingest_source` message with an attacker-chosen org, which skips
+    # `ensure_ingest_admitted` completely; and `FLUSHALL`, which erases every
+    # rate-limit counter. (`accept_content=["json"]` in celery_app.py keeps
+    # that to task injection and enumeration rather than code execution.)
+    #
+    # The default below is the value this repository publishes, so it is not a
+    # secret and must not be one on a public box: `assert_redis_requires_a_password`
+    # (app/redis_auth.py) refuses to start any PUBLIC_ENVS process that is still
+    # using it, the same move `Settings` makes for the nginx snippet's
+    # placeholder proxy secret. Generate a real one into `.env` — deploy/README.md
+    # Step 3 says how.
+    command: >
+      redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-lexloom-local-redis}
     ports:
+      # Published for the developer's benefit only: `backend/tests/conftest.py`
+      # reaches Redis from the host, and nothing in this stack does — the API,
+      # worker and beat all resolve `redis` on the Compose network. It stays
+      # published rather than being made conditional because a `ports:` block
+      # that appears only under an override file is one forgotten flag away
+      # from being absent when the suite needs it; AUTH above is what makes
+      # publishing it survivable, on this box and on a developer's.
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
     mem_limit: 64m
@@ -62,7 +97,10 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     environment:
       DATABASE_URL: postgresql+asyncpg://lexloom_app:${APP_DB_PASSWORD:-app}@postgres:5432/lexloom
-      REDIS_URL: redis://redis:6379/0
+      # The password half of `redis://:PASSWORD@host` — the same value the
+      # `redis` service is started with, interpolated from the same variable so
+      # the two cannot drift. Empty user, as Redis has no usernames before ACLs.
+      REDIS_URL: redis://:${REDIS_PASSWORD:-lexloom-local-redis}@redis:6379/0
       ENV: ${ENV:-local}
       # The prefix every RFC 9457 `type` URI is built from. It has to be passed
       # explicitly, and so does every variable below it: `.env` sits at the
@@ -153,7 +191,7 @@ services:
       --loglevel=info --concurrency=1 --prefetch-multiplier=1 --max-tasks-per-child=50
     environment:
       DATABASE_URL: postgresql+asyncpg://lexloom_worker:${WORKER_DB_PASSWORD:-worker}@postgres:5432/lexloom
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-lexloom-local-redis}@redis:6379/0
       ENV: ${ENV:-local}
       # A literal `none`, deliberately not ${TRUSTED_PROXIES:-...}. This process
       # serves no HTTP and never reads a forwarding header, so there is no proxy
@@ -210,7 +248,7 @@ services:
     command: celery -A app.worker.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     environment:
       DATABASE_URL: postgresql+asyncpg://lexloom_worker:${WORKER_DB_PASSWORD:-worker}@postgres:5432/lexloom
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-lexloom-local-redis}@redis:6379/0
       ENV: ${ENV:-local}
       TRUSTED_PROXIES: none   # same reason as the worker: serves no HTTP
       # How often the purge schedule fires, in seconds. Read directly from the

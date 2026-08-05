@@ -344,8 +344,25 @@ def _report(document: dict) -> None:
         )
 
 
+# The shape `_check_floors` knows how to read. Version 1 held bare numbers
+# (`{"mrr_at_10": 0.65}`); version 2 holds an object per threshold, so a floor
+# can carry the value it was derived from and the reason for its headroom.
+# Checked rather than merely declared: against version 1's shape
+# `threshold["floor"]` raises `TypeError: string indices must be integers` from
+# inside the gate, which is a confusing way to learn that a file is a version
+# behind.
+FLOORS_SCHEMA = 2
+
+
 def _load_floors() -> dict:
-    return json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    if floors.get("schema") != FLOORS_SCHEMA:
+        raise SystemExit(
+            f"{FLOORS_FILE.name} declares schema {floors.get('schema')!r}, this code reads "
+            f"schema {FLOORS_SCHEMA}: thresholds are objects carrying `floor`, `measured`, "
+            "`headroom` and `why`, not bare numbers."
+        )
+    return floors
 
 
 def _check_floors(document: dict) -> list[str]:

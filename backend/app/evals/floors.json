@@ -1,6 +1,7 @@
 {
   "schema": 2,
-  "note": "Thresholds `python -m app.evals.run --check` enforces. Every floor is `measured - headroom`, and both are recorded so the headroom is visible in this file instead of having to be reconstructed from a commit message. `measured` is the value at `set_from_commit`, reproduced identically over eight independent reseed-and-re-embed runs on one machine. The run-to-run spread of every one of the fifteen cells is exactly 0.000000, so headroom absorbs no run-to-run noise at all: it is sized against rank flips, whatever their cause. See `why` on each entry and the report for Task 27.",
+  "note": "Thresholds `python -m app.evals.run --check` enforces. Every floor is `measured - headroom`, and both are recorded so the headroom is visible in this file instead of having to be reconstructed from a commit message. `measured` is the value at `set_from_commit`, reproduced identically over eight independent reseed-and-re-embed runs, and pinned to `results.json` by a test so it cannot quietly go stale after a later `--write`.",
+  "headroom_rule": "headroom = one rank flip's worth on the metric, times a factor for the mode. One flip's worth is 0.02: moving a single question's first relevant chunk from rank 1 to rank 2 changes an MRR macro-averaged over the 24 answerable questions by (1 - 1/2)/24 = 0.0208. The factor is 1 for `fts` and 1.5 for `vector` and `hybrid` — see their entries. NOTHING here is sized against the tie-permutation spread that was measured before commit 66a7d44, and that is deliberate: that commit gives both statements a total order, so the arbitrary ordering among equal scores no longer exists to drift. Sizing a live floor against a deleted mechanism would mean sizing the gate not to notice if someone deleted the tie-break with it — the opposite of what this gate is for. Those measurements survive as two other things: the evidence that justified the total order, and a cross-check on the 0.02 above (permuting ties moved `fts` MRR@10 by 0.0222, against the 0.0208 the arithmetic predicts).",
   "set_on": "2026-08-05",
   "set_from_commit": "66a7d44a46df4df3afb739041c946efb3ec162b1",
   "provisional_note": "PROVISIONAL. These floors were set on 2026-08-05 without the human review of the thirty gold-set questions they are derived from, and that review is still pending. `--check` says so on stderr on every run. The marker records who has vouched for the number, NOT how much it is trusted: a provisional floor gates a build exactly as a reviewed one does. Clearing it means reading `app/evals/goldset.py`, agreeing the questions and the grades are fair, and deleting the `provisional` field from each entry below.",
@@ -13,28 +14,28 @@
         "measured": 0.1479,
         "headroom": 0.0209,
         "provisional": true,
-        "why": "Unmoved by all six tie permutations, so the minimum headroom applies: 0.02, the amount one question's first relevant chunk moving one rank shifts a metric macro-averaged over 24 answerable questions. fts is the most deterministic mode - ts_rank is a pure function of the text and the same pg16 image runs in CI - so it gets the smallest minimum."
+        "why": "One flip's worth, factor 1. `fts` gets the smallest factor because it is the only mode whose order does not depend on a float32 embedding at all: `ts_rank` is a pure function of the chunk text and the text search configuration, CI runs the same pg16 image, and commit 66a7d44 made the ordering among equal ranks total. The residue it still has to cover is the near-tie tail the tie-break does not reach - 1% of non-tied adjacent pairs sit one float4 ULP apart (6.6e-08 relative), and those can still flip on a different libm."
       },
       "mrr_at_10": {
-        "floor": 0.375,
+        "floor": 0.399,
         "measured": 0.4196,
-        "headroom": 0.0446,
+        "headroom": 0.0206,
         "provisional": true,
-        "why": "Twice the largest movement this cell showed under tie permutation (0.0222). MRR is the most flip-sensitive metric here because it reads only the first relevant rank; the doubled figure is also almost exactly the effect of one question's answer moving from rank 1 to rank 2 (0.0208), which is the smallest change worth not failing on."
+        "why": "One flip's worth, factor 1 - and MRR is the metric that number was derived for, since it reads only the first relevant rank and so moves by the full (1/r - 1/(r+1))/24 when that rank shifts. This floor was 0.375 in the first draft, sized at twice the tie-permutation spread; that was wrong, because the same branch removes the tie ordering that spread came from. 4.9% relative headroom is the tightest floor in the file and it should be: this is the most deterministic cell there is."
       },
       "ndcg_at_10": {
         "floor": 0.22,
         "measured": 0.2401,
         "headroom": 0.0201,
         "provisional": true,
-        "why": "Twice its permutation movement is 0.0111, below the 0.02 minimum, so the minimum applies. nDCG discounts logarithmically and averages the whole top 10, which is why it moved a quarter as far as MRR under the same permutations."
+        "why": "One flip's worth, factor 1. nDCG discounts logarithmically and averages the whole top 10, so a single flip moves it less than it moves MRR - the 0.02 is therefore conservative here rather than tight, and no smaller number would be worth the risk of a flake."
       },
       "answerability_auc": {
         "floor": 0.702,
         "measured": 0.7222,
         "headroom": 0.0202,
         "provisional": true,
-        "why": "The only AUC that carries a floor. It is computed from top-1 score VALUES, not ranks, so tie permutation cannot touch it and it was identical in all six runs; the 0.02 minimum applies and is worth about three of the 1/144 steps this statistic can take. vector's AUC (0.4931) and hybrid's (0.4236) are deliberately absent: hybrid's top-1 spans exactly [1/61, 2/61] with 19 distinct values over 30 questions, and vector's is a genuine 0.385-0.855 range that simply does not separate answerable from unanswerable at all. A floor on a statistic that measures nothing is a flake with no upside."
+        "why": "The only AUC that carries a floor. It is computed from top-1 score VALUES rather than from ranks, so a rank flip does not move it at all and 0.02 is pure margin - worth about three of the 1/144 steps this statistic can take. vector's AUC (0.4931) and hybrid's (0.4236) are deliberately absent, for two different reasons: hybrid's top-1 spans exactly [1/61, 2/61] with 19 distinct values over 30 questions, so its AUC is computed over a near-constant, while vector's spans a genuine 0.385-0.855 and simply does not separate answerable from unanswerable at all (the unanswerable top-1 scores run 0.490-0.811, straight through the answerable range). A floor on a statistic that measures nothing is a flake with no upside, and the panel does not publish either number for the same reason."
       }
     },
     "vector": {
@@ -43,21 +44,21 @@
         "measured": 0.1521,
         "headroom": 0.0301,
         "provisional": true,
-        "why": "Minimum headroom, 0.03 rather than fts's 0.02. Every vector cell was invariant under all six tie permutations and cosine similarity produced zero exact ties in 570 adjacent pairs, so nothing was measured that this has to absorb. The extra 0.01 buys margin against the one mechanism that could not be measured on one machine: this leg's order depends on float32 embeddings, and a different SIMD reduction path is the one thing that could reorder it."
+        "why": "One flip's worth, factor 1.5. The extra half buys margin for the one thing `fts` does not have: this leg orders by cosine similarity over float32 embeddings, so its order depends on floating-point values that a different CPU could compute differently. That class of drift is real and was measured rather than assumed - see mrr_at_10 below - but a single machine cannot bound it for CPUs it does not have, so the factor stands for what remains unmeasured."
       },
       "mrr_at_10": {
         "floor": 0.278,
         "measured": 0.3082,
         "headroom": 0.0302,
         "provisional": true,
-        "why": "Same minimum, same reason. The measured bound on that unmeasurable mechanism: the closest adjacent pair in this leg's top-20 lists is 6.8e-06 apart in relative terms, about 57 float32 ULPs, so a reduction-order difference would have to be ~57x larger than one ULP to flip a single rank on this corpus. Re-measure that gap when the corpus changes rather than re-asserting this sentence."
+        "why": "One flip's worth, factor 1.5, and here is the measurement the factor is conservative against. Batch composition perturbs an embedding by the same class of last-bits difference a different SIMD reduction order does: re-embedding the corpus in batches of 7 and 13 instead of 32 changed 37 of 400 chunk vectors, by up to 1.0e-07 per component. It moved the SCORES those vectors produce by at most 1.6e-07, against a smallest adjacent gap of 3.6e-06 in the top-20 lists - a margin of 22x - and end to end it moved none of the fifteen metric cells. Re-measure that ratio when the corpus changes rather than re-reading this sentence."
       },
       "ndcg_at_10": {
         "floor": 0.179,
         "measured": 0.2099,
         "headroom": 0.0309,
         "provisional": true,
-        "why": "Same minimum, same reason: nothing measured moved this cell, so the 0.03 stands entirely for the cross-machine drift that could not be measured on one CPU. nDCG reads the whole top 10 with a logarithmic discount, so it is the least flip-sensitive of the three and this is the most generous of the vector floors in relative terms."
+        "why": "One flip's worth, factor 1.5, same reason. nDCG reads the whole top 10 with a logarithmic discount, so it is the least flip-sensitive of the three and this is the most generous of the vector floors in relative terms (14.7%)."
       }
     },
     "hybrid": {
@@ -66,21 +67,21 @@
         "measured": 0.1761,
         "headroom": 0.0301,
         "provisional": true,
-        "why": "Twice its permutation movement is 0.0139, below hybrid's 0.03 minimum, so the minimum applies. recall@5 is set-valued rather than rank-valued, which is why it barely moved while MRR moved six times as far under the same permutations. Note the ceiling this is measured against is 0.9137, not 1.0: five of the answerable questions have more relevant chunks than five."
+        "why": "One flip's worth, factor 1.5 - `hybrid` inherits `vector`'s factor because one of its two legs IS the vector leg. recall@5 is set-valued rather than rank-valued, so a flip inside the top 5 does not move it at all and only a flip across the rank-5 boundary does. Note the ceiling this is measured against is 0.9137, not 1.0: five of the answerable questions have more than five relevant chunks, so five rows physically cannot cover them."
       },
       "mrr_at_10": {
-        "floor": 0.234,
+        "floor": 0.285,
         "measured": 0.3154,
-        "headroom": 0.0814,
+        "headroom": 0.0304,
         "provisional": true,
-        "why": "Twice the largest movement measured for any cell anywhere (0.0405). RRF scores fall into a handful of buckets - hybrid's top-1 is exactly [1/61, 2/61] - so the fused list is almost entirely ties and inherits its order from the legs. This is the widest floor in the file and it is honest about what it buys: it tolerates a 25.7% relative fall, so hybrid's recall_at_5 (17% relative headroom) and ndcg_at_10 (13%) are the cells that would actually catch a broad hybrid regression. Narrowing this one needs a less tie-prone fusion, not a smaller number."
+        "why": "One flip's worth, factor 1.5. This floor was 0.234 in the first draft - twice the 0.0405 that permuting tied scores moved this cell, the largest movement measured anywhere. That number was the right measurement of the wrong thing: RRF does produce near-total ties, but commit 66a7d44 gives the fused list a total order through its legs (Python's `sorted` is stable, so equal RRF values keep the order the legs delivered), so there is no longer an arbitrary ordering for that spread to come from. Keeping it would have left this floor tolerating a 25.7% fall - roughly a fifth of the answerable questions losing their top hit without the gate saying a word. At 9.6% it is a real floor, and the run-to-run spread it has to clear is still zero."
       },
       "ndcg_at_10": {
         "floor": 0.195,
         "measured": 0.2258,
         "headroom": 0.0308,
         "provisional": true,
-        "why": "Twice its permutation movement, 0.0300, which lands just above hybrid's 0.03 minimum - the two rules agree here by coincidence rather than by design."
+        "why": "One flip's worth, factor 1.5, same reason. 13.6% relative headroom, the widest of the three hybrid cells, because nDCG's logarithmic discount makes a single flip cheapest here."
       }
     }
   }

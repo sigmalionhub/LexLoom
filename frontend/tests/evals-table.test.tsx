@@ -135,6 +135,30 @@ describe('the evals panel section', () => {
     expect(screen.getAllByText('6').length).toBe(1);
   });
 
+  it('publishes only the one answerability AUC that measures something, and says why', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(RESULTS)),
+    );
+
+    render(<EvalsTable {...panelProps()} />);
+
+    // fts's AUC is real and is shown.
+    await waitFor(() => expect(screen.getByText('0.722')).toBeTruthy());
+
+    // The other two are not numbers a reader may see. hybrid's 0.424 next to
+    // "0.5 is a coin toss" reads as "worse than chance" — a claim about the
+    // retriever that the figure does not support, because it is computed over a
+    // near-constant RRF score. This is the assertion that keeps it off the page.
+    expect(screen.queryByText('0.424')).toBeNull();
+    expect(screen.queryByText('0.493')).toBeNull();
+
+    // Omitted is not the same as hidden: the reason has to be on the page, in
+    // text, without hovering anything.
+    expect(screen.getByText(/Not reported for vector or hybrid/)).toBeTruthy();
+    expect(screen.getByText(/near-constant/)).toBeTruthy();
+  });
+
   it('reports a 503 as a missing artefact and never as a table of zeros', async () => {
     vi.stubGlobal(
       'fetch',

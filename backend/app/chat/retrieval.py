@@ -153,6 +153,27 @@ _MAX_QUERY_CHARS = 200
 # — so that this change strictly ADDS order rather than trading one partial
 # order for another.
 #
+# **The uniqueness this rests on is an application invariant, not a database
+# constraint, and nothing in Postgres enforces it.** Both columns are nullable,
+# migration 0006 adds no unique index over `(org_id, source_key, chunk_ordinal)`,
+# and no test asserts distinctness. What holds it is that only two writers ever
+# set the pair — `app.chat.corpus` for the seed excerpts, `app.ingest.jobs` for a
+# catalogue document — and that `app/ingest/jobs.py:94` refuses a second ingest
+# for an organisation that already holds one. Measured on the eval organisation:
+# 1008 rows, 0 NULL pairs, 1008 distinct pairs. If a second ingest per
+# organisation is ever allowed, or one document is ingested twice, this stops
+# being a total order and the drift above returns — silently, because the query
+# still returns rows.
+#
+# **A flag for whoever adds the ANN index the design spec plans.** These extra
+# sort keys are not free once `embedding` carries an HNSW or IVFFlat index: the
+# index yields rows in distance order, and the planner can only keep using it if
+# it can satisfy the remaining keys with an incremental sort on top. If it
+# cannot, it falls back to a sequential scan and a full sort, discarding the
+# point of the index. Check `EXPLAIN` for that fallback and decide between the
+# index and this total order — they are not automatically compatible, and the
+# failure is a slow query rather than a wrong one, so nothing turns red.
+#
 # Both statements below carry the same three columns. The hybrid mode inherits
 # determinism from them rather than needing its own: `_search_hybrid` sorts the
 # fused scores with Python's stable `sorted`, so equal RRF values keep the order

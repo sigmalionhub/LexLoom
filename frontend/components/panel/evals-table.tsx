@@ -15,6 +15,24 @@ const METRICS = [
 
 type MetricKey = (typeof METRICS)[number]['key'];
 
+/**
+ * The one mode whose `answerability_auc` is worth publishing.
+ *
+ * The other two are omitted on purpose and the omission is labelled in the
+ * panel, because a number that measures nothing is more damaging than a wrong
+ * one: `hybrid`'s 0.424 reads as "worse than a coin toss", which sounds like a
+ * finding about the retriever and is not. Its top-1 score is an RRF value taking
+ * only 1/61 and 2/61 on these questions, so the statistic is computed over a
+ * near-constant. `vector`'s is uninformative for a different reason — its
+ * unanswerable scores run straight through its answerable range.
+ *
+ * The backend agrees and is the source of truth: `app/evals/floors.json` carries
+ * an `answerability_auc` floor for `fts` alone, held by
+ * `test_no_answerability_floor_is_set_on_a_mode_whose_auc_measures_nothing`. If
+ * that ever changes, this changes with it.
+ */
+const AUC_IS_MEANINGFUL_FOR = 'fts';
+
 /** `null` is a real answer and `0.000` is not — see the note in `api-contract.md` §1. */
 function cell(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : value.toFixed(3);
@@ -142,15 +160,21 @@ export function EvalsTable(_: PanelSectionProps) {
       </table>
 
       <p className="mt-2.5 text-[0.75rem] leading-snug text-mist">
-        Answerability AUC —{' '}
-        {modes.map((mode, index) => (
-          <span key={mode}>
-            {index > 0 ? ', ' : ''}
-            {mode} <span className="figure text-chalk">{cell(evals.modes[mode]?.answerability_auc)}</span>
-          </span>
-        ))}
+        Answerability AUC — fts{' '}
+        <span className="figure text-chalk">
+          {cell(evals.modes[AUC_IS_MEANINGFUL_FOR]?.answerability_auc)}
+        </span>
         . How well a mode&rsquo;s top score separates a question the corpus answers from one it does not;
         0.5 is a coin toss.
+      </p>
+
+      <p className="mt-1.5 text-[0.75rem] leading-snug text-mist">
+        <span className="text-chalk">Not reported for vector or hybrid</span>, because for those two it does
+        not measure anything: hybrid ranks by reciprocal-rank fusion, whose top score takes only the values
+        1/61 and 2/61 here, so its AUC is computed over a near-constant; and vector&rsquo;s unanswerable
+        questions score 0.490&ndash;0.811, straight through the 0.385&ndash;0.855 its answerable ones score.
+        Printing either next to the caption above would invite reading a meaningless number as a verdict on
+        the retriever.
       </p>
 
       <p className="mt-2 text-[0.75rem] leading-snug text-mist">

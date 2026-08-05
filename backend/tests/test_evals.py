@@ -503,6 +503,61 @@ def test_every_floor_records_what_it_was_measured_from_and_why() -> None:
             ) < 0.001, where
 
 
+def test_every_floors_measured_value_still_matches_results_json() -> None:
+    """`measured` must not be allowed to rot.
+
+    Checking only `floor < measured` leaves a hole with teeth: a later
+    `python -m app.evals.run --write` moves the numbers in `results.json`,
+    `floors.json` keeps the old ones, and every headroom in the file silently
+    becomes a claim about a measurement that no longer exists. The floors would
+    still gate — against the value they were set from — so nothing fails and
+    nothing looks wrong. That is the same failure class as a manifest that
+    rewrites itself: a record of what was measured that can drift from what was
+    measured.
+
+    So re-running `--write` now obliges the author to update `measured` in the
+    same commit, which is exactly the moment to ask whether the floor moves too.
+    """
+    from app.evals.run import FLOORS_FILE, RESULTS_FILE
+
+    floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    results = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))["modes"]
+
+    for mode, thresholds in floors["modes"].items():
+        for metric, threshold in thresholds.items():
+            actual = results[mode][metric]
+            # `measured` is quoted to four decimals, results.json carries the
+            # full float, so the tolerance is half of the last recorded place.
+            assert abs(threshold["measured"] - actual) < 0.00005, (
+                f"{mode}.{metric}: floors.json records measured="
+                f"{threshold['measured']}, results.json now says {actual:.6f}. "
+                "Re-derive the floor rather than editing either one to match."
+            )
+
+
+def test_the_floors_file_declares_the_schema_the_runner_reads() -> None:
+    """A declared version that nothing validates is decoration."""
+    from app.evals.run import FLOORS_SCHEMA, _load_floors
+
+    assert _load_floors()["schema"] == FLOORS_SCHEMA
+
+
+def test_a_floors_file_from_an_older_schema_is_refused_by_name(tmp_path, monkeypatch) -> None:
+    """Version 1 held bare numbers. Read with this code, `threshold["floor"]`
+    raises `TypeError: string indices must be integers` from inside the gate,
+    which is a confusing way to find out a file is a version behind."""
+    from app.evals import run as runner
+
+    older = tmp_path / "floors.json"
+    older.write_text(json.dumps({"schema": 1, "modes": {"fts": {"mrr_at_10": 0.65}}}))
+    monkeypatch.setattr(runner, "FLOORS_FILE", older)
+
+    with pytest.raises(SystemExit) as error:
+        runner._load_floors()
+
+    assert "schema 1" in str(error.value)
+
+
 def test_no_answerability_floor_is_set_on_a_mode_whose_auc_measures_nothing() -> None:
     """`vector` and `hybrid` may not carry an `answerability_auc` floor, and the
     two are excluded for different reasons — which is why this is a test and not a

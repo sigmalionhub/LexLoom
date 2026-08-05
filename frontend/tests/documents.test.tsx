@@ -68,6 +68,10 @@ const tenant = {
   tokenExpiresAt: Date.now() + 3_600_000,
 } as unknown as Tenant;
 
+/** What `api.catalogue()` answers with. Reset per test; one case replaces it
+ *  with a catalogue from an older API to prove the page survives the skew. */
+let catalogueFixture = CATALOGUE;
+
 const startIngest = vi.fn();
 
 vi.mock('@/lib/api', async () => {
@@ -75,7 +79,7 @@ vi.mock('@/lib/api', async () => {
   return {
     ...actual,
     api: {
-      catalogue: () => Promise.resolve(CATALOGUE),
+      catalogue: () => Promise.resolve(catalogueFixture),
       startIngest: (...args: unknown[]) => {
         startIngest(...args);
         return Promise.resolve({ ...IDLE, stage: 'queued', started_at: 1 });
@@ -108,6 +112,7 @@ function Harness() {
 }
 
 beforeEach(() => {
+  catalogueFixture = CATALOGUE;
   startIngest.mockClear();
   serveStatus(statusMap());
 });
@@ -192,6 +197,25 @@ describe('Documents', () => {
     const publisher = screen.getAllByRole('link', { name: /from the publisher/ })[0];
     expect(publisher.getAttribute('href')).toContain('eur-lex.europa.eu');
     expect(publisher.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('offers no download when the catalogue named no file', async () => {
+    // This shipped: two links reading `/sources/undefined`, because the API
+    // answering the page was older than the page asking. The generated type
+    // says `download: string`, so nothing here doubted it — and a static export
+    // is copied into place either side of an API restart, so the two disagreeing
+    // is a real deployment state and not only a development accident.
+    const older = CATALOGUE.map(({ download: _dropped, ...rest }) => rest);
+    catalogueFixture = older as typeof CATALOGUE;
+
+    render(<Harness />);
+    await screen.findByText('gdpr-full');
+
+    expect(screen.queryByRole('link', { name: /Download the/ })).toBeNull();
+    expect(document.body.innerHTML).not.toContain('/sources/undefined');
+    // The publisher is still named — it is a licence term for the documents
+    // this page ships, and it does not depend on the missing field.
+    expect(screen.getAllByRole('link', { name: /from the publisher/ })).toHaveLength(2);
   });
 
   it('draws the progress bar from the chunk counts the worker reported', async () => {

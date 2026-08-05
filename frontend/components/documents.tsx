@@ -194,17 +194,30 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
           worker, and SSE streams are the resource that must not queue behind a
           megabyte of PDF. */}
       <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-[0.75rem] leading-snug">
-        <a
-          href={`/sources/${entry.download}`}
-          download
-          onClick={(event) => event.stopPropagation()}
-          className="text-ink-soft underline decoration-rule underline-offset-2 transition-colors hover:text-ink hover:decoration-ink/40"
-        >
-          Download the {extension}
-        </a>
-        <span aria-hidden className="text-ink-soft/40">
-          ·
-        </span>
+        {/* Rendered only when the catalogue actually named a file.
+            The generated type says `download: string`, so nothing in the page
+            doubts it — and the page still shipped two links to
+            `/sources/undefined`, because the API answering it was older than the
+            page asking. That is not only a development accident: a static export
+            is copied into place before or after the API restarts, so there is
+            always a window where the two disagree. A link that 404s is worse
+            than no link on the one affordance that exists so a reader does not
+            have to take this page's word for anything. */}
+        {entry.download && (
+          <>
+            <a
+              href={`/sources/${entry.download}`}
+              download
+              onClick={(event) => event.stopPropagation()}
+              className="text-ink-soft underline decoration-rule underline-offset-2 transition-colors hover:text-ink hover:decoration-ink/40"
+            >
+              Download the {extension}
+            </a>
+            <span aria-hidden className="text-ink-soft/40">
+              ·
+            </span>
+          </>
+        )}
         <a
           href={entry.source_url}
           target="_blank"

@@ -27,10 +27,13 @@ jobs:
           --health-cmd "pg_isready -U lexloom_migrator" --health-interval 5s
           --health-timeout 3s --health-retries 10
         ports: ["5432:5432"]
-      redis:
-        image: redis:7-alpine
-        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
-        ports: ["6379:6379"]
+      # Redis is NOT a service container, and that is the whole point. Service
+      # containers take no `command:`, so there is no way to give one
+      # `--requirepass`, and an anonymous Redis here would mean CI never
+      # exercises the authenticated path the deployment actually uses —
+      # `test_the_suite_reaches_redis_with_a_password_too` exists to make that
+      # gap loud rather than let a green run imply coverage it does not have.
+      # Started as a step below instead.
     steps:
       - uses: actions/checkout@v4
       # Pin an interpreter from the runner's tool cache. `uv pip install --system`
@@ -140,6 +143,20 @@ jobs:
         # runs from the source tree, where it would not. Keeping -m means this
         # command is identical everywhere it runs.
         run: python -m alembic upgrade head
+      # The password is not a secret and must not be one: it is a throwaway for a
+      # container that lives for the length of this job on a runner nothing else
+      # shares. Written in the open so the URL below can be read at a glance.
+      - name: Start an authenticated Redis
+        run: |
+          docker run -d --name ci-redis -p 6379:6379 redis:7-alpine \
+            redis-server --save "" --appendonly no --requirepass ci-redis-password
+          for i in $(seq 1 30); do
+            if docker exec ci-redis redis-cli -a ci-redis-password ping 2>/dev/null | grep -q PONG; then
+              echo "redis ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "redis never became ready"; docker logs ci-redis; exit 1
       - name: Tests
         working-directory: backend
         env:
@@ -149,7 +166,10 @@ jobs:
           # every table it just created, so reusing its DSN here would trip the
           # guard on every DB-touching test.
           DATABASE_URL: postgresql+asyncpg://lexloom_app:app@localhost:5432/lexloom
-          REDIS_URL: redis://localhost:6379/0
+          # Carries the password the step above started Redis with. An anonymous
+          # URL here would pass 363 tests and fail the one that checks the suite
+          # is talking to an authenticated server at all.
+          REDIS_URL: redis://:ci-redis-password@localhost:6379/0
           ENV: ci
         run: pytest -v
 

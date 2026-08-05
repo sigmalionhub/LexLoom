@@ -767,9 +767,18 @@ def test_the_unanswerable_questions_are_length_matched_to_the_answerable_ones() 
     `ts_rank` grows with the number of query lexemes, so a set of short, simple
     unanswerable questions against long, specialist answerable ones produces a
     splendid AUC that measures nothing but question length. The two means are
-    held within 25 % of each other and the ranges are required to overlap, which
-    is as much as a test can check about vocabulary matching; the rest is in the
-    `note` on each question.
+    held within 25 % of each other and the unanswerable range is required to sit
+    *inside* the answerable one — containment, not overlap, which is the
+    stronger of the two: overlap would admit an unanswerable set of 3-word
+    questions as long as one of them reached the answerable minimum, while
+    containment refuses any unanswerable question shorter than the shortest
+    answerable one or longer than the longest.
+
+    **This checks length only.** It counts `str.split()` tokens and knows
+    nothing about which words they are, so it does not check vocabulary
+    matching at all — that is left to the `note` on each question and to
+    review, and `score.py`'s `answerability_auc` docstring says so rather than
+    claiming this test covers it.
     """
     answerable = [len(q.text.split()) for q in QUESTIONS if q.is_answerable]
     unanswerable = [len(q.text.split()) for q in QUESTIONS if not q.is_answerable]

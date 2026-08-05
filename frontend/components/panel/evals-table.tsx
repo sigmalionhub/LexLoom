@@ -21,9 +21,17 @@ type MetricKey = (typeof METRICS)[number]['key'];
  * The other two are omitted on purpose and the omission is labelled in the
  * panel, because a number that measures nothing is more damaging than a wrong
  * one: `hybrid`'s 0.424 reads as "worse than a coin toss", which sounds like a
- * finding about the retriever and is not. Its top-1 score is an RRF value taking
- * only 1/61 and 2/61 on these questions, so the statistic is computed over a
- * near-constant. `vector`'s is uninformative for a different reason — its
+ * finding about the retriever and is not. Its top-1 score is an RRF value
+ * structurally confined to the interval [1/61, 2/61] — with two legs and k=60,
+ * the best chunk is rank 1 in at least one leg, so the score cannot fall below
+ * 1/61, and it cannot beat rank 1 in both, so it cannot exceed 2/61. The whole
+ * sample therefore sits inside one rank step. That is a *span*, not a two-point
+ * set: `app/evals/floors.json` records 19 distinct values across the thirty
+ * questions. The statistic is computed over a near-constant, which is enough to
+ * make it meaningless — a two-valued score would not even reproduce the
+ * published 0.4236, since 0.4236 x 144 = 61 wins and a two-valued score over
+ * 24 answerable and 6 unanswerable questions can only produce 57, 60, 63 or 66
+ * near there. `vector`'s is uninformative for a different reason — its
  * unanswerable scores run straight through its answerable range.
  *
  * The backend agrees and is the source of truth: `app/evals/floors.json` carries
@@ -170,8 +178,9 @@ export function EvalsTable(_: PanelSectionProps) {
 
       <p className="mt-1.5 text-[0.75rem] leading-snug text-mist">
         <span className="text-chalk">Not reported for vector or hybrid</span>, because for those two it does
-        not measure anything: hybrid ranks by reciprocal-rank fusion, whose top score takes only the values
-        1/61 and 2/61 here, so its AUC is computed over a near-constant; and vector&rsquo;s unanswerable
+        not measure anything: hybrid ranks by reciprocal-rank fusion, whose top score is confined to the
+        interval 1/61&ndash;2/61 &mdash; one rank step wide, holding 19 distinct values across the thirty
+        questions &mdash; so its AUC is computed over a near-constant; and vector&rsquo;s unanswerable
         questions score 0.490&ndash;0.811, straight through the 0.385&ndash;0.855 its answerable ones score.
         Printing either next to the caption above would invite reading a meaningless number as a verdict on
         the retriever.

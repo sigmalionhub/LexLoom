@@ -73,7 +73,7 @@
         "measured": 0.1761,
         "headroom": 0.03125,
         "provisional": true,
-        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0321, or 18.2% of the measured value. `hybrid` inherits `vector`'s factor because one of its two legs IS the vector leg. recall@5 is set-valued rather than rank-valued, so a flip inside the top 5 does not move it at all and only a flip across the rank-5 boundary does. Note the ceiling this is measured against is 0.9137, not 1.0: five of the answerable questions have more than five relevant chunks, so five rows physically cannot cover them."
+        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0321, or 18.2% of the measured value. `hybrid` inherits `vector`'s factor because one of its two legs IS the vector leg. recall@5 is set-valued rather than rank-valued, so a flip inside the top 5 does not move it at all and only a flip across the rank-5 boundary does. Note the ceiling this is measured against is 0.9137, not 1.0: nine of the 24 answerable questions have more than five relevant chunks — six with 6, two with 7 and `v-principles` with 10 — so five rows physically cannot cover them. The ceiling is the macro-average of min(5, n)/n over those 24 questions: 15 of them are capped at 1.0 and the nine capped below it contribute 5/6 six times, 5/7 twice and 1/2 once, which is 21.928.../24 = 0.913690..."
       },
       "mrr_at_10": {
         "floor": 0.284,

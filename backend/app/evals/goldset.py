@@ -86,7 +86,8 @@ EXPECTED_COVERAGE: Mapping[Kind, int] = {
     "unanswerable": 6,
 }
 
-# Grades, spelled rather than left as bare integers at 60 call sites.
+# Grades, spelled rather than left as bare integers at 124 call sites — one per
+# `Judgement` in this file (52 `ANSWERS`, 72 `SUPPORTS`).
 ANSWERS = 2
 SUPPORTS = 1
 

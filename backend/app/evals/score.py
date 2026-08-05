@@ -159,9 +159,18 @@ def answerability_auc(
     at all unless the unanswerable questions are length- and vocabulary-matched
     to the answerable ones — `ts_rank` grows with the number of query lexemes, so
     a set of short unanswerable questions scores well here while measuring
-    nothing but question length. `goldset.py` makes that a rule of authorship and
+    nothing but question length. `goldset.py` makes both a rule of authorship,
+    but only one half of it is enforced: **the test holds length, not
+    vocabulary.**
     `test_the_unanswerable_questions_are_length_matched_to_the_answerable_ones`
-    is what holds it, so this is not left to review.
+    counts words and nothing else — it holds the two means within 25 % of each
+    other (16.21 against 16.33, a 0.8 % gap) and requires the unanswerable range
+    to sit *inside* the answerable one (15-18 words inside 10-24). Vocabulary
+    matching is left to the `note` on each question and to review, which is a
+    real gap in this metric's guard rail rather than a covered one: a set of
+    unanswerable questions written in plain English against answerable ones
+    written in GDPR terms would pass that test and still make this number
+    measure register rather than answerability.
     """
     if not answerable_top or not unanswerable_top:
         return None
@@ -182,8 +191,16 @@ def mean_of_defined(values: Iterable[float | None]) -> float | None:
     measured" rather than a confident zero.
 
     Macro, not micro — every question weighs the same regardless of how many
-    relevant chunks it has. A micro-average would let the five multi-hop
-    questions, which carry the most judgements, quietly become most of the score.
+    relevant chunks it has. A micro-average weights each question by its
+    judgement count instead, and the weights in this gold set are lopsided
+    enough for that to matter: 124 judgements over 24 answerable questions,
+    `v-principles` alone holding 10 of them. Micro would give that one question
+    10/124 (8.1%) of the score against macro's 1/24 (4.2%), and it would tilt
+    the whole average towards `verbatim`, the kind carrying the most judgements
+    at 36 of 124 — the kind that needs the least of the retriever, since the
+    question quotes the text it is looking for. Note the intuition to resist: the
+    multi-hop questions are *not* the heavy ones. There are five of them and
+    they carry 27 judgements, the fewest of the four answerable kinds.
     """
     defined = [value for value in values if value is not None]
     if not defined:

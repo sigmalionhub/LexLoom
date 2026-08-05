@@ -12,11 +12,20 @@ back.
 That monkeypatch is also why nothing here carries `@pytest.mark.model` — the
 one path in this file that could reach the model (a real `.delay()` running a
 real ingest) is exactly the one every test below replaces.
+
+One test breaks the "never the real task" rule and says so where it lives:
+`test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text` needs
+the value the task's own `except` clause writes and the value this route reads
+back, so stubbing either half would prove nothing. It stubs the *work* instead
+— no PDF, no weights — and stays model-free like the rest.
 """
+
+import asyncio
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from test_ingest_job import (  # noqa: PLC2701
     SOURCE_KEY,
     _add_fake_ingested_chunk,
@@ -250,3 +259,99 @@ async def test_a_route_that_is_not_excluded_is_still_counted(
 
     snapshot = fresh.snapshot()
     assert snapshot.requests.total == 1
+
+# --- What a failed ingest tells the visitor ----------------------------------
+#
+# The exception to this module's "never the real task" rule, and it is the
+# point of the test: the value under test is written by
+# `app.worker.tasks.ingest_source`'s own `except` clause and read back through
+# the route, so replacing either half would prove nothing. The real task body
+# runs here, but not the real work — the parse is stubbed to two tiny chunks
+# and the embedder to a three-float stub, so the INSERT fails on the vector
+# width without a PDF, without the ONNX weights and in milliseconds.
+#
+# A wrong-width vector is not an arbitrary way to make it fail. It reproduces
+# the exact shape the reviewer measured: SQLAlchemy raises a `DBAPIError` whose
+# `str()` is the failing statement plus `[parameters: ...]`, which is how 7,314
+# characters of `INSERT INTO document_chunks …`, document text and embedding
+# floats reached the client through this route.
+
+_LEAKY_CONTENT = "Article 28 obligations of the processor, verbatim from the document"
+
+class _ThreeFloatModel:
+    """Not `DIMENSIONS` wide, which is the whole idea — the INSERT then fails
+    inside the write transaction with a real, statement-bearing database
+    error."""
+
+    def embed(self, texts):
+        class _Row(list):
+            def tolist(self):
+                return list(self)
+
+        return [_Row([0.1, 0.2, 0.3]) for _ in texts]
+
+@pytest.fixture
+def failing_ingest(monkeypatch: pytest.MonkeyPatch):
+    import app.chat.embedding as embedding_module
+    from app.ingest.parse import Chunk
+
+    def _fake_parse(source):
+        return [
+            Chunk(chunk_ordinal=0, content=_LEAKY_CONTENT, page_from=1, page_to=1),
+            Chunk(chunk_ordinal=1, content=_LEAKY_CONTENT, page_from=1, page_to=2),
+        ]
+
+    monkeypatch.setattr("app.ingest.parse.parse_source", _fake_parse)
+    monkeypatch.setattr(embedding_module, "_model", _ThreeFloatModel())
+
+async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
+    client: AsyncClient,
+    demo_auth: dict[str, str],
+    demo_org_id: str,
+    failing_ingest,
+    settings_override,
+) -> None:
+    """Sabotage: put `str(exc)` back into `_mark_error` and every assertion
+    below fails at once — the response body then contains the INSERT, the bound
+    parameters and `_LEAKY_CONTENT`."""
+    from conftest import LIMITS_TEST_REDIS_URL
+
+    from app.db.engine import engine
+    from app.worker.tasks import ingest_source
+
+    settings_override(redis_url=LIMITS_TEST_REDIS_URL)
+
+    # In a thread, because the task body is synchronous by construction: it
+    # opens its own loop with `asyncio.run`, which cannot be called from the
+    # one this test is already running on. That is the worker's real shape, so
+    # the thread is how the test meets it rather than a way around it.
+    #
+    # Disposed first, and this line is load-bearing rather than hygiene: the
+    # engine's pool holds connections created on *this* test's loop, and the
+    # task's own loop would fail on the first of them with "attached to a
+    # different loop" — before ever reaching the INSERT. The test would still
+    # go red under sabotage, but for a failure that carries no SQL, so it would
+    # be proving nothing about the thing it is named for. Verified by putting
+    # `str(exc)` back and reading which exception arrived.
+    await engine.dispose()
+    result = await asyncio.to_thread(ingest_source.apply, args=[demo_org_id, SOURCE_KEY])
+    assert result.failed(), "the fixture did not actually make the ingest fail"
+    assert isinstance(result.result, DBAPIError), (
+        "the ingest failed, but not at the INSERT — this test only proves what it "
+        f"claims if the failure is a statement-bearing database error, not {result.result!r}"
+    )
+
+    response = await client.get("/api/v1/ingest/status", headers=demo_auth)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stage"] == "error"
+    assert body["error"] == "ingest_failed"
+
+    # Asserted on the whole serialised response, not on the field, because the
+    # point is that nothing anywhere in what the visitor receives carries it.
+    raw = response.text
+    for leaked in ("INSERT INTO", "document_chunks", "parameters:", _LEAKY_CONTENT):
+        assert leaked not in raw, f"the ingest error still leaks {leaked!r}"
+    # A code, not a paragraph: the value also goes into a 48 MB allkeys-lru
+    # Redis, where multi-kilobyte writes evict the rate-limit counters.
+    assert len(body["error"]) < 64

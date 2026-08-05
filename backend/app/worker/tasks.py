@@ -1,3 +1,4 @@
+import structlog
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
@@ -10,6 +11,8 @@ from sqlalchemy.exc import DBAPIError
 from app.chat.embedding import DIMENSIONS
 from app.worker import signals  # noqa: F401  (registers process-init handler)
 from app.worker.celery_app import celery_app
+
+logger = structlog.get_logger(__name__)
 
 # SQLSTATE 40P01. Postgres resolves a deadlock by killing one of the parties,
 # and which one is not something the loser gets a say in.
@@ -233,13 +236,42 @@ def ingest_source(self, org_id: str, source_key: str) -> int:
     same-organisation race (`IngestAlreadyComplete`) would otherwise also
     leave the panel stuck on whatever stage the job reached, with nothing to
     explain why it stopped moving.
+
+    What lands in the hash is a **code**, never `str(exc)`. The hash is read
+    back verbatim by `GET /api/v1/ingest/status` and handed to the visitor, and
+    a database failure's string carries the whole statement: measured on a real
+    failing INSERT, 7,314 characters of `INSERT INTO document_chunks …` plus its
+    bound parameters — the document's own text and its embedding floats. Every
+    other refusal in this codebase is already deliberately generic for exactly
+    this reason (`app/errors.py`, `app/chat/stream.py`, `app/limits.py`), and
+    this one was the exception. It also pushed multi-kilobyte values into a
+    48 MB `allkeys-lru` Redis whose eviction is the silent failure `limits.py`
+    names as the one it fears. The detail goes to the log instead, where the
+    operator can read it and the visitor cannot.
     """
     import asyncio
 
     from celery.exceptions import SoftTimeLimitExceeded
 
     from app.db.engine import engine
-    from app.ingest.jobs import _write_progress, run_ingest
+    from app.ingest.jobs import (
+        IngestAbandoned,
+        IngestAlreadyComplete,
+        _write_progress,
+        run_ingest,
+    )
+
+    # Ordered most specific first and matched with `isinstance`, so a subclass
+    # added later still gets the nearest code rather than falling through to the
+    # generic one. `ingest_failed` is the default and covers everything a
+    # visitor cannot act on differently anyway — the point of the code is that
+    # the frontend can say something true, not that it can distinguish every
+    # database fault.
+    codes: tuple[tuple[type[BaseException], str], ...] = (
+        (SoftTimeLimitExceeded, "ingest_timeout"),
+        (IngestAbandoned, "ingest_abandoned"),
+        (IngestAlreadyComplete, "already_ingested"),
+    )
 
     async def _run() -> int:
         try:
@@ -250,14 +282,27 @@ def ingest_source(self, org_id: str, source_key: str) -> int:
             # above.
             await engine.dispose()
 
-    async def _mark_error(message: str) -> None:
-        await _write_progress(org_id, stage="error", error=message)
+    async def _mark_error(code: str) -> None:
+        await _write_progress(org_id, stage="error", error=code)
 
     try:
         return asyncio.run(_run())
-    except SoftTimeLimitExceeded:
-        asyncio.run(_mark_error("ingest exceeded its time limit"))
-        raise
     except Exception as exc:
-        asyncio.run(_mark_error(str(exc) or type(exc).__name__))
+        code = next(
+            (code for kind, code in codes if isinstance(exc, kind)), "ingest_failed"
+        )
+        # `exc_info=True`, and this line is where the detail that used to reach
+        # the visitor now goes. Correlated by `org_id` and by the Celery task
+        # id: the HTTP request that queued this job finished long before the
+        # job ran, so its request id is not in scope here, and the organisation
+        # is what an operator holding a visitor's report actually has.
+        logger.warning(
+            "ingest_task_failed",
+            code=code,
+            org_id=org_id,
+            source_key=source_key,
+            celery_task_id=self.request.id,
+            exc_info=True,
+        )
+        asyncio.run(_mark_error(code))
         raise

@@ -484,7 +484,12 @@ export interface components {
       chunks_done: number;
       /** Chunks Total */
       chunks_total: number;
-      /** Error */
+      /**
+       * Error
+       * @description A stable code, never a message and never an exception's text:
+       *     `ingest_failed`, `ingest_timeout`, `ingest_abandoned` or `already_ingested`
+       *     (app/worker/tasks.py). Null unless `stage` is `error`.
+       */
       error: string | null;
       /**
        * Started At

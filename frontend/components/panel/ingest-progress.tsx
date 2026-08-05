@@ -59,6 +59,27 @@ const STAGE_LABELS: Record<IngestStage, string> = {
   error: 'Failed',
 };
 
+/**
+ * The `error` field is a code now, not a sentence — `app/worker/tasks.py` stopped
+ * putting `str(exc)` in the progress hash, because a failing INSERT's own string
+ * carried the statement, its bound parameters and the document text, and this
+ * component rendered it straight to the visitor.
+ *
+ * Unknown codes fall through to the raw value rather than to a generic
+ * "something went wrong": a code this table has not caught up with is still more
+ * use on screen than nothing, and it is short by construction.
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+  ingest_failed: 'The ingest failed. The details are in the server log.',
+  ingest_timeout: 'The ingest ran past its time limit and was stopped.',
+  ingest_abandoned: 'This demo tenant expired while the ingest was running.',
+  already_ingested: 'This tenant already holds an ingested document.',
+};
+
+function errorMessage(code: string): string {
+  return ERROR_MESSAGES[code] ?? code;
+}
+
 function errorDetail(error: unknown): string {
   if (error instanceof ApiError) return error.problem.detail ?? error.message;
   return String(error);
@@ -185,7 +206,7 @@ export function IngestProgress({ tenant }: PanelSectionProps) {
       {elapsedSeconds !== null && stage !== 'idle' && <Row label="elapsed">{elapsedSeconds}s</Row>}
       {status?.error && (
         <Row label="error" wrap>
-          <span className="text-alarm">{status.error}</span>
+          <span className="text-alarm">{errorMessage(status.error)}</span>
         </Row>
       )}
 

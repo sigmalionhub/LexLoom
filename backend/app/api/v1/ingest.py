@@ -70,7 +70,17 @@ class IngestStatusResponse(BaseModel):
     stage: IngestStage
     chunks_done: int
     chunks_total: int
-    error: str | None
+    error: str | None = Field(
+        description=(
+            "A stable code, never a message and never an exception's text: "
+            "`ingest_failed`, `ingest_timeout`, `ingest_abandoned` or "
+            "`already_ingested` (app/worker/tasks.py). Null unless `stage` is "
+            "`error`. Whatever went wrong is in the worker's log, correlated by "
+            "organisation — a database failure's own string carries the failing "
+            "statement, its bound parameters and the document text with it, and "
+            "this field is returned to the visitor verbatim."
+        ),
+    )
     started_at: int | None = Field(
         description="Unix seconds. Null until mark_ingest_queued has run for this organisation."
     )

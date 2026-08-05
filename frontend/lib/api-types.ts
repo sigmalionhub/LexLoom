@@ -329,7 +329,7 @@ export interface components {
   schemas: {
     /**
      * CatalogueEntry
-     * @description What a caller may know about a source: five fields, and no more.
+     * @description What a caller may know about a source: seven fields, and no more.
      *
      *     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
      *     `document_xml_sha256` and `conversion`. None of them leave the server.
@@ -337,6 +337,10 @@ export interface components {
      *     build tool and its exact version — neither is any of a visitor's business,
      *     and a response model that listed the dataclass's fields by default would
      *     have shipped both. The model is the boundary, not a convenience.
+     *
+     *     `download` is `path.name` and not `path`: the file name is what the export
+     *     serves the document under, while the directory it sits in inside the image
+     *     is exactly the part that stays here.
      */
     CatalogueEntry: {
       /** Key */
@@ -345,6 +349,16 @@ export interface components {
       title: string;
       /** Media Type */
       media_type: string;
+      /**
+       * Download
+       * @description The file name this document is served under, below `/sources/`. Served by nginx out of the static export, never by this API: the API runs one worker and concurrent SSE streams are the resource `app/limits.py` exists to protect, so a megabyte of PDF must not go through it. The name comes from the catalogue rather than being assembled in the page, so the copy step and the link cannot drift.
+       */
+      download: string;
+      /**
+       * Source Url
+       * @description Where the publisher puts it. Present because redistribution requires it, not as a convenience: EUR-Lex permits reuse *with acknowledgement of source* (Commission Decision 2011/833/EU) and NIST requests a credit, so a page that offers the file for download and names no source would breach the terms the catalogue quotes. It is also the better evidence — a file this demo hands out proves only that the demo is consistent with itself.
+       */
+      source_url: string;
       /**
        * Preloaded
        * @description True when every tenant is given this document at sign-in rather than ingesting it. The page draws the two differently and says which happened, and it cannot infer this: a preloaded document and one ingested an hour ago both read `complete`. Derived from `PRELOADED_SOURCE_KEYS`, so the frontend never spells a source key.

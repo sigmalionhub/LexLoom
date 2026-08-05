@@ -383,7 +383,7 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
 async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     client: AsyncClient,
 ) -> None:
-    """Five fields, and the ones deliberately absent.
+    """Seven fields, and the ones deliberately absent.
 
     `Source` also carries `path` (an absolute path inside the image), `sha256`,
     `document_xml_sha256` and `conversion` (which names the build tool and its
@@ -401,8 +401,24 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     body = response.json()
     assert [entry["key"] for entry in body] == list(CATALOGUE)
     for entry in body:
-        assert set(entry) == {"key", "title", "media_type", "preloaded", "suggestions"}
+        assert set(entry) == {
+            "key",
+            "title",
+            "media_type",
+            "download",
+            "source_url",
+            "preloaded",
+            "suggestions",
+        }
         assert entry["preloaded"] == (entry["key"] in PRELOADED_SOURCE_KEYS)
+        # The file name, never the path it sits at inside the image. `download`
+        # is what the static export serves the document under; the directory is
+        # the part that stays on this side, and asserting the difference is what
+        # keeps a later `download=str(source.path)` from shipping it.
+        source = CATALOGUE[entry["key"]]
+        assert entry["download"] == source.path.name
+        assert "/" not in entry["download"]
+        assert entry["source_url"] == source.source_url
         # Carried through as sent, not reordered or deduplicated: the page
         # renders them in this order and `test_suggested_questions.py` verifies
         # them in it.

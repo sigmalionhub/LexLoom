@@ -17,6 +17,8 @@ extractor's output.
 from __future__ import annotations
 
 import hashlib
+import pathlib
+import re
 import zipfile
 
 import pytest
@@ -110,3 +112,26 @@ def test_the_docx_package_carries_nothing_but_the_document(source: Source) -> No
         # notice an embedded payload.
         compressed = sum(info.compress_size for info in package.infolist())
         assert total / compressed < 30
+
+def test_every_catalogue_document_is_shipped_to_the_static_export() -> None:
+    """The page offers each document for download; the copy step has to agree.
+
+    `frontend/scripts/copy-sources.mjs` names the files it copies explicitly
+    rather than sweeping the directory, and that is deliberate — the directory
+    also holds `nist-sp-800-63b.src.html`, the preprocessed input the `.docx`
+    was built from, which is ground truth for tests and not something to publish.
+    The cost of an explicit list is that adding a catalogue document ships a
+    download link to a file nobody copied: a 404 on the one affordance that
+    exists so a reader does not have to take this page's word for anything.
+
+    Nothing else holds the two lists together, because nothing else can see
+    both.
+    """
+    script = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "frontend"
+        / "scripts"
+        / "copy-sources.mjs"
+    )
+    listed = set(re.findall(r"'([^']+\.(?:pdf|docx))'", script.read_text(encoding="utf-8")))
+    assert listed == {source.path.name for source in CATALOGUE.values()}

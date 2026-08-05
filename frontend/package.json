@@ -7,7 +7,9 @@
     "node": ">=18.17"
   },
   "scripts": {
+    "predev": "node scripts/copy-sources.mjs",
     "dev": "node scripts/serve.mjs",
+    "prebuild": "node scripts/copy-sources.mjs",
     "build": "next build",
     "preview": "next build && node scripts/serve.mjs --static",
     "lint": "next lint",

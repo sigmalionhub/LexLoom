@@ -180,6 +180,42 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
         {entry.title}
       </p>
 
+      {/* The file itself, so a reader can check that a citation is really in the
+          document rather than taking this page's word for it.
+          `download` and `source_url` both come from the catalogue: the first
+          because the copy step and this link must not drift, the second because
+          redistribution is conditional on it. EUR-Lex permits reuse *with
+          acknowledgement of source* and NIST asks for a credit, so naming the
+          publisher is a licence term, not a courtesy — and it is the stronger
+          evidence anyway. A file handed out by this demo proves only that the
+          demo agrees with itself; the publisher's copy is what it can be
+          checked against.
+          Served out of the static export by nginx, never through the API: one
+          worker, and SSE streams are the resource that must not queue behind a
+          megabyte of PDF. */}
+      <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-[0.75rem] leading-snug">
+        <a
+          href={`/sources/${entry.download}`}
+          download
+          onClick={(event) => event.stopPropagation()}
+          className="text-ink-soft underline decoration-rule underline-offset-2 transition-colors hover:text-ink hover:decoration-ink/40"
+        >
+          Download the {extension}
+        </a>
+        <span aria-hidden className="text-ink-soft/40">
+          ·
+        </span>
+        <a
+          href={entry.source_url}
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={(event) => event.stopPropagation()}
+          className="text-ink-soft underline decoration-rule underline-offset-2 transition-colors hover:text-ink hover:decoration-ink/40"
+        >
+          from the publisher
+        </a>
+      </p>
+
       {/* The state line is pushed to the bottom so two cards of unequal title
           length still align along the thing a reader is scanning for. */}
       <div className="mt-auto pt-2.5">

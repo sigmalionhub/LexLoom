@@ -22,6 +22,8 @@ const CATALOGUE = [
     key: 'gdpr-full',
     title: 'Regulation (EU) 2016/679 …',
     media_type: 'application/pdf',
+    download: 'gdpr-full.pdf',
+    source_url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32016R0679',
     preloaded: true,
     suggestions: [],
   },
@@ -30,6 +32,8 @@ const CATALOGUE = [
     title: 'NIST Special Publication 800-63B rev 4 …',
     media_type:
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    download: 'nist-sp-800-63b.docx',
+    source_url: 'https://pages.nist.gov/800-63-4/sp800-63b.html',
     preloaded: false,
     suggestions: [NIST_QUESTION],
   },
@@ -169,6 +173,25 @@ describe('Documents', () => {
     // in the component would be the drift the catalogue route exists to stop.
     expect(screen.getByText(/copied in at sign-in/)).toBeTruthy();
     expect(screen.getByText(/ingested by this tenant/)).toBeTruthy();
+  });
+
+  it('offers the file itself, and names the publisher beside it', async () => {
+    render(<Harness />);
+    await screen.findByText('gdpr-full');
+
+    // The download exists so a citation can be checked against the document
+    // rather than believed. The path comes from the catalogue, not assembled
+    // here, so the copy step and this link cannot drift apart.
+    const file = screen.getByRole('link', { name: /Download the PDF/ });
+    expect(file.getAttribute('href')).toBe('/sources/gdpr-full.pdf');
+    expect(file.hasAttribute('download')).toBe(true);
+
+    // Naming the source is a licence term for redistributing either document,
+    // not decoration — and the publisher's copy is the stronger evidence, since
+    // a file this page hands out proves only that it agrees with itself.
+    const publisher = screen.getAllByRole('link', { name: /from the publisher/ })[0];
+    expect(publisher.getAttribute('href')).toContain('eur-lex.europa.eu');
+    expect(publisher.getAttribute('rel')).toContain('noopener');
   });
 
   it('draws the progress bar from the chunk counts the worker reported', async () => {

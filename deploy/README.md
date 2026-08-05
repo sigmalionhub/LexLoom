@@ -253,6 +253,14 @@ the cap.
 
 ## Step 4 — build the frontend
 
+The build copies the two catalogue documents into the export (`prebuild` →
+`scripts/copy-sources.mjs`), so nginx serves them alongside the page at
+`/sources/`. That is **1.06 MB** added to the deployed bundle — 982 KB of GDPR
+PDF and 101 KB of the NIST `.docx`. They are deliberately not served by the API:
+it runs one worker, and a megabyte of PDF must never queue in front of an SSE
+stream.
+
+
 ```bash
 cd /var/www/portfolio/lexloom/app/frontend
 npm ci

@@ -216,6 +216,45 @@ def test_beat_schedule_names_the_task_that_is_actually_registered():
     assert entry["task"] == purge_expired_orgs.name
     assert purge_expired_orgs.name in celery_app.tasks
 
+
+def test_a_service_in_compose_actually_runs_celery_beat():
+    """Nothing else notices if the `beat` service is deleted from Compose.
+
+    Every other test in this file about `beat` reads `celery_app.conf` — the
+    Python side of the schedule. That side stays perfectly correct with no
+    process running it, which is the exact state ADR 0001 recorded and ADR
+    0004 closed: `beat_schedule` was declared and nothing fired it. Deleting
+    the service from `docker-compose.yml` today returns the project to that
+    state with the whole suite green, because `_application_services()`
+    derives its set from the build context and would simply find one service
+    fewer.
+
+    The consequence is not a failing check anywhere. It is that the 24-hour
+    demo-organisation TTL stops being enforced by anything, and
+    `INGEST_ORG_CAP`'s slots — freed only by the same task — become a one-way
+    latch that closes the ingest feature permanently once it fills.
+
+    Matched on the argv rather than on the service's name so that renaming the
+    service is allowed and removing the process is not: the name is a label,
+    `celery ... beat` is the thing that fires.
+    """
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    scheduling = {
+        name: service
+        for name, service in compose["services"].items()
+        if "beat" in " ".join(
+            service["command"]
+            if isinstance(service.get("command"), list)
+            else [str(service.get("command", ""))]
+        ).split()
+    }
+    assert scheduling, (
+        f"no service in {COMPOSE_FILE.name} runs `celery beat`. The schedule in "
+        "app/worker/celery_app.py is declared but nothing fires it, so the demo-org "
+        "TTL is enforced by nothing and INGEST_ORG_CAP becomes a one-way latch. "
+        "See docs/adr/0004 — this is the defect it closed."
+    )
+
 def test_the_two_embed_batch_constants_are_the_same_number():
     """`650m` is sized on a batch of 32, and two separate constants spell it.
 

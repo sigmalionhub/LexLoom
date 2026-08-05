@@ -35,6 +35,7 @@ from test_ingest_job import (  # noqa: PLC2701
 
 from app.db.session import system_session
 from app.ingest.catalogue import CATALOGUE
+from app.ingest.preload import PRELOADED_SOURCE_KEYS
 from app.observability import Registry
 
 
@@ -382,7 +383,7 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
 async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     client: AsyncClient,
 ) -> None:
-    """Four fields, and the ones deliberately absent.
+    """Five fields, and the ones deliberately absent.
 
     `Source` also carries `path` (an absolute path inside the image), `sha256`,
     `document_xml_sha256` and `conversion` (which names the build tool and its
@@ -400,7 +401,8 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     body = response.json()
     assert [entry["key"] for entry in body] == list(CATALOGUE)
     for entry in body:
-        assert set(entry) == {"key", "title", "media_type", "suggestions"}
+        assert set(entry) == {"key", "title", "media_type", "preloaded", "suggestions"}
+        assert entry["preloaded"] == (entry["key"] in PRELOADED_SOURCE_KEYS)
         # Carried through as sent, not reordered or deduplicated: the page
         # renders them in this order and `test_suggested_questions.py` verifies
         # them in it.

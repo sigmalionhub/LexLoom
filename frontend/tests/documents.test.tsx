@@ -22,6 +22,7 @@ const CATALOGUE = [
     key: 'gdpr-full',
     title: 'Regulation (EU) 2016/679 …',
     media_type: 'application/pdf',
+    preloaded: true,
     suggestions: [],
   },
   {
@@ -29,6 +30,7 @@ const CATALOGUE = [
     title: 'NIST Special Publication 800-63B rev 4 …',
     media_type:
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    preloaded: false,
     suggestions: [NIST_QUESTION],
   },
 ];
@@ -138,10 +140,35 @@ describe('Documents', () => {
     // The completion statement is the count, not the word "complete": a reader
     // comparing two cards needs to see what is actually in the corpus.
     expect(await screen.findByText('978')).toBeTruthy();
-    expect(screen.getByText(/passages in this tenant/)).toBeTruthy();
+    expect(screen.getByText(/passages ·/)).toBeTruthy();
     // The other one is untouched and says so — the server sends every key, so
     // this section never has to decide what an absent entry meant.
     expect(screen.getByText('Not ingested')).toBeTruthy();
+  });
+
+  it('says how a held document got there, which is the whole demonstration', async () => {
+    serveStatus(
+      statusMap({
+        'gdpr-full': COMPLETE_GDPR,
+        'nist-sp-800-63b': {
+          stage: 'complete',
+          chunks_done: 746,
+          chunks_total: 746,
+          error: null,
+          started_at: null,
+        },
+      }),
+    );
+
+    render(<Harness />);
+    await screen.findByText('978');
+
+    // Both read `complete`, and the page must not present them as the same
+    // thing: one was handed over at sign-in, the other was watched arriving.
+    // The distinction comes down with the catalogue — a source key spelled out
+    // in the component would be the drift the catalogue route exists to stop.
+    expect(screen.getByText(/copied in at sign-in/)).toBeTruthy();
+    expect(screen.getByText(/ingested by this tenant/)).toBeTruthy();
   });
 
   it('draws the progress bar from the chunk counts the worker reported', async () => {
@@ -205,7 +232,7 @@ describe('Documents', () => {
     serveStatus(statusMap({ 'gdpr-full': COMPLETE_GDPR }));
 
     render(<Harness />);
-    await screen.findByText(/passages in this tenant/);
+    await screen.findByText(/passages ·/);
     expect(screen.getAllByRole('button', { name: /Ingest this/ })).toHaveLength(1);
   });
 
@@ -242,7 +269,7 @@ describe('Documents', () => {
     serveStatus(statusMap({ 'gdpr-full': COMPLETE_GDPR }));
 
     render(<Harness />);
-    await screen.findByText(/passages in this tenant/);
+    await screen.findByText(/passages ·/);
     expect(screen.getByTestId('suggesting').children).toHaveLength(0);
   });
 

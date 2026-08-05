@@ -52,6 +52,7 @@ from app.auth.deps import CurrentPrincipal
 from app.errors import ProblemError
 from app.ingest.catalogue import CATALOGUE
 from app.ingest.jobs import ensure_ingest_admitted, mark_ingest_queued, read_ingest_status
+from app.ingest.preload import PRELOADED_SOURCE_KEYS
 from app.worker.tasks import ingest_source
 
 router = APIRouter(prefix="/api/v1", tags=["ingest"])
@@ -78,7 +79,7 @@ class IngestRequest(BaseModel):
 
 
 class CatalogueEntry(BaseModel):
-    """What a caller may know about a source: four fields, and no more.
+    """What a caller may know about a source: five fields, and no more.
 
     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
     `document_xml_sha256` and `conversion`. None of them leave the server.
@@ -91,6 +92,15 @@ class CatalogueEntry(BaseModel):
     key: str
     title: str
     media_type: str
+    preloaded: bool = Field(
+        description=(
+            "True when every tenant is given this document at sign-in rather "
+            "than ingesting it. The page draws the two differently and says "
+            "which happened, and it cannot infer this: a preloaded document and "
+            "one ingested an hour ago both read `complete`. Derived from "
+            "`PRELOADED_SOURCE_KEYS`, so the frontend never spells a source key."
+        ),
+    )
     suggestions: list[str] = Field(
         description=(
             "Questions the page offers once a tenant holds this document. May "
@@ -158,6 +168,7 @@ async def get_catalogue() -> list[CatalogueEntry]:
             key=source.key,
             title=source.title,
             media_type=source.media_type,
+            preloaded=source.key in PRELOADED_SOURCE_KEYS,
             suggestions=list(source.suggestions),
         )
         for source in CATALOGUE.values()

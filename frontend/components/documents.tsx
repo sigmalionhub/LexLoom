@@ -107,9 +107,8 @@ export function Documents({
           right measures. Saying "preloaded" and leaving it there would let a
           reader assume the cheap version. */}
       <p className="mt-2.5 text-[0.8125rem] leading-relaxed text-ink-soft">
-        The GDPR is copied into every new tenant at sign-in — its own rows, not a shared table, which
-        is what the isolation figures on the right are counting. The second document is not, so you
-        can watch one arrive.
+        A filled card is a document in this tenant’s own rows — copied there, not shared, which is
+        what the isolation figures on the right are counting. The outlined one is not held yet.
       </p>
     </section>
   );
@@ -141,8 +140,29 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
       ? Math.max(0, Math.round(Date.now() / 1000 - status.started_at))
       : null;
 
+  /**
+   * Two cards, two natures, and until now one drawing.
+   *
+   * A document this tenant holds is a *fact*; one it does not is an
+   * *invitation*. Rendering both as the same filled box made the pair read as a
+   * menu of equals, and the eye had to get all the way down to the state line
+   * to find out which was which.
+   *
+   * So the outline is the signal. Empty is a dashed rule and no fill — the same
+   * treatment `components/sources.tsx` already gives "no passage matched",
+   * because in this page dashed has meant *absence* since the first milestone.
+   * Held is filled, with a brass edge: brass is reserved for measurements, and
+   * what fills the card is a measured count of rows.
+   */
+  const held = stage === 'complete' || running || stage === 'error';
+  const edge = stage === 'error' ? 'border-l-alarm' : 'border-l-brass';
+
   return (
-    <li className="flex flex-col rounded-sm border border-rule bg-paper-raised px-3.5 py-3">
+    <li
+      className={`flex flex-col rounded-sm px-3.5 py-3 ${
+        held ? `border border-l-2 border-rule bg-paper-raised ${edge}` : 'border border-dashed border-rule'
+      }`}
+    >
       <div className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-ink">
           {entry.key}
@@ -163,10 +183,16 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
       {/* The state line is pushed to the bottom so two cards of unequal title
           length still align along the thing a reader is scanning for. */}
       <div className="mt-auto pt-2.5">
+        {/* How it got here, not only that it is here. A preloaded document and
+            one the visitor ingested an hour ago both read `complete`, and the
+            difference is the whole demonstration: one was given, the other was
+            watched arriving. The page cannot infer which — `preloaded` comes
+            down with the catalogue rather than being a source key spelled out
+            in this file. */}
         {stage === 'complete' && (
           <p className="text-[0.8125rem] leading-snug text-ink-soft">
-            <span className="figure text-brass">{status?.chunks_done ?? 0}</span> passages in this
-            tenant’s corpus
+            <span className="figure text-brass">{status?.chunks_done ?? 0}</span> passages ·{' '}
+            {entry.preloaded ? 'copied in at sign-in' : 'ingested by this tenant'}
           </p>
         )}
 

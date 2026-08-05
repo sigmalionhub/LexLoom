@@ -190,6 +190,29 @@ Edit `.env` before starting anything:
   twenty-four). That is a known limitation, written up in `backend/app/ingest/jobs.py`;
   the demo-login rate limit is what actually bounds how fast anyone can fill it.
 
+### Check the file before building, and check for empty as well as missing
+
+```bash
+# Names the example defines that this .env does not have at all:
+comm -23 <(grep -oE '^[A-Z_]+=' .env.example | tr -d = | sort -u) \
+         <(grep -oE '^[A-Z_]+=' .env         | tr -d = | sort -u)
+
+# ...and names it does have, but with nothing after the `=`:
+grep -E '^[A-Z_]+=$' .env | tr -d =
+```
+
+**Both halves, and the second is the one that has actually bitten.** A name-only
+comparison reported a clean `.env` on an upgrade while `GEMINI_API_KEY` was absent
+entirely — it was commented out in the example at the time, so it was never in the set
+being compared — and the deployed site quietly offered the deterministic generator alone
+for days. The example no longer comments it out, which fixes that case and creates the
+other one: a `.env` copied from the example now *has* the name and an empty value, which a
+name-only check calls fine.
+
+An empty value is not automatically wrong. `GEMINI_API_KEY=` empty is a documented working
+state and the demo runs on the deterministic generator. What the second command buys is
+that the operator **decides** rather than finds out from a visitor.
+
 The passwords are read **only when the data volume is first created**. Changing them later
 edits nothing inside a Postgres that already exists, so set them now.
 

@@ -31,14 +31,22 @@ Thirteen routes. That is the entire API.
 | `GET` | `/api/v1/ingest/status` | bearer | `200` |
 | `GET` | `/api/v1/evals` | none | `200` / `503` |
 
-`GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
+Four more paths are mounted by FastAPI itself, all unauthenticated, all `GET` and `HEAD`:
+`/openapi.json`, the Swagger UI at `/docs`, its OAuth2 callback at `/docs/oauth2-redirect`,
+and the ReDoc UI at `/redoc`. The full set is pinned by `EXPECTED_ROUTES` in
+`backend/tests/test_demo_orgs.py`, which fails if the route tree gains or loses anything;
+this line lists all four because "if it is not in this file, it does not exist yet" cuts
+both ways.
 
-Three of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
+Four of these routes can refuse before they do any work: `POST /api/v1/auth/demo-login`
 is metered per client address and answers `429`; the stream endpoint has a
-concurrency ceiling and answers `503`; and `POST /api/v1/ingest` answers `409` when the
+concurrency ceiling and answers `503`; `POST /api/v1/ingest` answers `409` when the
 caller's organisation has already ingested something and `503` (with `Retry-After`, like
-the stream endpoint) when the global cap on organisations holding a corpus is held. See
-[§6.1](#61-refusals-429-503-and-retry-after).
+the stream endpoint) when the global cap on organisations holding a corpus is held; and
+`GET /api/v1/evals` answers `503` (`code: "evals_unavailable"`) when the build does not
+carry `results.json`, which it decides before reading anything. See
+[§6.1](#61-refusals-429-503-and-retry-after). `GET /health/ready` also answers `503`, but
+that is the result of its work rather than a refusal to start it.
 
 **There is no way to read back a conversation.** No conversation list, no message list,
 no `GET /conversations/{id}`. A client holds the state it created, or it loses it on
@@ -49,7 +57,7 @@ that returns data: four now do (`GET /api/v1/status`, `GET /api/v1/generators`,
 paragraph above is guarding against — each for a different reason, worked out below.
 
 `GET /api/v1/status` reads back as a read endpoint by shape — it answers `GET` with a
-body and no bearer token — but it is not the exception the sentence above is guarding
+body and no bearer token — but it is not the exception the paragraph above is guarding
 against. It takes no token because it has none to check: it accepts no `org_id`, looks
 up no tenant, and touches no table that carries an `org_id` column. What it returns is
 aggregate, process-wide counters (uptime, request counts by status class, two latency
@@ -88,7 +96,9 @@ the file, and never `200` with zeros — a table of zeros reads as "retrieval is
 rather than as "this build is incomplete."
 
 Recomputing on request is deliberately impossible, and the reason is not only cost:
-ninety searches and thirty ONNX inferences on a two-core box would be a denial-of-service
+ninety searches (thirty questions x three modes) and sixty ONNX inferences on a two-core
+box — the question is re-embedded per mode, so `vector` and `hybrid` pay thirty each, as
+`app/evals/run.py`'s `measure` docstring records — would be a denial-of-service
 lever needing no credential, and, worse, it would seed roughly a thousand chunks for an
 organisation over HTTP at a moment of the caller's choosing — the residual window
 migration `0004` documents. The numbers are produced by
@@ -809,7 +819,8 @@ Stated because a contract with unstated holes is not a contract.
 - **No delete or update** of anything. The only removal is the 24-hour tenant purge,
   which a dedicated `beat` container now fires on an hourly schedule
   (`PURGE_EXPIRED_ORGS_SCHEDULE_SECONDS`, `docker-compose.yml`) rather than waiting to be
-  invoked by hand — see [ADR 0001](adr/0001-celery-over-arq.md#the-scheduler-is-declared-and-does-not-run)
+  invoked by hand — see [ADR 0004](adr/0004-scheduled-purge.md), which supersedes
+  [ADR 0001 §"The scheduler is declared and does not run"](adr/0001-celery-over-arq.md#the-scheduler-is-declared-and-does-not-run),
   for the gap this closed and why it went unnoticed as long as it did.
 - **No `Last-Event-ID` / stream resumption.** Frames carry no `id:`.
 - **No `Retry-After` outside `429` and `503`.** Those two carry it; nothing else does,

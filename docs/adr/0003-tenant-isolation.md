@@ -1,6 +1,6 @@
 # ADR 0003 — Tenant isolation in the database, and what it does not cover
 
-**Status:** accepted
+**Status:** accepted; the "Embeddings (M2)" row is amended (2026-08-05) — see [Amendments](#amendments)
 **Date:** 2026-08-01
 
 ## Context
@@ -129,7 +129,7 @@ The point of this table is the third column.
 | Redis / Celery result backend keys | Nothing. Keys are not tenant-scoped. | A task id addresses a result regardless of who asks. | Task ids are never returned to clients, so there is nothing to address. Again a convention, not a control. |
 | Object storage (M2) | Not built yet. | Bucket keys are outside the database and outside RLS entirely. | Planned: originals deleted after parsing, so the retention window is minutes; keys derived from ids that RLS already gates. Recorded here so the gap is not discovered later. |
 | Logs | Structured JSON with a `request_id`; tracebacks are logged as **strings**. | Anything deliberately logged is outside every database control. | Frame-local logging was tried and removed: it copies every frame's locals, and in an ingestion path those hold tenant document text. Rejection reasons go to the log and never to the caller — the log is the privileged side of that boundary, so it must not become an export. |
-| Embeddings (M2) | Not built yet. `document_chunks.embedding` is RLS-covered like any other column. | A vector is invertible to substantial source text. An index dump or a `/search` response returning raw vectors is equivalent to a document dump. | Planned: vectors never leave the API and never appear in the OpenAPI schema. Stated now so the constraint exists before the feature does. |
+| Embeddings (M2) | **Built, 2026-08-05 — see the amendment below; this cell described the state on 2026-08-01.** `document_chunks.embedding` is RLS-covered like any other column. | A vector is invertible to substantial source text. An index dump or a `/search` response returning raw vectors is equivalent to a document dump. | Planned: vectors never leave the API and never appear in the OpenAPI schema. Stated now so the constraint exists before the feature does. **The constraint held: it is now checked rather than planned.** |
 | `purge_expired_orgs()` (`SECURITY DEFINER`) | Cross-tenant deletion of expired demo tenants, which no ordinary role can do. | Everything else — it takes no arguments and its predicate is hardcoded. | Owned by `lexloom_migrator`, `EXECUTE` granted to `lexloom_worker` only, returns `integer`. See the metadata below. |
 
 The definer function, read from the catalog:
@@ -539,3 +539,46 @@ The through-line with everything above: **the failures that survive review are t
 ones that return a plausible answer.** A leak returns more rows than it should. A
 blind guard returns `1 passed`. A broken search returns `[]`. None of them raises, and
 none of them is visible in a diff.
+
+---
+
+## Amendments
+
+### 2026-08-05 — Embeddings are built, and the planned constraint holds
+
+The "Embeddings (M2)" row in the coverage table above said *"Not built yet"* and stated
+the constraint as a plan: **vectors never leave the API and never appear in the OpenAPI
+schema.** M2 built the feature. The row's own body is left as written — it records the
+state on 2026-08-01 — and this is the check that was owed.
+
+The constraint holds. `frontend/openapi.json` is the generated schema the frontend is
+built against, and the whole of what it says about embeddings is three things, none of
+them a vector:
+
+- `EvalsProvenance.embedding_model`, a `string` — the *name* of the model
+  (`sentence-transformers/all-MiniLM-L6-v2`), which is provenance for a published
+  measurement, not tenant data.
+- `IngestStage`, a string enum whose values include `"embedding"` — a stage label on a
+  progress meter.
+- `SearchMode`, a string enum of `fts` / `vector` / `hybrid` — which retrieval path a
+  question takes.
+
+There is no `array` of `number` anywhere in the document, in any schema, and
+`document_chunks.embedding` is exposed by no response model. The one place a raw vector
+crosses a process boundary is the bound query parameter in `app/chat/retrieval.py`'s
+vector leg, which travels *into* Postgres and never back out to a caller: `search_chunks`
+projects `id`, `content`, `page_from`, `page_to`, `org_id` and a score, and the `Citation`
+the API returns is narrower still.
+
+What this row's compensation column called "planned" is therefore now a property of a
+shipped surface. It is not yet a property anyone *asserts*: nothing in the test suite
+fails if a future response model adds `embedding` to its fields, the way
+`EXPECTED_ROUTES` fails when the route tree changes. That is the residual gap, and it is
+recorded here rather than closed, because closing it belongs to whoever adds the next
+response model.
+
+### 2026-08-05 — The scheduled purge
+
+The `purge_expired_orgs()` row above is unaffected, but the schedule that was meant to
+call it is the subject of [ADR 0004](0004-scheduled-purge.md), which supersedes the
+matching section of [ADR 0001](0001-celery-over-arq.md).

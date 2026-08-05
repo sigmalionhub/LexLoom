@@ -1,6 +1,6 @@
 # ADR 0001 — Celery for background work, not arq
 
-**Status:** accepted
+**Status:** accepted; §"The scheduler is declared and does not run" superseded by [ADR 0004](0004-scheduled-purge.md) (2026-08-05)
 **Date:** 2026-08-01
 
 ## Context
@@ -105,6 +105,10 @@ error and no traceback.
 ## What I got wrong and what it cost
 
 ### The scheduler is declared and does not run
+
+> **Superseded by [ADR 0004](0004-scheduled-purge.md) (2026-08-05).** A `beat` service
+> now runs the schedule; everything below describes the state on 2026-08-01 and is kept
+> as the record of what was wrong, not as a description of the deployment today.
 
 `celery_app.conf.beat_schedule` names `purge-expired-demo-orgs` on an hourly
 interval. Nothing runs `celery beat`. The Compose worker service is:

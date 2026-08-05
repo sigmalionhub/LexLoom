@@ -17,6 +17,7 @@ import json
 import uuid
 from collections import Counter
 from dataclasses import replace
+from decimal import ROUND_FLOOR, Decimal
 
 import pytest
 from sqlalchemy import text
@@ -494,13 +495,57 @@ def test_every_floor_records_what_it_was_measured_from_and_why() -> None:
                 "gate that fails on the run that set it"
             )
             assert len(threshold["why"].strip()) > 40, where
-            # The measurement, the floor and the stated headroom have to be one
-            # arithmetic statement rather than three independently editable
-            # numbers. Two decimal places of slack, because the floors are
-            # rounded down to three.
-            assert abs(
-                threshold["measured"] - threshold["headroom"] - threshold["floor"]
-            ) < 0.001, where
+
+
+def test_every_floor_is_the_number_the_stated_rule_produces() -> None:
+    """Evaluate `headroom_rule` and check it against all ten floors.
+
+    This test exists because the file previously described a rule its own numbers
+    did not follow: two floors had been recomputed and rounded to nearest while
+    the note said "rounded down", and the other eight had their prose re-narrated
+    in terms of a new formula without their stored headroom being recomputed —
+    eight entries claiming a derivation that had not produced them.
+
+    Prose cannot be checked; arithmetic can. So the rule is stored as data
+    (`one_flip`, `mode_factor`, the rounding), and this evaluates it. The point
+    is not that these particular constants are correct — that is the reviewer's
+    judgement to make — but that whatever the file *says* is what the file *did*.
+    A future edit to a floor now has to move the rule or fail here, which is
+    exactly the moment the reasoning should be re-read.
+
+    `Decimal`, not float: `0.1479 - 0.020833` is 0.12706699999999998 in binary
+    floating point, and a test that has to allow slop for its own arithmetic
+    cannot tell a rounding difference from a hand-adjusted number.
+    """
+    from app.evals.run import FLOORS_FILE
+
+    floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    rule = floors["headroom_rule"]
+    one_flip = Decimal(str(rule["one_flip"]))
+
+    for mode, thresholds in floors["modes"].items():
+        factor = Decimal(str(rule["mode_factor"][mode]))
+        for metric, threshold in thresholds.items():
+            where = f"{mode}.{metric}"
+            expected_headroom = (one_flip * factor).quantize(Decimal("0.000001"))
+            assert Decimal(str(threshold["headroom"])) == expected_headroom, (
+                f"{where}: headroom is {threshold['headroom']}, but the rule in this same "
+                f"file yields {expected_headroom}. Recompute it or change the rule; do not "
+                "leave the two disagreeing."
+            )
+            # Rounded DOWN, never to nearest: rounding can only make the gate
+            # more permissive than the derivation, so it can never turn a run
+            # red on its own.
+            expected_floor = (Decimal(str(threshold["measured"])) - expected_headroom).quantize(
+                Decimal("0.001"), rounding=ROUND_FLOOR
+            )
+            assert Decimal(str(threshold["floor"])) == expected_floor, (
+                f"{where}: floor is {threshold['floor']}, the rule yields {expected_floor}"
+            )
+            assert threshold["floor"] < threshold["measured"], (
+                f"{where}: a floor at or above the value it was measured from is a "
+                "gate that fails on the run that set it"
+            )
 
 
 def test_every_floors_measured_value_still_matches_results_json() -> None:

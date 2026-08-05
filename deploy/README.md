@@ -229,10 +229,20 @@ sign-in fails** with `TemplateCorpusMissingError` — deliberately, because the
 alternative is a visitor whose tenant quietly holds nothing.
 
 ```bash
-docker compose exec -T api python scripts/seed_corpus.py
+docker compose run --rm api python scripts/seed_corpus.py
 # Seeded 30 excerpt chunks into organisation 00000000-0000-0000-0000-000000000001.
 # Seeded 978 chunks of gdpr-full.
 ```
+
+**`run --rm`, not `exec` — on an upgrade this is the difference between a clean
+deployment and an outage.** `exec` runs inside the *already running* container, which
+on an upgrade is still the old image: its `scripts/seed_corpus.py` predates the
+catalogue loader, so it would write the thirty excerpts, report success, and leave the
+template without a document. The restart that followed would then fail every sign-in.
+`run --rm` starts a one-off container from the **new** image while the old one keeps
+serving, so the template is ready before anything is restarted and there is no window
+in which visitors are turned away. On a first install the two are equivalent; on every
+upgrade after this one they are not.
 
 Two things about it. It is **idempotent** — each loader replaces its own rows, so
 re-running on every deployment leaves one copy, and the two loaders no longer care

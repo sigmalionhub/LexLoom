@@ -253,6 +253,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/evals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Read Evals */
+    get: operations['read_evals_api_v1_evals_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -305,6 +322,105 @@ export interface components {
       org_name: string;
       /** Expires In */
       expires_in: number;
+    };
+    /**
+     * EvalsCorpus
+     * @description What was searched. `sources` maps a catalogue key to its chunk count.
+     */
+    EvalsCorpus: {
+      /** Sources */
+      sources: {
+        [key: string]: number;
+      };
+      /** Chunks */
+      chunks: number;
+    };
+    /**
+     * EvalsModeMetrics
+     * @description One mode's five numbers, plus the same four again split by question kind.
+     *
+     *     Every metric is optional because `None` is a real answer and zero is not:
+     *     recall, reciprocal rank and nDCG are undefined on a question with no relevant
+     *     chunk, and `answerability_auc` is undefined when every top-1 score is equal.
+     *     Reporting 0.0 there would be a claim of failure where there is no
+     *     measurement.
+     */
+    EvalsModeMetrics: {
+      /** Precision At 3 */
+      precision_at_3?: number | null;
+      /** Recall At 5 */
+      recall_at_5?: number | null;
+      /** Mrr At 10 */
+      mrr_at_10?: number | null;
+      /** Ndcg At 10 */
+      ndcg_at_10?: number | null;
+      /** Answerability Auc */
+      answerability_auc?: number | null;
+      /** By Kind */
+      by_kind?: {
+        [key: string]: {
+          [key: string]: number | null;
+        };
+      };
+    };
+    /**
+     * EvalsProvenance
+     * @description What the numbers are about — the fields the CI freshness check compares.
+     *
+     *     `goldset_sha256` and `corpus_fingerprint` are hashes of the questions and of
+     *     the parsed corpus, so a build whose gold set or catalogue has moved on cannot
+     *     quietly keep publishing the old measurement under a fresh-looking date.
+     */
+    EvalsProvenance: {
+      /** Goldset Sha256 */
+      goldset_sha256: string;
+      /** Corpus Fingerprint */
+      corpus_fingerprint: string;
+      /** Embedding Model */
+      embedding_model: string;
+      /** Limit */
+      limit: number;
+      /** Modes */
+      modes: string[];
+    };
+    /**
+     * EvalsQuestions
+     * @description Thirty questions, six of which have no answer in the corpus *by design*.
+     *
+     *     The split is in the payload rather than left to the reader because without
+     *     it `precision_at_3 = 0.18` invites the reading "82% broken", when a fifth of
+     *     the set is asking for a miss.
+     */
+    EvalsQuestions: {
+      /** Total */
+      total: number;
+      /** Answerable */
+      answerable: number;
+      /** Unanswerable */
+      unanswerable: number;
+    };
+    /**
+     * EvalsResponse
+     * @description The stored artefact. `measured_at` and `commit` say when and on what.
+     *
+     *     Both matter more than usual here: this is the one endpoint whose body was
+     *     computed long before the request, so a reader who cannot see its age cannot
+     *     tell a current measurement from a stale one.
+     */
+    EvalsResponse: {
+      /** Schema */
+      schema: number;
+      /** Measured At */
+      measured_at: string;
+      /** Commit */
+      commit: string;
+      provenance: components['schemas']['EvalsProvenance'];
+      corpus: components['schemas']['EvalsCorpus'];
+      questions: components['schemas']['EvalsQuestions'];
+      /** Modes */
+      modes: {
+        [key: string]: components['schemas']['EvalsModeMetrics'];
+      };
     };
     /**
      * GeneratorChoice
@@ -821,6 +937,26 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['IngestStatusResponse'];
+        };
+      };
+    };
+  };
+  read_evals_api_v1_evals_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EvalsResponse'];
         };
       };
     };

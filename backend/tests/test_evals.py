@@ -464,18 +464,148 @@ def test_the_guard_reports_both_hashes_so_the_reader_can_tell_which_side_moved()
 # ---------------------------------------------------------------------------
 
 
-def test_the_committed_floors_are_an_empty_skeleton_and_say_why() -> None:
-    """Task 27 puts numbers here once it has measured the run-to-run spread.
+def test_every_floor_records_what_it_was_measured_from_and_why() -> None:
+    """A floor is reviewable or it is a number somebody tuned until CI went green.
 
-    Pinned so that a floor arriving without that measurement is a change to a
-    test rather than a quiet edit to a JSON file — the exact shape of "tune the
-    threshold until the gate is green".
+    The empty skeleton this test used to pin has been filled by Task 27, and the
+    thing worth pinning moved with it: not that floors exist, but that each one
+    still carries the value it was derived from, the headroom, and a sentence
+    saying why that headroom. Lowering a floor then shows up in review as a
+    changed `measured` or a changed `why`, which is the question a reviewer has;
+    a bare number would let the same edit read as a typo.
+
+    `set_on` and `set_from_commit` are required for the same reason: a threshold
+    with no date and no commit cannot be told apart from a threshold that used to
+    be true.
     """
     from app.evals.run import FLOORS_FILE
 
     floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
-    assert floors["modes"] == {}
-    assert "spread" in floors["note"]
+    assert floors["set_on"], "a floor with no date is not reviewable"
+    assert len(floors["set_from_commit"]) == 40, "set_from_commit must be a full SHA"
+    assert floors["modes"], "an empty modes object enforces nothing"
+
+    for mode, thresholds in floors["modes"].items():
+        for metric, threshold in thresholds.items():
+            where = f"{mode}.{metric}"
+            assert set(threshold) >= {"floor", "measured", "headroom", "why"}, where
+            assert threshold["floor"] < threshold["measured"], (
+                f"{where}: a floor at or above the value it was measured from is a "
+                "gate that fails on the run that set it"
+            )
+            assert len(threshold["why"].strip()) > 40, where
+            # The measurement, the floor and the stated headroom have to be one
+            # arithmetic statement rather than three independently editable
+            # numbers. Two decimal places of slack, because the floors are
+            # rounded down to three.
+            assert abs(
+                threshold["measured"] - threshold["headroom"] - threshold["floor"]
+            ) < 0.001, where
+
+
+def test_no_answerability_floor_is_set_on_a_mode_whose_auc_measures_nothing() -> None:
+    """`vector` and `hybrid` may not carry an `answerability_auc` floor, and the
+    two are excluded for different reasons — which is why this is a test and not a
+    comment.
+
+    `hybrid` scores are RRF values: its top-1 spans exactly [1/61, 2/61] with 19
+    distinct values across thirty questions, and an AUC over a near-constant is
+    not a measurement. `vector`'s top-1 spans a genuine 0.385-0.855, and it is
+    uninformative for the opposite reason — embedding similarity does not
+    separate answerable from unanswerable questions on this corpus at all
+    (unanswerable top-1 runs 0.490-0.811, straight through the answerable range).
+    A floor on either is a flake with no upside; `fts`'s AUC is the one that
+    measures something.
+    """
+    from app.evals.run import FLOORS_FILE
+
+    floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    for mode in ("vector", "hybrid"):
+        assert "answerability_auc" not in floors["modes"].get(mode, {}), mode
+
+
+def _document_at(**overrides: float) -> dict:
+    """A results document holding exactly the committed numbers, with edits."""
+    from app.evals.run import RESULTS_FILE
+
+    document = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
+    for dotted, value in overrides.items():
+        mode, metric = dotted.split("__")
+        document["modes"][mode][metric] = value
+    return document
+
+
+def test_a_metric_under_its_floor_names_the_mode_and_the_metric() -> None:
+    """The failure has to say what fell, not that something did. A gate whose
+    output is "FAILED" sends its reader to re-run the measurement by hand."""
+    from app.evals.run import _check_floors
+
+    failures = _check_floors(_document_at(fts__mrr_at_10=0.1))
+
+    assert len(failures) == 1
+    assert failures[0].startswith("fts.mrr_at_10: 0.1000 < floor")
+
+
+def test_the_committed_numbers_clear_every_floor() -> None:
+    """The floors were set from these numbers, so this asserts the arithmetic of
+    the whole file at once: any floor edited above the value it was derived from
+    fails here rather than on the next push."""
+    from app.evals.run import _check_floors
+
+    assert _check_floors(_document_at()) == []
+
+
+def test_a_provisional_floor_says_so_on_every_run(capsys) -> None:
+    """The marker exists because the thirty gold-set questions have not been read
+    by a human yet, and a marker nobody sees is not a marker. stderr, and on every
+    run — not once in a log nobody scrolls back through.
+
+    It does not soften the gate: `_check_floors` returns the same failures either
+    way, which the assertion below holds.
+    """
+    from app.evals.run import _check_floors
+
+    assert _check_floors(_document_at(fts__mrr_at_10=0.1))
+    note = capsys.readouterr().err
+    assert "PROVISIONAL" in note
+    assert "2026-08-05" in note
+    assert "floors.json" in note
+
+
+def test_a_drifting_metric_is_annotated_and_not_failed(capsys) -> None:
+    """A runner disagreeing with the machine that wrote results.json by more than
+    the measured spread is worth reading and is not worth blocking a merge on:
+    what must not regress is already guarded by the floors, against numbers the
+    same run produced from the same commit's code. Failing here instead would
+    turn a machine difference into a red build, which is how people learn that a
+    red gate means "press re-run"."""
+    from app.evals.run import _annotate_metric_drift
+
+    _annotate_metric_drift(_document_at(vector__ndcg_at_10=0.9))
+    annotations = [line for line in capsys.readouterr().out.splitlines() if line]
+
+    assert len(annotations) == 1
+    assert annotations[0].startswith("::warning file=backend/app/evals/results.json::")
+    assert "vector.ndcg_at_10" in annotations[0]
+
+
+def test_an_undrifted_measurement_is_annotated_with_nothing(capsys) -> None:
+    from app.evals.run import _annotate_metric_drift
+
+    _annotate_metric_drift(_document_at())
+
+    assert capsys.readouterr().out == ""
+
+
+def test_report_refuses_to_name_the_file_the_gate_reads() -> None:
+    """`--check --report results.json` would be `--write` in a spelling that
+    hides it, and a job able to correct its own input cannot fail on it."""
+    from app.evals.run import RESULTS_FILE, main
+
+    with pytest.raises(SystemExit) as error:
+        main(["--check", "--report", str(RESULTS_FILE)])
+
+    assert error.value.code == 2  # argparse's usage error
 
 # ---------------------------------------------------------------------------
 # the gold set

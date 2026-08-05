@@ -153,6 +153,137 @@ jobs:
           ENV: ci
         run: pytest -v
 
+  evals:
+    runs-on: ubuntu-latest
+    # No `needs: test`. The two jobs share no artefact, and gating this one
+    # behind the suite would only delay the answer to "did this change retrieval
+    # quality" by the length of the suite. They run side by side and fail
+    # independently.
+    #
+    # Not a step inside `test` either: mixing them would mean every run of the
+    # suite reseeds the corpus and embeds ~1008 chunks, and every eval run drags
+    # the whole suite. Separate jobs give them separate wall time, separate
+    # timeouts and separate reds.
+    #
+    # Ten minutes, not the fifteen the other jobs use and not the twenty the
+    # plan guessed. Measured: a full reseed, re-embed and ninety searches takes
+    # 69 s on a four-core development box, and the model download ahead of it is
+    # cached. Ten is more than eight times the measured work, which is slack for
+    # a slower runner without being a number that only ever fires on the wrong
+    # thing.
+    timeout-minutes: 10
+    services:
+      postgres:
+        # The same image as the `test` job, and it has to be: pgvector is not in
+        # stock postgres, and the vector and hybrid modes are two thirds of what
+        # is measured here.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: lexloom_migrator
+          POSTGRES_PASSWORD: migrator
+          POSTGRES_DB: lexloom
+        options: >-
+          --health-cmd "pg_isready -U lexloom_migrator" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+        ports: ["5432:5432"]
+      # No redis service, deliberately. See REDIS_URL below.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v4
+      # Byte-identical to the cache block in the `test` job above, which is
+      # where the key is written and explained. Cache entries are
+      # repository-scoped, so this shares that job's entry — but only while the
+      # two spellings match exactly. Two spellings of one key are two keys: the
+      # sharing this comment claims stops happening, each job downloads its own
+      # 90 MB, and nothing in the workflow shows why.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ runner.os }}-${{ hashFiles('backend/app/chat/embedding.py', 'backend/pyproject.toml') }}
+          restore-keys: fastembed-${{ runner.os }}-
+      - run: uv pip install --system -e "backend[dev]"
+      # Also copied verbatim from the `test` job, including the refusal to leave
+      # a partial cache behind. Fetching here rather than letting the gate do it
+      # is what keeps a slow huggingface.co reading as "the model did not
+      # arrive" instead of "the eval gate is flaky" — and a gate people re-run
+      # instead of read protects nothing.
+      - name: Fetch the embedding model
+        run: |
+          python - <<'PY'
+          import shutil, sys
+
+          from app.chat.embedding import cache_dir, get_embedder, model_is_cached
+
+          target = cache_dir()
+          try:
+              get_embedder()._ensure()
+          except BaseException as exc:
+              shutil.rmtree(target, ignore_errors=True)
+              sys.exit(f"could not fetch the embedding model: {exc!r}")
+          if not model_is_cached():
+              shutil.rmtree(target, ignore_errors=True)
+              sys.exit(f"model cache in {target} is incomplete after a fetch that reported success")
+          print(f"embedding model ready in {target}")
+          PY
+      - name: Create application roles
+        # Byte-identical to the same step in the `test` job, and it must stay
+        # that way: a grant that drifts between the two surfaces here as an RLS
+        # failure inside the eval seeder, which is the most expensive place in
+        # this repository to discover a permissions difference.
+        run: |
+          PGPASSWORD=migrator psql -h localhost -U lexloom_migrator -d lexloom -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE lexloom_app LOGIN PASSWORD 'app';
+          CREATE ROLE lexloom_worker LOGIN PASSWORD 'worker';
+          GRANT CONNECT ON DATABASE lexloom TO lexloom_app, lexloom_worker;
+          GRANT USAGE ON SCHEMA public TO lexloom_app, lexloom_worker;
+          SQL
+      - name: Run migrations
+        working-directory: backend
+        env:
+          # The migrator role, for the same reason as the `test` job: the app
+          # role deliberately cannot create tables.
+          DATABASE_URL: postgresql+asyncpg://lexloom_migrator:migrator@localhost:5432/lexloom
+        run: python -m alembic upgrade head
+      - name: Retrieval quality must not regress
+        working-directory: backend
+        env:
+          # The app role, not the migrator role. The startup guard in
+          # app/db/engine.py refuses a role that owns tables in schema public —
+          # and beyond the guard, measuring retrieval as a role RLS does not
+          # constrain would measure a path no visitor ever takes.
+          DATABASE_URL: postgresql+asyncpg://lexloom_app:app@localhost:5432/lexloom
+          # A port nothing listens on, and no redis service above. Nothing on
+          # the eval path may touch Redis: these numbers must come from Postgres
+          # and the encoder alone. If this step ever fails with a connection
+          # error, something on the path acquired a Redis dependency — the fix
+          # is to remove it, not to add the service here.
+          REDIS_URL: redis://127.0.0.1:1/0
+          ENV: ci
+        # --check, never --write: a job that can rewrite its own input cannot
+        # fail on it. The recomputed numbers go to a file the next step uploads.
+        #
+        # OMP_NUM_THREADS is deliberately NOT set here, unlike in the Dockerfile
+        # and in Task 19's measurement. The runner's cores are its own, retrieval
+        # quality does not depend on how many it uses, and no duration from this
+        # job reaches results.json — those are the local `--write` timings. A
+        # number measured on a GitHub runner is comparable with nothing on the
+        # deployment box, and publishing it in the panel would be signing
+        # somebody else's measurement with our name.
+        run: python -m app.evals.run --check --report evals-ci.json
+      - name: Publish the recomputed numbers, pass or fail
+        # `always()`, because the run that FAILED is the one whose numbers
+        # somebody needs to look at, and without this they exist only in a log
+        # line that scrolls.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-recomputed
+          path: backend/evals-ci.json
+          if-no-files-found: warn
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 15

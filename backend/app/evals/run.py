@@ -5,6 +5,15 @@ record that cannot be forged by accident.
     python -m app.evals.run --write-manifest   # reseed nothing, rewrite manifest.json
     python -m app.evals.run --check            # reseed, measure, compare to floors
 
+    python -m app.evals.run --check --report evals-ci.json   # ...and publish what it measured
+
+`--report` writes the recomputed document somewhere that is not
+`results.json`, which is the only way the numbers behind a *failed* gate ever
+leave the runner: the CI job uploads that file with `if: always()`, because the
+run whose numbers someone actually needs to read is the red one. It deliberately
+cannot name `results.json` — a job able to correct its own input cannot fail on
+it, and `--report results.json` would be exactly that in a different spelling.
+
 `--write-manifest` is a separate flag and **not** a consequence of `--write`.
 If the manifest were rewritten alongside the results, the drift guard would
 disarm itself on the first run after a chunker change: the shifted ordinals
@@ -335,31 +344,91 @@ def _report(document: dict) -> None:
         )
 
 
+def _load_floors() -> dict:
+    return json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+
+
 def _check_floors(document: dict) -> list[str]:
     """Compare the measurement to `floors.json`. Empty floors are a no-op, loudly.
 
-    Task 27 puts numbers in that file once it has measured the run-to-run spread.
-    Until then this reports that it enforced nothing, rather than printing a
+    A threshold is an object rather than a bare number, and each field in it is
+    load-bearing. `floor` is what gates. `measured` is the value the floor was
+    derived from, so the headroom is visible in the file instead of having to be
+    reconstructed from a commit message. `why` is one sentence on why *that*
+    headroom, which is the question a reviewer has when the diff lowers a
+    number. `provisional` records who has vouched for it — see the warning
+    below.
+
+    Empty floors report that they enforced nothing, rather than printing a
     reassuring silence that reads identically to a gate that passed.
     """
-    floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    floors = _load_floors()
     failures: list[str] = []
     configured = 0
+    provisional = 0
     for mode, thresholds in floors.get("modes", {}).items():
         measured = document["modes"].get(mode)
         if measured is None:
             failures.append(f"floors.json names mode {mode!r}, which was not measured")
             continue
-        for metric, floor in thresholds.items():
+        for metric, threshold in thresholds.items():
             configured += 1
+            floor = threshold["floor"]
+            provisional += bool(threshold.get("provisional"))
             value = measured.get(metric)
             if value is None:
                 failures.append(f"{mode}.{metric}: floor {floor}, but the metric is undefined")
             elif value < floor:
                 failures.append(f"{mode}.{metric}: {value:.4f} < floor {floor}")
     if not configured:
-        print("floors.json carries no thresholds yet — nothing was enforced (Task 27 sets them)")
+        print("floors.json carries no thresholds yet — nothing was enforced")
+    if provisional:
+        # stderr and on every run, not once at the top of a log nobody scrolls
+        # to. The promise this keeps is that the thirty gold-set questions get
+        # human eyes before any number derived from them becomes a gate; the
+        # gate ships anyway, and this line is what stops "provisional" from
+        # decaying into "permanent" unnoticed. It does NOT soften the gate —
+        # a provisional floor fails a build exactly as a reviewed one does.
+        # The marker records who has vouched for the number, not how much it
+        # is trusted.
+        print(
+            f"NOTE {provisional} of {configured} floors in {FLOORS_FILE.name} are PROVISIONAL: "
+            f"set on {floors.get('set_on')} without the human review of the gold set they are "
+            "derived from, and pending it. They gate exactly as a reviewed floor does.",
+            file=sys.stderr,
+        )
     return failures
+
+
+def _annotate_metric_drift(document: dict) -> None:
+    """Recomputed metrics against the committed ones: an observation, not a failure.
+
+    A drift wider than `tolerance` means this machine and the one that wrote
+    `results.json` disagree by more than the spread that was measured when the
+    floors were set. That is worth a look and is not worth blocking a merge on:
+    the thing that must not regress is already guarded by the floors, against
+    numbers this same run produced from this same commit's code. Failing here
+    instead would make a green change go red on a machine difference — the
+    fastest known way to teach people that a red gate means "click re-run".
+
+    `::warning file=…::` is GitHub's annotation syntax; outside Actions it is an
+    ordinary line of output, which is the right thing for it to be.
+    """
+    committed = json.loads(RESULTS_FILE.read_text(encoding="utf-8")).get("modes", {})
+    tolerance = float(_load_floors().get("tolerance", 0.0))
+    for mode, values in document["modes"].items():
+        was = committed.get(mode, {})
+        for metric, recomputed in values.items():
+            if metric == "by_kind" or recomputed is None:
+                continue
+            before = was.get(metric)
+            if before is None or abs(float(before) - float(recomputed)) <= tolerance:
+                continue
+            print(
+                f"::warning file=backend/app/evals/results.json::{mode}.{metric}: "
+                f"committed {float(before):.4f}, recomputed {float(recomputed):.4f} "
+                f"(tolerance {tolerance})"
+            )
 
 
 def _check_provenance(document: dict) -> list[str]:
@@ -388,9 +457,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     group.add_argument(
         "--check", action="store_true", help="reseed, measure, compare to floors.json"
     )
+    parser.add_argument(
+        "--report",
+        metavar="PATH",
+        help="also write the recomputed document to PATH (never results.json)",
+    )
     args = parser.parse_args(argv)
 
+    if args.report and Path(args.report).resolve() == RESULTS_FILE:
+        parser.error(
+            "--report may not name results.json; that is what --write is for, and a "
+            "--check able to rewrite its own input could not fail on it"
+        )
+
     if args.write_manifest:
+        if args.report:
+            parser.error("--report has nothing to write under --write-manifest: no run was made")
         chunks = build_corpus()
         manifest = build_manifest(chunks, referenced_keys(goldset.QUESTIONS))
         write_manifest(manifest)
@@ -404,6 +486,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     document = _results_document(chunks, QUESTIONS, results)
     _report(document)
 
+    # Before anything that can fail, so the numbers behind a red gate survive it.
+    if args.report:
+        Path(args.report).write_text(
+            json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"wrote {args.report}")
+
     if args.write:
         RESULTS_FILE.write_text(
             json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -411,7 +500,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote {RESULTS_FILE}")
         return 0
 
-    failures = _check_provenance(document) + _check_floors(document)
+    provenance = _check_provenance(document)
+    # Only when the provenance matched. Comparing this run's metrics against
+    # numbers measured on a different gold set or a different corpus would
+    # annotate every cell and say nothing about any of them.
+    if not provenance:
+        _annotate_metric_drift(document)
+    failures = provenance + _check_floors(document)
     for failure in failures:
         print(f"FAIL {failure}", file=sys.stderr)
     return 1 if failures else 0

@@ -215,3 +215,53 @@ def test_beat_schedule_names_the_task_that_is_actually_registered():
     entry = celery_app.conf.beat_schedule["purge-expired-demo-orgs"]
     assert entry["task"] == purge_expired_orgs.name
     assert purge_expired_orgs.name in celery_app.tasks
+
+def test_the_two_embed_batch_constants_are_the_same_number():
+    """`650m` is sized on a batch of 32, and two separate constants spell it.
+
+    `app/ingest/jobs.py` and `app/worker/tasks.py` each define their own
+    `EMBED_BATCH = 32`, deliberately — `jobs.py` says so in the comment above
+    its copy: the two tasks are allowed to diverge on this number in future
+    without one edit silently changing the other's memory budget.
+
+    That reasoning is about *divergence being permitted*. It is not a reason
+    for divergence to be **silent**, and today it would be: both constants are
+    used by processes that run inside the worker container, whose `mem_limit`
+    and `memswap_limit` in `docker-compose.yml` are 650m — a figure derived
+    from the measured curve beside both constants (253 MiB at 16, 315 MiB at
+    32, 444 MiB at 64). Raising one of the two to 64 moves a ratified memory
+    ceiling. Nothing in the test suite or in Compose would go red; the failure
+    would arrive as an OOM-killed worker on the deploy box, which is the one
+    place this project has said it cannot afford one (2.2 GB of RAM, no swap,
+    shared with a live deployment).
+
+    So this asserts equality — not to forbid the divergence `jobs.py` reserves,
+    but to make claiming it an explicit act. **If this test goes red, the
+    correct response is not to change the other constant to match.** It is to
+    re-derive `650m` against the larger of the two and edit
+    `docker-compose.yml`'s `worker` limits and this test together, then delete
+    the equality claim in favour of whatever the new relationship is.
+
+    `app/evals/corpus.py` imports the `worker.tasks` copy rather than defining
+    a third, so it moves with that one and needs nothing here.
+    """
+    from app.ingest.jobs import EMBED_BATCH as INGEST_EMBED_BATCH
+    from app.worker.tasks import EMBED_BATCH as WORKER_EMBED_BATCH
+
+    assert INGEST_EMBED_BATCH == WORKER_EMBED_BATCH, (
+        f"app/ingest/jobs.py says {INGEST_EMBED_BATCH}, app/worker/tasks.py says "
+        f"{WORKER_EMBED_BATCH}. Both run in the worker container, whose 650m limit "
+        "was measured at a batch of 32. Re-derive the limit before letting these "
+        "differ, and change docker-compose.yml with them."
+    )
+
+    worker = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]["worker"]
+    assert worker["mem_limit"] == "650m", (
+        f"the worker's mem_limit is {worker['mem_limit']!r}, not '650m' — the "
+        "docstring above and the EMBED_BATCH comments both reason from 650m, so "
+        "one of them is now stale."
+    )
+    assert worker["memswap_limit"] == worker["mem_limit"], (
+        "memswap_limit must equal mem_limit, or the container can take its limit "
+        "a second time in swap (docker-compose.yml:25)."
+    )

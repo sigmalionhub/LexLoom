@@ -12,6 +12,17 @@ import { defineConfig } from 'vitest/config';
  * `jsdom`, not `happy-dom`: the tests that matter here click a real button and
  * read `window.location.search` and `window.history` back — that is exactly
  * the DOM surface jsdom implements closest to a browser's.
+ *
+ * `.mts`, not `.ts`. `package.json` declares no `"type": "module"`, so Vite's
+ * CJS config loader took this file as CommonJS and printed on every single run:
+ * "The CJS build of Vite's Node API is deprecated"/"ESM syntax is not allowed
+ * in a CommonJS module". It works today only because Vite transpiles it, and
+ * that stops when `configLoader: 'native'` becomes the default. The `.mts`
+ * extension makes the file's module system explicit at the filesystem level
+ * rather than depending on a `package.json` field this Next app has reasons not
+ * to set. Vitest resolves `vitest.config.mts` by default; nothing references
+ * the old path, and `tsconfig.json`'s `include` gained an `.mts` glob so the
+ * file stays type-checked.
  */
 export default defineConfig({
   plugins: [react()],

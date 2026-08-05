@@ -64,7 +64,14 @@ dev = [
     # something else: the one thing that test must not do is fail to import and
     # be counted as absent.
     "pyyaml>=6.0",
-    "ruff>=0.8",
+    # Upper-bounded, and the bound is the point. A linter's rule set is not a
+    # stable interface: 0.16 both lengthened an existing E501 finding and began
+    # sorting a `# noqa`-carrying import block that 0.8 left alone, so `ruff
+    # check` went red on a tree nobody had touched. A floating linter turns CI
+    # into a clock — it fails on the day upstream ships a rule, in files whose
+    # author is long gone, and the first person to see it is whoever happened
+    # to push next. Raise this deliberately, with the new findings read.
+    "ruff>=0.8,<0.17",
 ]
 
 [build-system]

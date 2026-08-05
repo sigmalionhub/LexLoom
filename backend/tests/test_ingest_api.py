@@ -16,17 +16,16 @@ real ingest) is exactly the one every test below replaces.
 
 import pytest
 from httpx import AsyncClient
-
 from sqlalchemy import text
-
-from app.db.session import system_session
-from app.ingest.catalogue import CATALOGUE
-from app.observability import Registry
 from test_ingest_job import (  # noqa: PLC2701
     SOURCE_KEY,
     _add_fake_ingested_chunk,
     _make_org,
 )
+
+from app.db.session import system_session
+from app.ingest.catalogue import CATALOGUE
+from app.observability import Registry
 
 
 @pytest.fixture

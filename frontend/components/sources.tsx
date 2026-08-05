@@ -58,7 +58,14 @@ export function Sources({ citations, orgId }: SourcesProps) {
                   use the full width. */}
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-3">
-                  <span className="min-w-0 flex-1 truncate text-[0.9375rem] leading-snug text-ink">
+                  {/* Two lines, not one clipped one. A heading or a leaf
+                      section is short and stays on one line either way; a
+                      fragment quoted out of the middle of a document is not,
+                      and `truncate` cut it a second time — at the container
+                      width, mid-word, undoing the word boundary the text was
+                      already trimmed to. The visible ellipsis should be the one
+                      the text chose. */}
+                  <span className="line-clamp-2 min-w-0 flex-1 text-[0.9375rem] leading-snug text-ink">
                     {title}
                   </span>
                   {page && (
@@ -192,7 +199,34 @@ function describe(citation: Citation): {
     }
   }
 
-  return { title: body.slice(0, 64), context: null, body };
+  return { title: snippet(body), context: null, body };
+}
+
+/**
+ * A chunk that has no title, presented as what it is.
+ *
+ * The whole of the GDPR is a third shape, and it only became visible once every
+ * tenant was given the full regulation instead of thirty excerpts of it: its
+ * chunks are packed to a character budget, so they begin and end mid-sentence,
+ * they carry no `locator` because a PDF is placed by page, and they have none of
+ * the excerpts' "Article 33(1) GDPR — " lede. The fallback then cut the text at
+ * exactly 64 characters and printed the result as a heading — "appropriate
+ * technical and organisational measures in such a mann".
+ *
+ * There is no title here to find, so none is invented. The row shows the
+ * opening words as a fragment: cut at a word boundary, closed with an ellipsis,
+ * and opened with one when the text starts mid-sentence — which is what a
+ * lower-case first letter means for a document that capitalises its own.
+ */
+const SNIPPET_MAX = 76;
+
+function snippet(body: string): string {
+  const text = body.trim();
+  const opensMidSentence = text.length > 0 && text[0] === text[0].toLowerCase();
+  const head = text.length <= SNIPPET_MAX ? text : text.slice(0, SNIPPET_MAX);
+  const boundary = head.length < text.length ? head.lastIndexOf(' ') : -1;
+  const cut = boundary > SNIPPET_MAX / 2 ? head.slice(0, boundary) : head;
+  return `${opensMidSentence ? '…' : ''}${cut}${cut.length < text.length ? '…' : ''}`;
 }
 
 function trimHead(value: string): string {

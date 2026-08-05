@@ -93,6 +93,35 @@ describe('Sources', () => {
     expect(screen.getByText('Article 33(1) GDPR')).toBeTruthy();
   });
 
+  it('presents a titleless chunk as a fragment, not as a heading cut mid-word', () => {
+    // The third shape, and the one that only appeared once every tenant held
+    // the whole GDPR rather than thirty excerpts of it: packed to a character
+    // budget, so it begins and ends mid-sentence; placed by page, so no
+    // locator; no citation lede either. There is no title to find here.
+    const raw = {
+      ...PAGED,
+      chunk_id: 'c3',
+      content:
+        'appropriate technical and organisational measures in such a manner that the ' +
+        'processing will meet the requirements of this Regulation',
+      page_from: 50,
+      page_to: 50,
+    } as unknown as Citation;
+
+    render(<Sources citations={[raw]} orgId={ORG} />);
+
+    const shown = screen.getByText(/appropriate technical/);
+    const text = shown.textContent ?? '';
+    // Opened and closed as a fragment, so it reads as quoted text rather than
+    // as a heading the document does not have.
+    expect(text.startsWith('…')).toBe(true);
+    expect(text.endsWith('…')).toBe(true);
+    // Cut at a word boundary. The old fixed 64-character slice ended this exact
+    // sentence on "in such a mann".
+    expect(text).not.toMatch(/mann…$/);
+    expect(text).toContain('manner');
+  });
+
   it('marks a chunk belonging to another tenant, which is the claim on trial', () => {
     render(<Sources citations={[PAGELESS]} orgId="11111111-1111-1111-1111-111111111111" />);
     expect(screen.getByText('foreign tenant')).toBeTruthy();

@@ -216,9 +216,15 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
         </a>
       </p>
 
-      {/* The state line is pushed to the bottom so two cards of unequal title
-          length still align along the thing a reader is scanning for. */}
-      <div className="mt-auto pt-2.5">
+      {/* Content flows from the top; it does not get pushed to the bottom.
+          It used to. That was written when the two cards held the same things
+          and differed only in title length, and it stopped being true once one
+          card carried an ingest button and the other a single line of count:
+          the grid equalises heights, `mt-auto` then pushed that one line to the
+          floor, and the card showed a hole in its middle that read as something
+          having failed to load. The slack now falls below the last line, where
+          it says nothing. */}
+      <div className="pt-2.5">
         {/* How it got here, not only that it is here. A preloaded document and
             one the visitor ingested an hour ago both read `complete`, and the
             difference is the whole demonstration: one was given, the other was

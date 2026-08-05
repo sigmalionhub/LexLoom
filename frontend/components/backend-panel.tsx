@@ -5,7 +5,7 @@ import type { IsolationReport, Tenant, Turn } from '@/lib/use-lexloom';
 import { StreamTimeline } from './stream-timeline';
 import { GeneratorSelector } from './panel/generator-selector';
 import { SearchMode } from './panel/search-mode';
-import { IngestProgress } from './panel/ingest-progress';
+import { SourceList } from './panel/source-list';
 import { ServiceStatus } from './panel/service-status';
 import { EvalsTable } from './panel/evals-table';
 import type { PanelSectionProps } from './panel/types';
@@ -88,7 +88,7 @@ export function BackendPanel({ tenant, turn, requests, isolation, tenantCount }:
 
         <GeneratorSelector {...panelSectionProps} />
         <SearchMode {...panelSectionProps} />
-        <IngestProgress {...panelSectionProps} />
+        <SourceList {...panelSectionProps} />
         <ServiceStatus {...panelSectionProps} />
         <EvalsTable {...panelSectionProps} />
 

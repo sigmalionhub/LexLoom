@@ -35,6 +35,12 @@ export function Sources({ citations, orgId }: SourcesProps) {
     <ol className="divide-y divide-rule overflow-hidden rounded border border-rule bg-paper-raised">
       {citations.map((citation, index) => {
         const { heading, body } = splitCitation(citation.content);
+        // `splitCitation`'s dash pattern was written against GDPR chunks
+        // ("Article 33(1) GDPR — In the case of…"). NIST's text is verbatim
+        // prose with no such lede, so every one of its citations would render
+        // a truncated first sentence as its title. The heading path is what
+        // that document has instead, and it is the better title anyway.
+        const title = heading ?? citation.locator ?? body.slice(0, 64);
         const isOpen = expanded === citation.chunk_id;
         const foreign = citation.org_id !== orgId;
 
@@ -51,7 +57,7 @@ export function Sources({ citations, orgId }: SourcesProps) {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[0.9375rem] leading-snug text-ink">
-                  {heading ?? body.slice(0, 64)}
+                  {title}
                 </span>
                 <span className="mt-1.5 flex items-center gap-2">
                   <span
@@ -73,6 +79,17 @@ export function Sources({ citations, orgId }: SourcesProps) {
                   <span className="figure text-[0.6875rem] text-ink-soft/70">
                     org {citation.org_id.slice(0, 8)}
                   </span>
+                  {/* Which document answered. Retrieval runs over the tenant's
+                      whole corpus with no per-source filter, so without this a
+                      reader holding two documents cannot tell which one a
+                      passage came from — and the demo's whole claim is that an
+                      answer is checkable. The short key rather than the title:
+                      the GDPR's catalogue title is 280 characters. */}
+                  {citation.source_key && (
+                    <span className="figure text-[0.6875rem] text-ink-soft/70">
+                      {citation.source_key}
+                    </span>
+                  )}
                   {foreign && (
                     <span className="figure rounded bg-alarm px-1.5 text-[0.6875rem] text-paper">
                       foreign tenant
@@ -81,7 +98,7 @@ export function Sources({ citations, orgId }: SourcesProps) {
                 </span>
               </span>
               <span className="figure shrink-0 whitespace-nowrap text-[0.6875rem] text-ink-soft/70">
-                {pageLabel(citation)}
+                {locatorLabel(citation)}
               </span>
             </button>
 
@@ -112,7 +129,28 @@ function splitCitation(content: string): {
   return { heading: match[1], body: content.slice(match[0].length) };
 }
 
-function pageLabel(citation: Citation): string {
+/**
+ * Where this chunk is, in whatever way its document can say it.
+ *
+ * The null test comes first and is not a nicety: `null === null` is true, so
+ * the equality branch alone rendered `p. null` for every chunk of a source
+ * whose format has no pages. A `.docx` built from a web publication is exactly
+ * that, and it carries `locator` — the heading path — instead.
+ *
+ * Long paths are truncated at the end rather than the start. Measured over the
+ * NIST document's 145 headings: median 88 characters, longest 166. The tail is
+ * the leaf section, which is the part that identifies the passage, so the head
+ * is what gives way.
+ */
+const LOCATOR_MAX = 64;
+
+function locatorLabel(citation: Citation): string {
+  if (citation.page_from === null || citation.page_to === null) {
+    const locator = citation.locator;
+    if (!locator) return '—';
+    if (locator.length <= LOCATOR_MAX) return locator;
+    return `…${locator.slice(locator.length - LOCATOR_MAX + 1)}`;
+  }
   return citation.page_from === citation.page_to
     ? `p. ${citation.page_from}`
     : `pp. ${citation.page_from}–${citation.page_to}`;

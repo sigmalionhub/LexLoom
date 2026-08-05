@@ -49,6 +49,9 @@ export type EvalsModeMetrics = components['schemas']['EvalsModeMetrics'];
 export type IngestRequest = components['schemas']['IngestRequest'];
 export type IngestStage = components['schemas']['IngestStage'];
 export type IngestStatusResponse = components['schemas']['IngestStatusResponse'];
+export type CatalogueEntry = components['schemas']['CatalogueEntry'];
+/** Every catalogue source's status for this tenant, keyed by `source_key`. */
+export type IngestStatusMap = Record<string, IngestStatusResponse>;
 
 /** One retrieved chunk, exactly as it arrives in the `citations` frame. */
 export interface Citation {
@@ -56,8 +59,25 @@ export interface Citation {
   /** The tenant the row belongs to. The page counts these; see the panel. */
   org_id: string;
   content: string;
-  page_from: number;
-  page_to: number;
+  /**
+   * Null for a source whose format has no pages — see `locator`. Exactly one of
+   * the page pair and `locator` is ever set, and `null` rather than an absent
+   * key, so a client can tell "this document has no pages" from "an older
+   * server that did not send the field".
+   */
+  page_from: number | null;
+  page_to: number | null;
+  /**
+   * Which catalogue document this chunk came from. Null only for a row written
+   * before the catalogue existed. A question searches the whole tenant corpus
+   * with no per-source filter, so this is what makes an answer checkable.
+   */
+  source_key: string | null;
+  /**
+   * Where the chunk sits when pages cannot say it: the heading path, e.g.
+   * `Authentication Assurance Levels › Reauthentication`.
+   */
+  locator: string | null;
   /**
    * A relevance score whose *unit* depends on the mode the `citations` frame
    * carries: a raw Postgres `ts_rank` in `fts`, cosine similarity in `vector`,
@@ -288,7 +308,8 @@ export const api = {
    * caller's organisation. Returns the same shape `ingestStatus` does — the
    * initial `queued` snapshot, not a job id (see `backend/app/api/v1/ingest.py`
    * for why `job_id` was deliberately removed). `409 already_ingested` if this
-   * organisation already holds one; there is no second ingest per tenant.
+   * organisation already holds *this* document — a tenant may hold every
+   * source in the catalogue, one ingest per (tenant, source).
    */
   startIngest(token: string, sourceKey: string): Promise<IngestStatusResponse> {
     return request<IngestStatusResponse>('POST', '/api/v1/ingest', {
@@ -298,13 +319,26 @@ export const api = {
   },
 
   /**
-   * This organisation's ingest, as it stands right now. Meant to be polled —
-   * see `components/panel/ingest-progress.tsx`, which polls it twice a
-   * second and is the reason this route is excluded from the request
-   * histogram (`app/observability.py`'s `_NOT_MEASURED`).
+   * Every catalogue source's ingest status for this organisation, keyed by
+   * source. Meant to be polled — see `components/panel/source-list.tsx`, which
+   * polls it twice a second and is the reason this route is excluded from the
+   * request histogram (`app/observability.py`'s `_NOT_MEASURED`).
+   *
+   * One request describes the whole catalogue, which is what keeps that
+   * exclusion honest: a `?source_key=` route would have cost one request per
+   * document at the same poll rate.
    */
-  ingestStatus(token: string): Promise<IngestStatusResponse> {
-    return request<IngestStatusResponse>('GET', '/api/v1/ingest/status', { token });
+  ingestStatus(token: string): Promise<IngestStatusMap> {
+    return request<IngestStatusMap>('GET', '/api/v1/ingest/status', { token });
+  },
+
+  /**
+   * The documents this deployment can ingest. Unauthenticated: it names no
+   * organisation and reads no org-scoped table — see the route's own docstring
+   * and its entry in `EXPECTED_ROUTES`.
+   */
+  catalogue(): Promise<CatalogueEntry[]> {
+    return request<CatalogueEntry[]>('GET', '/api/v1/catalogue');
   },
 
   /**

@@ -43,6 +43,8 @@ export type CreateConversationResponse = components['schemas']['CreateConversati
 export type CreateMessageResponse = components['schemas']['CreateMessageResponse'];
 export type StreamTicketResponse = components['schemas']['StreamTicketResponse'];
 export type GeneratorsResponse = components['schemas']['GeneratorsResponse'];
+export type EvalsResponse = components['schemas']['EvalsResponse'];
+export type EvalsModeMetrics = components['schemas']['EvalsModeMetrics'];
 
 export type IngestRequest = components['schemas']['IngestRequest'];
 export type IngestStage = components['schemas']['IngestStage'];
@@ -303,6 +305,21 @@ export const api = {
    */
   ingestStatus(token: string): Promise<IngestStatusResponse> {
     return request<IngestStatusResponse>('GET', '/api/v1/ingest/status', { token });
+  },
+
+  /**
+   * The committed retrieval measurement. No token: it holds numbers about this
+   * project's own copy of the public corpus, not about any tenant.
+   *
+   * Through `request` rather than a bare `fetch`, and that is not a style
+   * preference. `request` feeds the observer the panel's request timeline is
+   * built from, and it parses `application/problem+json` — so a direct `fetch`
+   * would drop this call out of the timeline and turn the `503` this route
+   * answers when a build lacks the artefact into an empty table with no
+   * explanation.
+   */
+  evals(): Promise<EvalsResponse> {
+    return request<EvalsResponse>('GET', '/api/v1/evals');
   },
 };
 

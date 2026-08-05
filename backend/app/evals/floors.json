@@ -1,5 +1,94 @@
 {
-  "schema": 1,
-  "note": "Thresholds `python -m app.evals.run --check` enforces. Deliberately empty here: a floor is only meaningful once the run-to-run spread of the metric is known, and Task 26 measured one run. Task 27 measures the spread and sets the numbers. An empty `modes` object makes --check report that it enforced nothing, which reads differently from a gate that passed.",
-  "modes": {}
+  "schema": 2,
+  "note": "Thresholds `python -m app.evals.run --check` enforces. Every number below is derived, not chosen: `headroom_rule` states the derivation in machine-readable form and a test evaluates it against every entry, so this file cannot describe a rule its own numbers do not follow. `measured` is the value at `set_from_commit`, reproduced identically over eight independent reseed-and-re-embed runs, and pinned to `results.json` by a second test so it cannot go stale after a later `--write`.",
+  "headroom_rule": {
+    "prose": "headroom = one rank flip's worth on the metric, times a factor for the mode. One flip's worth is (1 - 1/2)/24 = 0.0208333...: the amount a single question's first relevant chunk moving from rank 1 to rank 2 shifts an MRR macro-averaged over the 24 answerable questions. The factor is 1 for `fts`, whose ordering does not depend on a float32 embedding at all, and 1.5 for `vector` and `hybrid`, whose ordering does. NOTHING here is sized against the tie-permutation spread measured before commit 66a7d44, and that is deliberate: that commit gives both statements a total order, so the arbitrary ordering among equal scores no longer exists to drift. Sizing a live floor against a deleted mechanism would mean sizing the gate not to notice if someone deleted the tie-break with it — the opposite of what this gate is for. Those measurements survive as two other things: the evidence that justified the total order, and an independent cross-check on the number above (permuting ties moved `fts` MRR@10 by 0.0222, against the 0.0208 the arithmetic predicts).",
+    "one_flip": 0.020833,
+    "mode_factor": {"fts": 1.0, "vector": 1.5, "hybrid": 1.5},
+    "floor_formula": "floor = round_down_to_3dp(measured - headroom)",
+    "rounding": "The floor is rounded DOWN to three decimals, never to nearest. Down is the safe direction: it can only make the gate more permissive than the derivation, never stricter, so the rounding cannot turn a passing run red. One consequence to read carefully — the true gap `measured - floor` is therefore between `headroom` and `headroom + 0.001`, and it is the gap, not `headroom`, that says how far a metric may actually fall. Each entry's `why` quotes the gap as a percentage of `measured`."
+  },
+  "set_on": "2026-08-05",
+  "set_from_commit": "66a7d44a46df4df3afb739041c946efb3ec162b1",
+  "provisional_note": "PROVISIONAL. These floors were set on 2026-08-05 without the human review of the thirty gold-set questions they are derived from, and that review is still pending. `--check` says so on stderr on every run. The marker records who has vouched for the number, NOT how much it is trusted: a provisional floor gates a build exactly as a reviewed one does. Clearing it means reading `app/evals/goldset.py`, agreeing the questions and the grades are fair, and deleting the `provisional` field from each entry below.",
+  "tolerance": 0.0005,
+  "tolerance_note": "Not a gate. It is the width beyond which `--check` prints a `::warning::` annotating a difference between the committed `results.json` and what the runner recomputed. The doubled-spread rule from the plan yields zero here, because the measured spread is zero; 0.0005 is one notch below the three decimal places these numbers are ever published at, so anything a reader could see in the panel or the README gets annotated and a last-bit difference does not.",
+  "modes": {
+    "fts": {
+      "recall_at_5": {
+        "floor": 0.127,
+        "measured": 0.1479,
+        "headroom": 0.020833,
+        "provisional": true,
+        "why": "One flip's worth, factor 1; the gap after rounding is 0.0209, or 14.1% of the measured value. `fts` gets the smaller factor because it is the only mode whose order does not depend on a float32 embedding at all: `ts_rank` is a pure function of the chunk text and the text search configuration, CI runs the same pg16 image, and commit 66a7d44 made the ordering among equal ranks total. The residue this still has to cover is the near-tie tail the tie-break does not reach — about 1% of non-tied adjacent pairs sit one float4 ULP apart (6.6e-08 relative), and those can still flip on a different libm."
+      },
+      "mrr_at_10": {
+        "floor": 0.398,
+        "measured": 0.4196,
+        "headroom": 0.020833,
+        "provisional": true,
+        "why": "One flip's worth, factor 1; the gap after rounding is 0.0216, or 5.1% of the measured value — the tightest floor in the file, which is right for the most deterministic cell there is. MRR is also the metric the 0.0208 was derived for, since it reads only the first relevant rank and so moves by the full (1/r - 1/(r+1))/24 when that rank shifts. This floor was 0.375 in the first draft, sized at twice the tie-permutation spread; that was wrong, because the same branch removes the tie ordering that spread came from."
+      },
+      "ndcg_at_10": {
+        "floor": 0.219,
+        "measured": 0.2401,
+        "headroom": 0.020833,
+        "provisional": true,
+        "why": "One flip's worth, factor 1; the gap after rounding is 0.0211, or 8.8% of the measured value. nDCG discounts logarithmically and averages the whole top 10, so a single flip moves it less than it moves MRR — this headroom is therefore conservative here rather than tight, and the rule is applied unchanged rather than hand-trimmed for that."
+      },
+      "answerability_auc": {
+        "floor": 0.701,
+        "measured": 0.7222,
+        "headroom": 0.020833,
+        "provisional": true,
+        "why": "One flip's worth, factor 1; the gap after rounding is 0.0212, or 2.9% of the measured value. This is the only AUC that carries a floor, and the headroom is pure margin rather than flip-absorption: the statistic is computed from top-1 score VALUES rather than from ranks, so a rank flip does not move it at all. 0.0212 is worth about three of the 1/144 steps it can take. vector's AUC (0.4931) and hybrid's (0.4236) are deliberately absent, for two different reasons: hybrid's top-1 spans exactly [1/61, 2/61] with 19 distinct values over 30 questions, so its AUC is computed over a near-constant, while vector's spans a genuine 0.385-0.855 and simply does not separate answerable from unanswerable at all (the unanswerable top-1 scores run 0.490-0.811, straight through the answerable range). A floor on a statistic that measures nothing is a flake with no upside, and the panel does not publish either number for the same reason."
+      }
+    },
+    "vector": {
+      "recall_at_5": {
+        "floor": 0.12,
+        "measured": 0.1521,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0321, or 21.1% of the measured value — the widest in the file, because this is the smallest measured value and the same absolute headroom is a larger share of it. The extra half-factor buys margin for the one thing `fts` does not have: this leg orders by cosine similarity over float32 embeddings, so its order depends on floating-point values a different CPU could compute differently. That class of drift is real and was measured rather than assumed — see mrr_at_10 below — but a single machine cannot bound it for CPUs it does not have, so the factor stands for what remains unmeasured."
+      },
+      "mrr_at_10": {
+        "floor": 0.276,
+        "measured": 0.3082,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0322, or 10.4% of the measured value. Here is the measurement the factor is conservative against. Batch composition perturbs an embedding by the same class of last-bits difference a different SIMD reduction order does: re-embedding the corpus in batches of 7 and 13 instead of 32 changed 37 of 400 chunk vectors, by up to 1.0e-07 per component. It moved the SCORES those vectors produce by at most 1.6e-07, against a smallest adjacent gap of 3.6e-06 in the top-20 lists — a margin of 22x — and end to end it moved none of the fifteen metric cells. Re-measure that ratio when the corpus changes rather than re-reading this sentence."
+      },
+      "ndcg_at_10": {
+        "floor": 0.178,
+        "measured": 0.2099,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5, same reason; the gap after rounding is 0.0319, or 15.2% of the measured value. nDCG reads the whole top 10 with a logarithmic discount, so it is the least flip-sensitive of the three metrics and this headroom is the most conservative of the three vector floors in what it actually buys."
+      }
+    },
+    "hybrid": {
+      "recall_at_5": {
+        "floor": 0.144,
+        "measured": 0.1761,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0321, or 18.2% of the measured value. `hybrid` inherits `vector`'s factor because one of its two legs IS the vector leg. recall@5 is set-valued rather than rank-valued, so a flip inside the top 5 does not move it at all and only a flip across the rank-5 boundary does. Note the ceiling this is measured against is 0.9137, not 1.0: five of the answerable questions have more than five relevant chunks, so five rows physically cannot cover them."
+      },
+      "mrr_at_10": {
+        "floor": 0.284,
+        "measured": 0.3154,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5; the gap after rounding is 0.0314, or 10.0% of the measured value. This floor was 0.234 in the first draft — twice the 0.0405 that permuting tied scores moved this cell, the largest movement measured anywhere. That was the right measurement of the wrong thing: RRF does produce near-total ties, but commit 66a7d44 gives the fused list a total order through its legs (Python's `sorted` is stable, so equal RRF values keep the order the legs delivered them in), so there is no longer an arbitrary ordering for that spread to come from. Keeping it would have left this floor tolerating a 25.7% fall — roughly a fifth of the answerable questions losing their top hit without the gate saying a word."
+      },
+      "ndcg_at_10": {
+        "floor": 0.194,
+        "measured": 0.2258,
+        "headroom": 0.03125,
+        "provisional": true,
+        "why": "One flip's worth, factor 1.5, same reason; the gap after rounding is 0.0318, or 14.1% of the measured value. nDCG's logarithmic discount makes a single flip cheapest here, so this is the most conservative of the three hybrid floors in what it actually buys."
+      }
+    }
+  }
 }

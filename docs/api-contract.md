@@ -13,7 +13,7 @@ Base URL in development: `http://127.0.0.1:8100`.
 
 ## 1. The whole surface
 
-Twelve routes. That is the entire API.
+Thirteen routes. That is the entire API.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
@@ -29,6 +29,7 @@ Twelve routes. That is the entire API.
 | `GET` | `/api/v1/generators` | none | `200` |
 | `POST` | `/api/v1/ingest` | bearer | `202` |
 | `GET` | `/api/v1/ingest/status` | bearer | `200` |
+| `GET` | `/api/v1/evals` | none | `200` / `503` |
 
 `GET /openapi.json` and the Swagger UI at `/docs` are also served, unauthenticated.
 
@@ -43,9 +44,9 @@ the stream endpoint) when the global cap on organisations holding a corpus is he
 no `GET /conversations/{id}`. A client holds the state it created, or it loses it on
 reload. This is a real limitation, not an omission from the document — see
 [§9](#9-what-this-api-does-not-have). It does not mean the surface has no `GET` route
-that returns data: three now do (`GET /api/v1/status`, `GET /api/v1/generators`,
-`GET /api/v1/ingest/status`), and none of them is the exception the paragraph above is
-guarding against — each for a different reason, worked out below.
+that returns data: four now do (`GET /api/v1/status`, `GET /api/v1/generators`,
+`GET /api/v1/ingest/status`, `GET /api/v1/evals`), and none of them is the exception the
+paragraph above is guarding against — each for a different reason, worked out below.
 
 `GET /api/v1/status` reads back as a read endpoint by shape — it answers `GET` with a
 body and no bearer token — but it is not the exception the sentence above is guarding
@@ -74,6 +75,56 @@ the `202` its own `POST /api/v1/ingest` returned. It is the progress meter for a
 the client just made, not a way to read back data the client did not just create — the
 same distinction `POST /api/v1/conversations/{id}/messages` and its stream already draw
 between "accept the write" and "watch it happen."
+
+`GET /api/v1/evals` is the fourth, and it is not a read of anything a client created
+either. **It serves a stored file, not a live computation.** The body is
+`backend/app/evals/results.json` verbatim — a retrieval measurement taken before the
+process started, carrying the date and the commit it was taken at — so `measured_at` is
+part of the contract rather than decoration. Nothing in it is keyed per organisation:
+the corpus it describes is this project's own copy of the public GDPR text, of the same
+class as the README, which is why it takes no token. It answers `503`
+(`code: "evals_unavailable"`, `application/problem+json`) when the build does not carry
+the file, and never `200` with zeros — a table of zeros reads as "retrieval is broken"
+rather than as "this build is incomplete."
+
+Recomputing on request is deliberately impossible, and the reason is not only cost:
+ninety searches and thirty ONNX inferences on a two-core box would be a denial-of-service
+lever needing no credential, and, worse, it would seed roughly a thousand chunks for an
+organisation over HTTP at a moment of the caller's choosing — the residual window
+migration `0004` documents. The numbers are produced by
+`python -m app.evals.run --write` on a developer's machine and recomputed independently
+by the `evals` job in CI, which compares them to the floors in
+`backend/app/evals/floors.json` and fails the build if retrieval quality has fallen.
+
+```console
+$ curl -s http://127.0.0.1:8100/api/v1/evals | jq '{measured_at, corpus, questions, fts: .modes.fts | {mrr_at_10, recall_at_5}}'
+{
+  "measured_at": "2026-08-04T22:35:28Z",
+  "corpus": {
+    "sources": {
+      "gdpr-full": 978,
+      "seed:gdpr-excerpts": 30
+    },
+    "chunks": 1008
+  },
+  "questions": {
+    "total": 30,
+    "answerable": 24,
+    "unanswerable": 6
+  },
+  "fts": {
+    "mrr_at_10": 0.4195601851851852,
+    "recall_at_5": 0.14791666666666667
+  }
+}
+```
+
+`questions.unanswerable` is in the payload because without it the metrics read wrong: six
+of the thirty questions have no relevant chunk in the corpus **by design**, so a
+`precision_at_3` of `0.18` is not "82% broken". A metric may also be `null`, which is not
+zero: recall, reciprocal rank and nDCG are undefined on a question with no relevant
+chunk, and `answerability_auc` is undefined when every top-1 score is equal. `null` says
+"not measured"; `0.0` would be a claim of failure.
 
 ---
 

@@ -419,6 +419,27 @@
           }
         }
       }
+    },
+    "/api/v1/evals": {
+      "get": {
+        "tags": [
+          "evals"
+        ],
+        "summary": "Read Evals",
+        "operationId": "read_evals_api_v1_evals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -532,6 +553,212 @@
           "expires_in"
         ],
         "title": "DemoLoginResponse"
+      },
+      "EvalsCorpus": {
+        "properties": {
+          "sources": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Sources"
+          },
+          "chunks": {
+            "type": "integer",
+            "title": "Chunks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources",
+          "chunks"
+        ],
+        "title": "EvalsCorpus",
+        "description": "What was searched. `sources` maps a catalogue key to its chunk count."
+      },
+      "EvalsModeMetrics": {
+        "properties": {
+          "precision_at_3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision At 3"
+          },
+          "recall_at_5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall At 5"
+          },
+          "mrr_at_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mrr At 10"
+          },
+          "ndcg_at_10": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ndcg At 10"
+          },
+          "answerability_auc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answerability Auc"
+          },
+          "by_kind": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "By Kind"
+          }
+        },
+        "type": "object",
+        "title": "EvalsModeMetrics",
+        "description": "One mode's five numbers, plus the same four again split by question kind.\n\nEvery metric is optional because `None` is a real answer and zero is not:\nrecall, reciprocal rank and nDCG are undefined on a question with no relevant\nchunk, and `answerability_auc` is undefined when every top-1 score is equal.\nReporting 0.0 there would be a claim of failure where there is no\nmeasurement."
+      },
+      "EvalsProvenance": {
+        "properties": {
+          "goldset_sha256": {
+            "type": "string",
+            "title": "Goldset Sha256"
+          },
+          "corpus_fingerprint": {
+            "type": "string",
+            "title": "Corpus Fingerprint"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Modes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goldset_sha256",
+          "corpus_fingerprint",
+          "embedding_model",
+          "limit",
+          "modes"
+        ],
+        "title": "EvalsProvenance",
+        "description": "What the numbers are about — the fields the CI freshness check compares.\n\n`goldset_sha256` and `corpus_fingerprint` are hashes of the questions and of\nthe parsed corpus, so a build whose gold set or catalogue has moved on cannot\nquietly keep publishing the old measurement under a fresh-looking date."
+      },
+      "EvalsQuestions": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "answerable": {
+            "type": "integer",
+            "title": "Answerable"
+          },
+          "unanswerable": {
+            "type": "integer",
+            "title": "Unanswerable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "answerable",
+          "unanswerable"
+        ],
+        "title": "EvalsQuestions",
+        "description": "Thirty questions, six of which have no answer in the corpus *by design*.\n\nThe split is in the payload rather than left to the reader because without\nit `precision_at_3 = 0.18` invites the reading \"82% broken\", when a fifth of\nthe set is asking for a miss."
+      },
+      "EvalsResponse": {
+        "properties": {
+          "schema": {
+            "type": "integer",
+            "title": "Schema"
+          },
+          "measured_at": {
+            "type": "string",
+            "title": "Measured At"
+          },
+          "commit": {
+            "type": "string",
+            "title": "Commit"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/EvalsProvenance"
+          },
+          "corpus": {
+            "$ref": "#/components/schemas/EvalsCorpus"
+          },
+          "questions": {
+            "$ref": "#/components/schemas/EvalsQuestions"
+          },
+          "modes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EvalsModeMetrics"
+            },
+            "type": "object",
+            "title": "Modes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema",
+          "measured_at",
+          "commit",
+          "provenance",
+          "corpus",
+          "questions",
+          "modes"
+        ],
+        "title": "EvalsResponse",
+        "description": "The stored artefact. `measured_at` and `commit` say when and on what.\n\nBoth matter more than usual here: this is the one endpoint whose body was\ncomputed long before the request, so a reader who cannot see its age cannot\ntell a current measurement from a stale one."
       },
       "GeneratorChoice": {
         "type": "string",

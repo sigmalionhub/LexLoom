@@ -1291,6 +1291,41 @@ EXPECTED_ROUTES = {
     # `test_ingest_job.py::test_run_ingest_raises_when_the_organisation_has_already_expired`.
     ("/api/v1/ingest", frozenset({"POST"})),
     ("/api/v1/ingest/status", frozenset({"GET"})),
+    # Re-derived rather than re-read, which is the whole point of this test going
+    # red. The residual argument at 0004:63-72 holds unchanged for this route,
+    # and what follows is the derivation, not the conclusion.
+    #
+    # That argument rests on one claim: a child row cannot appear after the
+    # purge's second statement, because inserting into a child table requires
+    # `app.current_org_id`, which requires a live token, and a demo token's TTL
+    # (1 hour) is a twenty-fourth of the organisation's (24 hours). The only
+    # route that mints a credential is `stream-tickets`, which is where the
+    # argument actually turns.
+    #
+    # `GET /api/v1/evals` touches no part of it. It mints no credential. It
+    # accepts no token, no `org_id` and no request body — there is no parameter
+    # by which a caller could name an organisation at all. It opens no
+    # `tenant_session`, so `app.current_org_id` is never set on its behalf. It
+    # executes no SQL: the handler reads `app/evals/results.json` out of the
+    # image, once per process, through an `lru_cache`. So it creates no new path
+    # by which a row could survive an organisation's purge, adds no org-scoped
+    # table, and leaves `test_the_purge_covers_every_org_scoped_table` valid
+    # unchanged. Nor can it report that a purged organisation once existed: what
+    # it publishes are numbers about the eval organisation's own copy of the
+    # public catalogue, measured before this process started, and no field in
+    # the payload is keyed per organisation.
+    #
+    # The one condition under which this derivation stops holding is named, and
+    # it is why `app/api/v1/evals.py` serves a file rather than measuring: an
+    # endpoint that recomputed the evals per request would seed ~1008 chunks for
+    # an organisation over HTTP, at a moment of the caller's choosing —
+    # including the moment after `purge_expired_orgs` has taken its second
+    # snapshot. That is precisely the window 0004:63-72 describes, and the
+    # residual argument would have to be derived again, with the opposite
+    # result. `test_evals_endpoint.py::test_reading_the_evals_runs_no_sql`
+    # counts statements on the engine, so the "no SQL" clause above is held by a
+    # test rather than by this paragraph.
+    ("/api/v1/evals", frozenset({"GET"})),
 }
 
 

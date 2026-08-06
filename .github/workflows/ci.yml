@@ -7,6 +7,13 @@ on:
   push: {branches: [main, master]}
   pull_request:
 
+# The trigger is pull_request, not pull_request_target, and no job here reads
+# a secret — so a fork PR already runs with a read-only GITHUB_TOKEN by
+# default. This makes that explicit rather than relying on the repository
+# default staying read-only.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

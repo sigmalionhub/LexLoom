@@ -35,7 +35,7 @@
     "eslint-config-next": "15.5.21",
     "jsdom": "27.4.0",
     "openapi-typescript": "7.5.2",
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "prettier": "3.4.2",
     "tailwindcss": "3.4.17",
     "typescript": "5.7.2",
@@ -43,7 +43,7 @@
     "vitest": "4.1.10"
   },
   "overrides": {
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "sharp": "0.35.3"
   }
 }

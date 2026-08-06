@@ -607,7 +607,16 @@ GIT_SHA=$(git rev-parse --short HEAD) docker compose build
 # the new API reads the new one, sees nothing, and the panel offers the button
 # again. Nothing corrupts — the per-source write guard still refuses the
 # duplicate — but the tenant pays for a full parse and embed to be told no.
-docker compose exec redis redis-cli --scan --pattern 'lexloom:ingest:*'
+# Redis requires AUTH, and the password is not inside the container — Compose
+# interpolates it into `--requirepass` from `.env` on the host. A bare
+# `redis-cli --scan` here answers `NOAUTH Authentication required` on stderr
+# and prints nothing on stdout, which reads exactly like "no jobs in flight".
+# Hand the value over the same way the migration does: named to `-e`, never
+# spelled out, so it stays out of `docker`'s argv.
+export RCLI_PW="$(grep '^REDIS_PASSWORD=' .env | cut -d= -f2-)"
+docker compose exec -e RCLI_PW redis \
+  sh -c 'redis-cli -a "$RCLI_PW" --no-auth-warning --scan --pattern "lexloom:ingest:*"'
+unset RCLI_PW
 
 # Same mechanism as Step 3: exported here, named to Compose with `-e
 # DATABASE_URL` and no value, so the password never reaches anyone's argv.
@@ -649,8 +658,9 @@ reflex, and it is the wrong one here.
 **LibreOffice.** `backend/scripts/build_docx_source.sh` uses it to build the committed
 `.docx` from NIST's HTML, and that is a build step run by a human on a workstation. Nothing
 at runtime and nothing in CI invokes it. Do not install it on this box: it is a large
-package on a machine with 2.2 GB of RAM and no swap, and the artefact it produces is already
-in the repository with both of its digests pinned.
+package on a machine with 2.2 GB of RAM, whose 2 GB of swap Step 2 added to protect the
+host rather than to give installs room, and the artefact it produces is already in the
+repository with both of its digests pinned.
 
 ## Rolling back
 

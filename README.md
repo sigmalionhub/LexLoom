@@ -567,7 +567,7 @@ blast radius and not a reason to sit on a version, which is why the pin is there
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 424 passed, 2 skipped
+.venv/bin/pytest -q          # 425 passed, 2 skipped
 ```
 
 ```bash

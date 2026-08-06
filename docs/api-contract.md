@@ -70,11 +70,23 @@ organisation's rows and would be a different kind of hole if it took none.
 
 `GET /api/v1/catalogue` is the same argument as `GET /api/v1/generators`, re-derived rather
 than borrowed: it takes no token, names no organisation and reads no org-scoped table — its
-whole response is built from a literal `dict` in `app/ingest/catalogue.py`. It returns three
-fields per source (`key`, `title`, `media_type`) and deliberately not the four the catalogue
-also holds (`path`, `sha256`, `document_xml_sha256`, `conversion`): a filesystem path inside
-the image and the exact build tool that produced an artefact are not a visitor's business,
-and `CatalogueEntry` is the boundary that keeps them in.
+whole response is built from a literal `dict` in `app/ingest/catalogue.py`. It returns nine
+fields per source — `key`, `title`, `media_type`, `download`, `rebuilt`, `source_url`,
+`licence`, `preloaded`, `suggestions` — and deliberately not the four the catalogue also
+holds (`path`, `sha256`, `document_xml_sha256`, `conversion`): a filesystem path inside the
+image and the exact build tool that produced an artefact are not a visitor's business, and
+`CatalogueEntry` is the boundary that keeps them in.
+
+Two of those nine are here because this deployment **redistributes** the documents rather
+than only reading them. `licence` is the terms verbatim from the catalogue, whole and
+unsummarised — both are conditional licences (EUR-Lex wants the source acknowledged *and*
+changes indicated; NIST wants the recommended citation and a courtesy line) and a summary
+drops exactly the conditions. `rebuilt` is a boolean derived from `conversion`: true when
+the file offered under `download` was built by this repository rather than committed as the
+publisher shipped it. It is the one bit of `conversion` that travels, and it travels because
+the page hands that file to visitors — the `.docx` is built here from NIST's HTML and NIST
+publishes no `.docx` at all, while the GDPR PDF is the Publications Office's own export
+unchanged. The tool and its version stay on the server; whose file it is does not.
 
 `GET /api/v1/generators` is the same argument as `GET /api/v1/status`, not a fourth one.
 It takes no token, accepts no `org_id`, and reads nothing tenant-scoped — the only thing

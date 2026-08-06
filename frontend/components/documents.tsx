@@ -229,6 +229,29 @@ function DocumentCard({ entry, status, starting, onStart }: DocumentCardProps) {
         </a>
       </p>
 
+      {/* Whose file the download actually is — said before the click, not in a
+          README the person clicking will never open.
+          One document here is the publisher's own export, committed unchanged.
+          The other is a `.docx` this repository built from the publisher's HTML;
+          NIST publishes that guideline as HTML and PDF and has never published a
+          `.docx` of it, so a visitor who downloads one and takes it for NIST's
+          own file has been misled by this page. `rebuilt` comes down with the
+          catalogue for the same reason `preloaded` does — the page cannot infer
+          it, and a source key spelled out in this file is precisely the drift
+          `GET /api/v1/catalogue` exists to prevent.
+          One line, and only on the card where it is true. The licence itself is
+          several sentences of conditions and stays in the API response, which is
+          where raw text belongs; what has to be on the card is the one fact that
+          changes what the visitor thinks they are downloading.
+          No colour: brass means measured and this is not a measurement, and the
+          dashed border already carries "absence". It is prose in the same soft
+          ink as the links it qualifies, sitting directly under them. */}
+      {entry.download && entry.rebuilt && (
+        <p className="mt-1 text-[0.75rem] leading-snug text-ink-soft/85">
+          That {extension} is this repository’s rebuild, not the publisher’s own file.
+        </p>
+      )}
+
       {/* Content flows from the top; it does not get pushed to the bottom.
           It used to. That was written when the two cards held the same things
           and differed only in title length, and it stopped being true once one

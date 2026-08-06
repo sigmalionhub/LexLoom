@@ -383,13 +383,14 @@ async def test_a_failed_ingest_returns_a_code_and_leaks_no_sql_or_document_text(
 async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     client: AsyncClient,
 ) -> None:
-    """Seven fields, and the ones deliberately absent.
+    """Nine fields, and the ones deliberately absent.
 
     `Source` also carries `path` (an absolute path inside the image), `sha256`,
     `document_xml_sha256` and `conversion` (which names the build tool and its
     exact version). A response model that mirrored the dataclass would have
     published all four; `CatalogueEntry` is what stops it, so the absence is
-    asserted rather than trusted.
+    asserted rather than trusted. `rebuilt` is derived from `conversion` and is
+    not `conversion`: the leak check at the bottom is what holds that line.
 
     The set is pinned rather than sampled, which is why adding `suggestions`
     failed here first. That is the test working: a field reaches the public
@@ -406,7 +407,9 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
             "title",
             "media_type",
             "download",
+            "rebuilt",
             "source_url",
+            "licence",
             "preloaded",
             "suggestions",
         }
@@ -419,6 +422,18 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
         assert entry["download"] == source.path.name
         assert "/" not in entry["download"]
         assert entry["source_url"] == source.source_url
+        # Carried through, not paraphrased and not re-stated here: both of these
+        # are CONDITIONAL licences, and a second copy of the terms — in this
+        # file, in the page, anywhere — is a copy that can drift away from the
+        # one the deployment actually redistributes under.
+        assert entry["licence"] == source.licence
+        assert entry["licence"].strip() != ""
+        # `conversion` is a sentence naming a build script and a LibreOffice
+        # version; `rebuilt` is the single bit of it a visitor is owed, because
+        # the page offers the file for download. Derived, never guessed and
+        # never hard-coded per key: a source committed as the publisher shipped
+        # it says False here for exactly the same reason.
+        assert entry["rebuilt"] == (source.conversion is not None)
         # Carried through as sent, not reordered or deduplicated: the page
         # renders them in this order and `test_suggested_questions.py` verifies
         # them in it.
@@ -427,6 +442,37 @@ async def test_the_catalogue_lists_every_source_and_nothing_about_the_files(
     serialised = response.text
     for leaked in ("/app/", "sha256", "LibreOffice", "build_docx_source"):
         assert leaked not in serialised
+
+
+async def test_the_catalogue_distinguishes_our_rebuild_from_the_publishers_own_file(
+    client: AsyncClient,
+) -> None:
+    """Both values of `rebuilt` actually occur, and they are the right ones.
+
+    The loop above compares every entry against `conversion` and would pass just
+    as happily if the field were a constant, because `False == (None is not
+    None)` for every source in a catalogue where nothing was ever converted.
+    The page draws a line between two cases; this asserts there are two.
+
+    Which is which is checked against the file the entry offers, not against a
+    key spelled out here: the `.docx` is one NIST does not publish — the
+    publisher serves HTML and PDF — and the GDPR PDF is the Publications
+    Office's own export, committed byte for byte.
+    """
+    body = (await client.get("/api/v1/catalogue")).json()
+    by_key = {entry["key"]: entry for entry in body}
+
+    rebuilt = {key for key, entry in by_key.items() if entry["rebuilt"]}
+    assert rebuilt, "no entry is marked rebuilt; the page would say nothing on any card"
+    assert set(by_key) - rebuilt, "every entry is marked rebuilt; the line would say nothing"
+
+    for key, entry in by_key.items():
+        assert entry["rebuilt"] == (CATALOGUE[key].conversion is not None)
+        # A file the publisher never published is the case this field exists
+        # for, and it is the case that must not be inferred from the extension
+        # either: `.docx` is not a synonym for "ours".
+        if entry["rebuilt"]:
+            assert CATALOGUE[key].conversion
 
 
 async def test_the_catalogue_needs_no_token(client: AsyncClient) -> None:

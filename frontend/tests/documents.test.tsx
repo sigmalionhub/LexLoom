@@ -17,13 +17,25 @@ import type { Tenant } from '@/lib/use-lexloom';
 
 const NIST_QUESTION = 'What cryptography must an AAL3 authenticator use?';
 
+/**
+ * Shortened stand-ins for the real terms in `app/ingest/catalogue.py`, which run
+ * to a paragraph each. They are distinctive on purpose: one of the tests below
+ * asserts that no part of a licence reaches the card, and that assertion is only
+ * worth making against a string that would be visible if it did.
+ */
+const GDPR_LICENCE = 'EUR-Lex, Commission Decision 2011/833/EU — credit given and changes indicated.';
+const NIST_LICENCE = 'NIST Technical Series publication — republished courtesy of NIST.';
+
 const CATALOGUE = [
   {
     key: 'gdpr-full',
     title: 'Regulation (EU) 2016/679 …',
     media_type: 'application/pdf',
     download: 'gdpr-full.pdf',
+    // The Publications Office's own export, committed byte for byte.
+    rebuilt: false,
     source_url: 'https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32016R0679',
+    licence: GDPR_LICENCE,
     preloaded: true,
     suggestions: [],
   },
@@ -33,7 +45,11 @@ const CATALOGUE = [
     media_type:
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     download: 'nist-sp-800-63b.docx',
+    // Built here from the publisher's HTML: NIST publishes this guideline as
+    // HTML and PDF and never as a `.docx`.
+    rebuilt: true,
     source_url: 'https://pages.nist.gov/800-63-4/sp800-63b.html',
+    licence: NIST_LICENCE,
     preloaded: false,
     suggestions: [NIST_QUESTION],
   },
@@ -199,6 +215,53 @@ describe('Documents', () => {
     expect(publisher.getAttribute('rel')).toContain('noopener');
   });
 
+  it('says whose file the download is, on the card where that is not the publisher’s', async () => {
+    render(<Harness />);
+    await screen.findByText('gdpr-full');
+
+    // The `.docx` is this repository's artefact: NIST publishes the guideline
+    // as HTML and PDF, so a visitor handed a Word file and told only "from the
+    // publisher" beside it has been misled by this page.
+    const said = screen.getByText(/rebuild, not the publisher/);
+    expect(said.textContent).toContain('DOCX');
+
+    // Exactly one card says it. The GDPR PDF is the Publications Office's own
+    // export, unchanged, and a disclaimer there would be false — which is why
+    // the line is driven by `rebuilt` from the catalogue and not by a source
+    // key written into the component.
+    expect(screen.getAllByText(/rebuild, not the publisher/)).toHaveLength(1);
+  });
+
+  it('keeps the licence text off the card, where it would not be read anyway', async () => {
+    render(<Harness />);
+    await screen.findByText('gdpr-full');
+
+    // Both terms are conditional and both run to a paragraph; a card that
+    // dumped them would bury the one sentence that changes what a visitor
+    // thinks they are downloading. They travel in the API response instead —
+    // `licence` on `CatalogueEntry` — which is where raw text belongs.
+    expect(document.body.textContent).not.toContain(NIST_LICENCE);
+    expect(document.body.textContent).not.toContain(GDPR_LICENCE);
+  });
+
+  it('says nothing about provenance when the catalogue did not say it', async () => {
+    // The same skew as the download case below, one field along: a static
+    // export can be newer than the API answering it, and the generated type
+    // promises `rebuilt: boolean` regardless. Absent must read as "no claim",
+    // never as a rebuild — accusing the publisher's own file of being ours is
+    // as wrong as the silence this change is fixing.
+    const older = CATALOGUE.map(({ rebuilt: _dropped, licence: _also, ...rest }) => rest);
+    catalogueFixture = older as typeof CATALOGUE;
+
+    render(<Harness />);
+    await screen.findByText('gdpr-full');
+
+    expect(screen.queryByText(/rebuild, not the publisher/)).toBeNull();
+    expect(document.body.textContent).not.toContain('undefined');
+    // The links the older API did send are untouched by the missing field.
+    expect(screen.getAllByRole('link', { name: /Download the/ })).toHaveLength(2);
+  });
+
   it('offers no download when the catalogue named no file', async () => {
     // This shipped: two links reading `/sources/undefined`, because the API
     // answering the page was older than the page asking. The generated type
@@ -213,6 +276,9 @@ describe('Documents', () => {
 
     expect(screen.queryByRole('link', { name: /Download the/ })).toBeNull();
     expect(document.body.innerHTML).not.toContain('/sources/undefined');
+    // The provenance line qualifies a file this card is offering. With no file
+    // offered there is nothing for "that DOCX" to point at, so it goes too.
+    expect(screen.queryByText(/rebuild, not the publisher/)).toBeNull();
     // The publisher is still named — it is a licence term for the documents
     // this page ships, and it does not depend on the missing field.
     expect(screen.getAllByRole('link', { name: /from the publisher/ })).toHaveLength(2);

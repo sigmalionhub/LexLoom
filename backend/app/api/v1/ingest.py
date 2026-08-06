@@ -79,7 +79,7 @@ class IngestRequest(BaseModel):
 
 
 class CatalogueEntry(BaseModel):
-    """What a caller may know about a source: seven fields, and no more.
+    """What a caller may know about a source: nine fields, and no more.
 
     `Source` (`app/ingest/catalogue.py`) also carries `path`, `sha256`,
     `document_xml_sha256` and `conversion`. None of them leave the server.
@@ -91,6 +91,12 @@ class CatalogueEntry(BaseModel):
     `download` is `path.name` and not `path`: the file name is what the export
     serves the document under, while the directory it sits in inside the image
     is exactly the part that stays here.
+
+    `rebuilt` is the one thing `conversion` is allowed to say out loud, and it
+    says it as a boolean: *that* the committed file is this repository's
+    artefact, never *how* it was made. The command and the tool version stay on
+    this side; the fact that a visitor is about to download something the
+    publisher never published does not, because they are about to download it.
     """
 
     key: str
@@ -106,6 +112,19 @@ class CatalogueEntry(BaseModel):
             "assembled in the page, so the copy step and the link cannot drift."
         ),
     )
+    rebuilt: bool = Field(
+        description=(
+            "True when the file under `download` was built by this repository "
+            "rather than committed as the publisher shipped it — `conversion` "
+            "is set, and only whether it is set travels. False for the GDPR "
+            "PDF, which is the Publications Office's own export unchanged; true "
+            "for the NIST `.docx`, which NIST does not publish in that format "
+            "at all. The page offers that file for download, so it has to be "
+            "able to say whose file it is, and the alternative — a source key "
+            "spelled out in the frontend — is exactly the drift this route "
+            "exists to prevent."
+        ),
+    )
     source_url: str = Field(
         description=(
             "Where the publisher puts it. Present because redistribution "
@@ -115,6 +134,22 @@ class CatalogueEntry(BaseModel):
             "and names no source would breach the terms the catalogue quotes. It "
             "is also the better evidence — a file this demo hands out proves "
             "only that the demo is consistent with itself."
+        ),
+    )
+    licence: str = Field(
+        description=(
+            "The terms this deployment redistributes the document under, "
+            "verbatim from the catalogue — the whole statement, not a name and "
+            "not a summary: both of these are conditional licences, and the "
+            "conditions are the part a summary drops. EUR-Lex asks for "
+            "acknowledgement of source *and* that changes be indicated, and "
+            "NIST asks that a republished work carry a recommended citation "
+            "followed by a courtesy line. Several sentences long, which is why "
+            "it is here and not on a card: raw text belongs where raw API data "
+            "belongs. The page states only what it must state before a "
+            "visitor clicks (see `rebuilt`); the terms themselves are readable "
+            "in this response, and the citation and courtesy line are in NOTICE "
+            "at the repository root."
         ),
     )
     preloaded: bool = Field(
@@ -182,7 +217,10 @@ async def get_catalogue() -> list[CatalogueEntry]:
     carries none of the residual-purge argument migration 0004 makes for a
     credential. What it exposes is what a `/docs` reader already sees in the
     schema — which documents exist — and not one field about where they live on
-    disk or how they were built.
+    disk or how they were built. `rebuilt` is a boolean about *whether* a file
+    was, which is a statement about the copy being handed out rather than about
+    this image; `conversion`'s own text, which names the tool and its version,
+    still does not leave.
 
     Ordered as `CATALOGUE` is ordered, which is insertion order and therefore
     stable across runs: the panel renders the list as it arrives, and a set-like
@@ -194,7 +232,9 @@ async def get_catalogue() -> list[CatalogueEntry]:
             title=source.title,
             media_type=source.media_type,
             download=source.path.name,
+            rebuilt=source.conversion is not None,
             source_url=source.source_url,
+            licence=source.licence,
             preloaded=source.key in PRELOADED_SOURCE_KEYS,
             suggestions=list(source.suggestions),
         )

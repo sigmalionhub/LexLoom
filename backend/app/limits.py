@@ -3,12 +3,22 @@
 Two ceilings live here.
 
 `POST /api/v1/auth/demo-login` is unauthenticated and provisions a whole tenant
-— an organisation row plus its own copy of the 30-chunk seed corpus, 31 rows
-and about 11.7 kB, every time. Nothing about the endpoint bounds how often that
-happens, and the deployment target is a shared box with 2.2 GB free and 2 GB of
-swap, where memory pressure is felt by every application on the host and the
-OOM killer at the end of it may pick a *neighbouring* one. So tenant creation
-is metered per client address.
+every time: an organisation row plus the tenant's own copy of the corpus — the
+30 seeded excerpts and the 978 chunks of the preloaded GDPR — so **1009 rows
+and 1.95 MiB of Postgres heap** per call. Both numbers are derived where the
+limit is configured; see `demo_login_limit` in config.py, which names the file
+each half comes from. Nothing about the endpoint bounds how often that happens,
+and the deployment target is a shared box with 2.2 GB free and 2 GB of swap,
+where memory pressure is felt by every application on the host and the OOM
+killer at the end of it may pick a *neighbouring* one. So tenant creation is
+metered per client address.
+
+**That per-call cost was got wrong here, twice over.** This docstring, and the
+two comments below that did arithmetic on it, said 31 rows and 11.7 kB. That
+was true while a tenant got the seed corpus alone and its chunks carried no
+embedding, and it was not re-derived when the seed gained vectors or when
+preloading gave every tenant the whole GDPR. Nothing about the ceilings
+themselves was wrong; the argument for their size was.
 
 Every SSE stream holds a connection open for as long as it generates, so the
 second ceiling is on concurrency: how many streams may be open at once, in
@@ -91,8 +101,8 @@ def _redis(settings: Settings) -> aioredis.Redis:
     event loop it was created on, and this suite gives every test its own loop —
     the same reason `conftest` disposes the SQLAlchemy engine between tests.
     Redis is local, the connect is sub-millisecond, and the operations here run
-    either alongside 31 row inserts or at the two ends of a stream, so the cost
-    does not show. `app/api/v1/health.py` opens its client the same way.
+    either alongside 1009 row inserts or at the two ends of a stream, so the
+    cost does not show. `app/api/v1/health.py` opens its client the same way.
     """
     return aioredis.from_url(
         settings.redis_url,
@@ -252,11 +262,15 @@ async def enforce_demo_login_rate_limit(request: Request) -> None:
     a sliding one. Two reasons, and the first is the honest cost: at a window
     boundary an address can spend one window's budget and the next window's
     back to back, so the real worst case is twice the configured limit in a
-    short burst. That is bounded and cheap — at the default, 60 tenants and
-    ~1860 rows — and the alternative, a sorted set of timestamps per address,
-    costs roughly ten times the memory in a Redis capped at 48 MB with
-    `allkeys-lru`, where the eviction that buys is the *silent loss of the
-    counter itself*.
+    short burst — at the default, 60 tenants, ~61k rows and ~117 MiB of
+    Postgres written in minutes rather than spread over an hour.
+
+    That is bounded, and it is what the second reason is paid with: the
+    alternative, a sorted set of timestamps per address, costs roughly ten
+    times the memory in a Redis capped at 48 MB with `allkeys-lru`, where the
+    eviction that buys is the *silent loss of the counter itself*. A doubled
+    burst the purge reclaims within a day is a better-shaped failure than a
+    limiter that quietly stops counting.
     """
     settings = get_settings()
     if not settings.limits_enabled:

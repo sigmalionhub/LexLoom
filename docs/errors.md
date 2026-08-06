@@ -72,13 +72,17 @@ already been reset by the time the catch-all handler runs.
 | 401 | [`invalid_token`](#invalid-token) | Any bearer endpoint; also the stream endpoint's ticket |
 | 404 | [`conversation_not_found`](#conversation-not-found) | `POST /conversations/{id}/messages` |
 | 404 | [`message_not_found`](#message-not-found) | `GET …/stream` |
+| 404 | [`source_not_found`](#source-not-found) | `POST /ingest`, `source_key` not in the catalogue |
 | 404 | [`not_found`](#not-found) | The router: no route matches |
 | 405 | [`method_not_allowed`](#method-not-allowed) | The router: path matches, method does not |
 | 409 | [`message_already_answered`](#message-already-answered) | `GET …/stream` on a message that has an answer |
+| 409 | [`already_ingested`](#already-ingested) | `POST /ingest`, the caller's organisation already holds this source |
 | 422 | [`validation_error`](#validation-error) | Any endpoint, any malformed input |
+| 422 | [`generator_unavailable`](#generator-unavailable) | `GET …/stream`, the message asked for a Gemini generator with no `GEMINI_API_KEY` configured |
 | 429 | [`rate_limited`](#rate-limited) | `POST /auth/demo-login`, too many from one address |
 | 500 | [`internal_error`](#internal-error) | The catch-all |
-| 503 | [`capacity_unavailable`](#capacity-unavailable) | `GET …/stream` at its ceiling; either endpoint when the limiter's Redis is unreachable |
+| 503 | [`capacity_unavailable`](#capacity-unavailable) | `GET …/stream` at its ceiling; either endpoint when the limiter's Redis is unreachable; `POST /ingest` at `INGEST_ORG_CAP` |
+| 503 | [`evals_unavailable`](#evals-unavailable) | `GET /evals`, the build carries no `results.json` |
 
 `503` from `GET /health/ready` is **not** in this catalogue: readiness answers with
 its own body (`{"status": "degraded", "checks": {…}}`), not with problem+json,
@@ -244,6 +248,39 @@ nowhere. See [api-contract.md §7](api-contract.md#7-what-a-cross-tenant-request
 
 ---
 
+<a id="source-not-found"></a>
+## `source_not_found` — 404
+
+`POST /api/v1/ingest` where `source_key` names no entry in `CATALOGUE`. Checked first,
+cheaply, before either admission check touches Postgres — a client that misspells a key
+does not spend a reservation to find out.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/ingest \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"source_key":"nonexistent-source"}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#source-not-found",
+  "title": "Source not found",
+  "status": 404,
+  "code": "source_not_found",
+  "detail": "No such source in the catalogue.",
+  "instance": "/api/v1/ingest",
+  "request_id": "06476e3d-8483-4d17-b0f1-1acaf50e7b96"
+}
+```
+
+`GET /api/v1/catalogue` lists every valid `source_key`; this is a `404` rather than a
+`422` because the field itself is well-formed, and only its value fails to name
+anything that exists — the same distinction `conversation_not_found` draws from
+`validation_error`.
+
+**Client action:** fix `source_key` against `GET /api/v1/catalogue`. This is a bug in
+the client; do not retry unchanged.
+
+---
+
 <a id="message-already-answered"></a>
 ## `message_already_answered` — 409
 
@@ -275,6 +312,42 @@ opened concurrently, before either has stored anything, both proceed — see
 take: there is no read endpoint. Treat it as "stop retrying".
 
 **Client action:** stop. Do not retry, do not mint a new ticket.
+
+---
+
+<a id="already-ingested"></a>
+## `already_ingested` — 409
+
+`POST /api/v1/ingest` where the caller's own organisation already holds chunks for the
+requested `source_key` — the duplicate guard is keyed on the (organisation, source)
+pair, not on the organisation alone, so a tenant may still ingest a *different*
+catalogue source after this fires. Checked inside `ensure_ingest_admitted`, before the
+global reservation is taken.
+
+```console
+$ curl -s -X POST http://127.0.0.1:8100/api/v1/ingest \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"source_key":"gdpr-full"}'
+```
+```json
+{
+  "type": "http://localhost:8100/docs/errors#already-ingested",
+  "title": "Already ingested",
+  "status": 409,
+  "code": "already_ingested",
+  "detail": "This organisation has already ingested a document from the catalogue.",
+  "instance": "/api/v1/ingest",
+  "request_id": "61e9412e-6a20-4309-9d3c-3116a15cb5d8"
+}
+```
+
+The example above is the common case: `gdpr-full` is preloaded into every organisation
+at sign-in (`PRELOADED_SOURCE_KEYS`), so it already has chunks before a caller ever
+asks. Unlike `capacity_unavailable`, this carries no `Retry-After` — retrying changes
+nothing until the organisation itself is gone, which is the opposite of what
+`Retry-After` promises a client.
+
+**Client action:** stop. `GET /api/v1/ingest/status` already shows this source as
+`complete`; do not retry.
 
 ---
 
@@ -427,6 +500,40 @@ This is a bug in the client; do not retry unchanged.
 
 ---
 
+<a id="generator-unavailable"></a>
+## `generator_unavailable` — 422
+
+`GET …/stream` for a message whose `generator` names a Gemini choice
+(`gemini-3.5-flash-lite` or `gemini-3.6-flash`) while this server has no
+`GEMINI_API_KEY` configured. Raised from `build_provider`, before the stream slot is
+reserved and before the response exists — once `EventSourceResponse` starts, the status
+line is already committed to `200` and there is no way back to a problem+json body.
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#generator-unavailable",
+  "title": "Generator unavailable",
+  "status": 422,
+  "code": "generator_unavailable",
+  "detail": "gemini-3.5-flash-lite is not available on this server: no Gemini API key is configured. GET /api/v1/generators lists what is.",
+  "instance": "/api/v1/conversations/6c9b4e6d-…/messages/0a6a0902-…/stream",
+  "request_id": "d4b3fbb0-2c8e-4a1a-9c4a-6b5b0b6f6c11"
+}
+```
+
+This is the residual path for a caller that posted a Gemini choice directly, or before
+a key was removed — `GET /api/v1/generators` plus the frontend disabling a Gemini
+option with no key is what keeps it unreachable through the UI in the normal case
+(Task 30). `generator` is validated against the enum at `POST .../messages` time and
+re-read from the stored row here, so this fires on the stream open that follows a POST
+made while a key was configured, or made directly against the API.
+
+**Client action:** build the generator picker from `GET /api/v1/generators`, which
+lists only what would work right now. This is a bug in the client; do not retry
+unchanged.
+
+---
+
 <a id="rate-limited"></a>
 ## `rate_limited` — 429
 
@@ -479,8 +586,8 @@ it — it is valid for 3600 s and a second login buys nothing.
 <a id="capacity-unavailable"></a>
 ## `capacity_unavailable` — 503
 
-The service will not *start* this work now. Three triggers, one code, because the client
-action is identical for all three:
+The service will not *start* this work now. Four triggers, one code. The first three
+are `GET …/stream`'s admission control (`app/limits.py`), and share a client action:
 
 1. the caller's organisation already has its maximum number of streams open;
 2. the whole process is at its concurrent-stream ceiling;
@@ -526,6 +633,62 @@ reuse it; past that, mint a new one from `POST /auth/stream-tickets`.
 **Client action:** wait `Retry-After` seconds and retry. Do not open more streams in the
 meantime — the ceiling is on concurrency, so a client that retries by opening a second
 connection is competing with itself.
+
+### The fourth trigger: `POST /api/v1/ingest`
+
+A different backend entirely, and the same code because the client action is the same:
+`INGEST_ORG_CAP` (16) organisations already hold a corpus or a live reservation
+(`public.reserve_ingest_slot`, migration 0008), counted in Postgres rather than in
+Redis. `detail` says so — it is the one outward difference from the stream trigger:
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#capacity-unavailable",
+  "title": "Capacity unavailable",
+  "status": 503,
+  "code": "capacity_unavailable",
+  "detail": "The service cannot start this ingest right now. Retry after Retry-After seconds.",
+  "instance": "/api/v1/ingest",
+  "request_id": "7a2b6c1e-9f3d-4e5a-8b2c-1d4f6e8a0c3b"
+}
+```
+
+`Retry-After` is **300** here, not 5 or 30 — a floor for a polite client, not a
+forecast: the cap only actually relaxes on the hourly purge, and telling a client to
+wait an hour invites it to give up. There is no ticket to reuse and no reservation held
+open by this response: nothing was admitted, so nothing needs releasing.
+
+**Client action:** wait `Retry-After` seconds and retry the same request. Do not retry
+by polling faster — the cap does not move between the hourly purges regardless.
+
+---
+
+<a id="evals-unavailable"></a>
+## `evals_unavailable` — 503
+
+`GET /api/v1/evals` when this build carries no `app/evals/results.json` — decided
+before reading anything else, and never `200` with zeros: a table of zeros reads as
+"retrieval is broken" rather than as "this build did not carry the artefact," which is
+the true statement and the actionable one.
+
+```json
+{
+  "type": "http://localhost:8100/docs/errors#evals-unavailable",
+  "title": "No retrieval measurement in this build",
+  "status": 503,
+  "code": "evals_unavailable",
+  "detail": "app/evals/results.json is missing from this build, so there are no retrieval numbers to report. Run `python -m app.evals.run --write` and commit the result.",
+  "instance": "/api/v1/evals",
+  "request_id": "3f8c2a6e-5d1b-4c9a-8e7f-2b4a6c8e0d1f"
+}
+```
+
+Unlike the other `503` in this catalogue, this one carries no `Retry-After`: a missing
+artefact is fixed by a build, not by waiting. `GET /api/v1/evals` reads the file once
+per process (`lru_cache`) and never touches the database — this status means the file
+was absent when the process started, not that anything just failed.
+
+**Client action:** this is not a transient condition. Report it; do not retry.
 
 ---
 

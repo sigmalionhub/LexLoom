@@ -571,7 +571,7 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ```
 
 ```bash
-cd frontend && npm test      # 43 passed, 8 files
+cd frontend && npm test      # 46 passed, 8 files
 ```
 
 The backend suite needs the Compose Postgres and Redis running. It is not a mock suite: it

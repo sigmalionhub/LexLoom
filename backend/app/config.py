@@ -155,13 +155,47 @@ class Settings(BaseSettings):
         ),
     )
 
-    # 30 tenants an hour from one address. Each demo-login writes 31 rows and
-    # about 11.7 kB (an organisation plus its own copy of the 30-chunk corpus),
-    # so this bounds one address at ~930 rows/hour and, across the 24-hour
-    # organisation TTL, at ~22k rows and ~8 MB before the purge reclaims any of
-    # it. Above the ceiling a genuine visitor can reach: one login opens the
-    # demo, two demonstrate the isolation thesis in two browsers, and 30 still
-    # covers a NATed office where thirty different people look in the same hour.
+    # 30 tenants an hour from one address.
+    #
+    # What one call costs. `provision_demo_org` (app/auth/demo.py) writes one
+    # `organizations` row and 1008 `document_chunks` in one transaction —
+    # **1009 rows** — where 1008 is `provisioned_corpus_size()` in
+    # app/ingest/preload.py: the 30 excerpts of `seed/gdpr_excerpts.json` plus
+    # the 978 chunks of `gdpr-full` that `_copy_catalogue_corpus_into` copies
+    # out of the template organisation. Both halves are pinned rather than
+    # assumed — `load_excerpts()` reads the committed file, and
+    # `CATALOGUE["gdpr-full"].expected_chunks` is checked against the parse in
+    # `preload._load_one`. In bytes that tenant is **1.95 MiB of Postgres heap
+    # (389 KiB of text, 1518 KiB of embeddings), measured on the deployment**
+    # and recorded in deploy/README.md, Step 3; indexes are not counted.
+    #
+    # So the ceiling bounds one address at ~30k rows and ~59 MiB an hour. The
+    # hourly purge does not cap the accumulation, because it only collects an
+    # organisation whose 24-hour `DEMO_ORG_TTL` has already lapsed: an address
+    # spending this every hour holds 720 live tenants, ~727k rows and ~1.4 GiB,
+    # before anything is reclaimed. For scale, deploy/README.md's own traffic
+    # figure for the whole site is a hundred visitors a day, ~195 MiB.
+    #
+    # That 1.4 GiB is heap on the Postgres volume, not resident memory, so the
+    # 384 MB `mem_limit` in docker-compose.yml is not what it presses against.
+    # Nothing in deploy/README.md records the box's free disk, so this comment
+    # cannot say what fraction of it that is, and does not guess.
+    #
+    # **The figure this comment used to carry — 31 rows and ~11.7 kB — was
+    # stale twice over.** It was written by commit 5cbb6ba on 2026-08-01, when
+    # a tenant got an organisation row and thirty excerpts whose `embedding`
+    # was still NULL — 8.8 kB of excerpt text plus row overhead, which is what
+    # 11.7 kB was. Commit 0c78ae8 then gave every seeded chunk a vector, and
+    # migration 0012 gave every tenant the whole GDPR; neither re-derived this.
+    # The "~22k rows and ~8 MB across the TTL" it concluded with is about 33x
+    # low on rows and about 180x low on bytes.
+    #
+    # The value itself is unchanged and was not re-decided here: correcting the
+    # arithmetic is not the same as re-answering the question it supports. The
+    # behavioural argument for 30 still holds — one login opens the demo, two
+    # demonstrate the isolation thesis in two browsers, and 30 still covers a
+    # NATed office where thirty different people look in the same hour. What
+    # changed is only what a single admission now costs.
     demo_login_limit: int = Field(default=30, ge=1)
     demo_login_window_seconds: int = Field(default=3600, ge=1)
 
@@ -197,12 +231,24 @@ class Settings(BaseSettings):
     # more than one document, and both were re-derived rather than left to
     # drift.
     #
-    # Storage: 16 x 746 chunks x (~500 chars + a 384-float embedding) is ~12 MB
-    # of Postgres held by ingested corpora at once, on a container limited to
-    # 384 MB (docker-compose.yml) - still noise, and still the smaller of the
-    # two concerns. It went *down* with the cap going up, because only one
-    # document is ingestable now: every tenant is given `gdpr-full` at sign-in
-    # (app/ingest/preload.py) and asking to ingest it answers 409.
+    # Storage: 16 x 746 chunks is **~22 MiB** of Postgres heap held by ingested
+    # corpora at once. Per tenant that is ~1.37 MiB — 274 KiB of text, which
+    # `parse_source(CATALOGUE["nist-sp-800-63b"])` measures over the committed
+    # .docx, plus 746 384-float vectors at ~1542 B each, the per-vector size
+    # implied by deploy/README.md's measured 1518 KiB for 1008 chunks. Heap on
+    # the data volume, not resident memory: the 384 MB `mem_limit` in
+    # docker-compose.yml is a different budget and this is not what spends it.
+    # Still the smaller of the two concerns below.
+    #
+    # It went *down* with the cap going up, because only one document is
+    # ingestable now: every tenant is given `gdpr-full` at sign-in
+    # (app/ingest/preload.py) and asking to ingest it answers 409. Down by less
+    # than it sounds, though — 8 tenants each holding both catalogue documents
+    # was ~26 MiB, so raising the cap to 16 bought concurrency back for about
+    # 4 MiB. The ~12 MB this comment used to claim was wrong on its own terms:
+    # the arithmetic it printed, 16 x 746 x (~500 chars + a 384-float
+    # embedding), comes to ~24 MB, and ~500 chars was itself high — the
+    # measured mean is 376.
     #
     # Queue backlog: at most one ingest task per (organisation, source) - see
     # `app.ingest.jobs`'s per-source duplicate guard - so at most
@@ -253,7 +299,7 @@ class Settings(BaseSettings):
         """`LIMITS_ENABLED=false` is how the test suite runs; refuse it here.
 
         Without this the flag is one environment variable between a public,
-        unauthenticated, 31-rows-per-call endpoint and a shared box. A warning
+        unauthenticated, 1009-rows-per-call endpoint and a shared box. A warning
         would not do: it is read after the OOM killer has already chosen a
         victim, and the victim may be somebody else's application.
 

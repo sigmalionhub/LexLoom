@@ -523,8 +523,10 @@ line is already committed to `200` and there is no way back to a problem+json bo
 
 This is the residual path for a caller that posted a Gemini choice directly, or before
 a key was removed — `GET /api/v1/generators` plus the frontend disabling a Gemini
-option with no key is what keeps it unreachable through the UI in the normal case
-(Task 30). `generator` is validated against the enum at `POST .../messages` time and
+option with no key is what keeps it unreachable through the UI in the normal case:
+the endpoint lists exactly which generator choices would actually work right now, and
+a client built from it never offers one this server cannot honour. `generator` is
+validated against the enum at `POST .../messages` time and
 re-read from the stored row here, so this fires on the stream open that follows a POST
 made while a key was configured, or made directly against the API.
 
@@ -759,7 +761,7 @@ by who caused it — so it may take a neighbouring application rather than this 
 
 | Setting | Default | Why that number |
 |---|---|---|
-| `DEMO_LOGIN_LIMIT` | 30 | Per address per window. One demo-login writes 31 rows and ~11.7 kB, so 30/hour bounds one address at ~930 rows/hour and ~22k rows (~8 MB) across the 24-hour organisation TTL. A visitor needs one; two demonstrate the isolation thesis in two browsers; 30 still covers a NATed office where thirty people look in the same hour. |
+| `DEMO_LOGIN_LIMIT` | 30 | Per address per window. One demo-login writes **1009 rows and 1.95 MiB** — an organisation plus the 1008 chunks every tenant is born holding — so 30/hour bounds one address at ~30k rows and ~59 MiB an hour, and the hourly purge does not cap the accumulation because it collects only tenants whose 24-hour TTL has lapsed. The value is a behavioural one and is unchanged: a visitor needs one tenant, two demonstrate the isolation thesis in two browsers, and 30 still covers a NATed office where thirty people look in the same hour. What that admission costs is worked out in `backend/app/config.py` beside the default. |
 | `DEMO_LOGIN_WINDOW_SECONDS` | 3600 | |
 | `MAX_CONCURRENT_STREAMS` | 16 | The SQLAlchemy pool is 10 + 10 overflow. A stream holds no connection while generating but takes one at each end, so 16 leaves four connections for everything that is not a stream even if every admitted stream reaches at the same instant. |
 | `MAX_CONCURRENT_STREAMS_PER_ORG` | 4 | A tab, its `EventSource` reconnect and a second tab all fit, and at least four different organisations can always be streaming. |

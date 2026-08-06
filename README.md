@@ -16,10 +16,13 @@ The repository is public and the demo is live at
 **[lexloom.sigmalion.io](https://lexloom.sigmalion.io)**. The badge is
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which runs on every push to
 `master`; what it covers is written out rather than left to a colour — the test suite, the
-retrieval floors, the frontend build and a Compose smoke test, and deliberately **not** the
-second document, [which says so itself](#what-this-did-not-fix). Underneath is a stack that
-comes up with `docker compose`, a test suite that talks to a real Postgres and a real
-socket, and a retrieval measurement that fails the build when it regresses.
+retrieval floors, the frontend build and a Compose smoke test. One job inside it is
+narrower than the badge: `evals` measures retrieval on the GDPR corpus alone, so a green
+gate says nothing about the second document — [it says so itself](#what-this-did-not-fix).
+The test job does run that document's extraction and chunking tests, which are what guards
+it. Underneath is a stack that comes up with `docker compose`, a test suite that talks to a
+real Postgres and a real socket, and a retrieval measurement that fails the build when it
+regresses.
 
 **Start here:**
 [**API contract**](docs/api-contract.md) ·
@@ -27,6 +30,8 @@ socket, and a retrieval measurement that fails the build when it regresses.
 [**ADR 0003 — tenant isolation and what it does not cover**](docs/adr/0003-tenant-isolation.md) ·
 [**Deployment runbook**](deploy/README.md) ·
 [**Security policy**](SECURITY.md)
+
+Questions and corrections go to the address in [**Contact**](#contact), at the foot of this file.
 
 **On `M1`–`M4`.** Code comments and ADRs name development milestones by number — `M1` the
 API and tenant isolation, `M2` retrieval evaluation and the embeddings it needs (with
@@ -115,7 +120,8 @@ All of it from [`backend/app/evals/results.json`](backend/app/evals/results.json
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) recomputes every cell from scratch
 on each push and fails the build against those floors.
 
-That job runs on every push and has run on this one. What it performs was also executed
+That job runs on every push, and whether it has run on the commit you are reading is a
+question for the badge above rather than for this sentence. What it performs was executed
 locally first — a full reseed and re-embed, **eight times independently**, with
 `floors.json`'s own `note` recording that the `measured` value behind every floor came
 back identical across all eight. `results.json`'s fifteen cells are one such run, written
@@ -583,9 +589,13 @@ needs a key CI does not have. On a cold embedding-model cache the suite refuses 
 second naming the cause and the fix, rather than downloading 90 MB inside a fixture and
 failing thirty seconds later with `uvicorn never became live`.
 
-CI runs four jobs against service containers: the suite, the retrieval gate, the frontend
-build and tests, and a Compose smoke test that asserts every service is still running
-rather than only that the API answers.
+CI runs four jobs, and they do not all need the same machine. `test` and `evals` each
+declare a `pgvector/pgvector:pg16` service container in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) — `test` starts its Redis as a
+`docker run` step besides, because a service container takes no `command:` and so cannot be
+given `--requirepass`. `frontend` runs on the bare runner. `compose-smoke` brings up the
+whole stack itself with `docker compose up -d --build` and then asserts every service is
+still running, rather than only that the API answers.
 
 ## What this demonstrates
 
@@ -597,10 +607,15 @@ rather than only that the API answers.
 - **Tenant isolation the database enforces.** Row-level security keyed on a
   transaction-local setting, unprivileged application roles, and a start-up guard that
   refuses to boot as a role which could bypass any of it — including one that is merely a
-  *member* of such a role. Cross-tenant requests answer `404`, and the body is
-  byte-identical to the `404` for a resource that does not exist anywhere. The isolation
-  test is written so that an *empty* result cannot pass it: absence proves nothing, so the
-  test asserts the other tenant's own rows come back too.
+  *member* of such a role. Cross-tenant requests answer `404` with the same `status`,
+  `code`, `title` and `detail` as the `404` for a resource that does not exist anywhere —
+  `conversation_not_found`, "No such conversation." — so nothing in the body tells a caller
+  which of the two it hit. The bodies are not byte-identical and cannot be: every
+  problem+json response carries `instance`, the request path, and `request_id`, a
+  per-request value (`backend/app/errors.py:38-48`). What is identical is every member that
+  says what went wrong. The isolation test is written so that an *empty* result cannot pass
+  it: absence proves nothing, so the test asserts the other tenant's own rows come back
+  too.
 - **Streaming that behaves under a real client.** Named SSE events, citations before
   tokens, and disconnect handling verified by hanging up a raw socket mid-answer rather
   than by cancelling a task in a unit test — those turn out to be two different things.

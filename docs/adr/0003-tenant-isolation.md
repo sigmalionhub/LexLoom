@@ -1,6 +1,6 @@
 # ADR 0003 — Tenant isolation in the database, and what it does not cover
 
-**Status:** accepted; amended twice on 2026-08-05 — the embeddings row of the coverage table, and what one `demo-login` call actually writes. See [Amendments](#amendments).
+**Status:** accepted; amended three times on 2026-08-05 — the embeddings row of the coverage table, the scheduled purge, and what one `demo-login` call actually writes. See [Amendments](#amendments).
 **Date:** 2026-08-01
 
 ## Context

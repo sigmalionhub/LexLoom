@@ -23,9 +23,11 @@ production traffic.
 
 ## What is not in scope here
 
-The project states its own residual risk in [README.md](README.md#honest-limits) and
-[README.md](README.md#demo-hardening), and reporting a mechanism that is documented there
-as an accepted trade is not a finding. Specifically:
+Most of what follows is stated as an accepted trade in
+[README.md](README.md#honest-limits) or [README.md](README.md#demo-hardening); two items
+below — the fixed-window boundary and the IPv6 `/64` bucketing — are not in either README
+section, but are documented in the code they name, in `backend/app/limits.py`. Reporting a
+mechanism documented in either place as an accepted trade is not a finding. Specifically:
 
 - **The demo-login rate limit is per address, not global.** `enforce_demo_login_rate_limit`
   in [`backend/app/limits.py`](backend/app/limits.py) meters `POST /api/v1/auth/demo-login`

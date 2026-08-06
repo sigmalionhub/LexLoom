@@ -553,11 +553,17 @@ Budget: postgres 384 MB, redis 64 MB, api 450 MB, worker 650 MB, beat 96 MB — 
 near its limit, lower it rather than raising the total.
 
 These are RAM figures and they stay RAM figures after Step 2. `mem_limit` maps to
-Docker's `--memory`, which caps a container's resident memory; the swapfile lets a
-container that reaches its limit spill into swap instead of being killed there and then,
-but it does not raise the 1.64 GB. Read `docker stats` for the per-container number and
-`free -h` for the box — and treat a *growing* `Swap: used` as the signal it is, because
-by then the whole host is paying for it.
+Docker's `--memory`, which caps a container's resident memory. `memswap_limit` is set
+equal to `mem_limit` on every service in docker-compose.yml, and Docker reads
+`memswap_limit` as memory *plus* swap — equal to `mem_limit` means zero swap allowance,
+so a container that reaches its limit is OOM-killed right there, not allowed to spill
+into swap. That is deliberate (see the "Bounded containers" note in the main README).
+The swapfile does not change this: it does not rescue these containers, it protects the
+host — the box as a whole, including whatever else is running on it — from becoming the
+kernel's OOM victim when one of them spikes. Read `docker stats` for the per-container
+number and `free -h` for the box — and treat a *growing* `Swap: used` as the signal it
+is: this stack's own containers cannot touch swap, so growth there means something else
+on the host is under pressure, and the whole host pays for it either way.
 
 ---
 
@@ -686,9 +692,14 @@ and nothing else.
 
 ## Known gaps, stated rather than discovered
 
-- **Demo tenants are not free.** Each one copies a 30-chunk corpus: about 31 rows and
-  11.7 kB per anonymous `demo-login`. Watch the row count for the first days after this
-  goes public.
+- **Demo tenants are not free, and they became about 180 times less free.** Each one is
+  born holding the whole GDPR, so an anonymous `demo-login` now writes **1009 rows and
+  1.95 MiB** of Postgres heap rather than the 31 rows and 11.7 kB it cost before migration
+  0012. The hourly purge collects only tenants whose 24-hour TTL has lapsed, so one address
+  spending the 30-an-hour ceiling holds 720 live tenants and ~1.4 GiB before anything is
+  reclaimed — against Step 3's measured figure of ~195 MiB for a hundred visitors a day.
+  The arithmetic is in `backend/app/config.py` beside `demo_login_limit`. Watch the row
+  count and the volume's free space for the first days after this goes public.
 - **`/health/ready` does not check the schema.** See above.
 - **The `X-Forwarded-For` handling assumes exactly one proxy** — this nginx. The snippet
   overwrites the header rather than appending to it, so the application receives one

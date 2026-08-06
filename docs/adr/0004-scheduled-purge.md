@@ -1,6 +1,6 @@
 # ADR 0004 — The demo-org purge is scheduled and runs
 
-**Status:** accepted
+**Status:** accepted; amended once on 2026-08-06 — the residual gap under "What is still not covered" is closed. See [Amendments](#amendments).
 **Date:** 2026-08-05
 **Supersedes:** [ADR 0001](0001-celery-over-arq.md) §"The scheduler is declared and does not run"
 
@@ -88,7 +88,9 @@ that each looked covered:
   `test_celery_beat.py` deliberately does not, so that it can run in CI without
   Docker-in-Docker.
 
-**What is still not covered.** No test asserts that a `beat` service exists in
+**What is still not covered.** **This paragraph records the state when this ADR was
+written; the gap was closed later the same day — see the amendment below.** No test asserts
+that a `beat` service exists in
 `docker-compose.yml`. Deleting that service would leave all three levels above green and
 reproduce the exact defect this ADR closes, discoverable only by looking at what is
 running — which is how it was found the first time. That is a real residual gap, stated
@@ -99,3 +101,31 @@ ADR 0001's own closing judgement is left standing and is worth repeating, since 
 what this document is evidence for: *I wrote a schedule and believed the feature was
 finished.* The correction is not that the schedule was wrong. It is that "declared" and
 "running" are two different claims, and only one of them was ever checked.
+
+---
+
+## Amendments
+
+### 2026-08-06 — The residual gap named above is closed
+
+The "What is still not covered" paragraph says *"No test asserts that a `beat` service
+exists in `docker-compose.yml`"* and hands the fix to whoever next touches the deployment.
+That paragraph is left as written — it records the state on 2026-08-05 — and the fix landed
+the same day, in commit `67dcb93`.
+
+`backend/tests/test_compose_environment.py:220`,
+`test_a_service_in_compose_actually_runs_celery_beat`, loads `docker-compose.yml` and
+requires at least one service whose `command` contains the word `beat`. Its failure message
+cites this ADR by number, so a run that deletes the service reads as the defect returning
+rather than as an unexplained red.
+
+It matches on the argv, not on the service's *name*: renaming `beat` to something else is
+allowed, removing the `celery … beat` process is not. The name is a label; the process is
+what fires the schedule, and the label was never the thing that was missing.
+
+The residual that remains is narrower than the one this paragraph replaced. The test proves
+a service is *declared* to run `beat` in the committed Compose file. That a scheduler is
+actually running on the deployment box is still established by looking — the compose-smoke
+job in `ci.yml` compares the running set against `api beat postgres redis worker`, which is
+the closest anything here comes to checking it, and it checks CI's stack rather than the
+deployment's.

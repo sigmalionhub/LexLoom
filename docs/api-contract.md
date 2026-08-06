@@ -13,7 +13,7 @@ Base URL in development: `http://127.0.0.1:8100`.
 
 ## 1. The whole surface
 
-Thirteen routes. That is the entire API.
+Fourteen routes. That is the entire API.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # ADR 0001 — Celery for background work, not arq
 
-**Status:** accepted; §"The scheduler is declared and does not run" superseded by [ADR 0004](0004-scheduled-purge.md) (2026-08-05)
+**Status:** accepted; §"The scheduler is declared and does not run" superseded by [ADR 0004](0004-scheduled-purge.md) (2026-08-05); amended once on 2026-08-06 — the task register in Consequences. See [Amendments](#amendments).
 **Date:** 2026-08-01
 
 ## Context
@@ -98,7 +98,8 @@ error and no traceback.
   and it is recorded as such in [ADR 0003](0003-tenant-isolation.md).
 - Two tasks exist today: `lexloom.ping`, a smoke task that proves the API can reach
   the broker and a worker consumes from it, and `lexloom.purge_expired_orgs`, which
-  reclaims demo tenants past their TTL.
+  reclaims demo tenants past their TTL. **That count records the state on 2026-08-01;
+  four are registered today — see the amendment below.**
 
 ---
 
@@ -201,3 +202,30 @@ surfaced in the test suite, where each test gets its own loop and multiple
 database-touching tests in one module produced cross-event-loop pooling warnings. That
 is the seam Celery's synchronous model creates, and it is the honest price of the
 choice made above. arq would not have had it.
+
+---
+
+## Amendments
+
+### 2026-08-06 — Four tasks are registered, not two
+
+The Consequences bullet above says *"Two tasks exist today"*. That sentence is left as
+written — it records the state on 2026-08-01 — and this is the register as
+`backend/app/worker/tasks.py` declares it now:
+
+- `lexloom.ping` (`tasks.py:37`) — unchanged, the smoke task.
+- `lexloom.purge_expired_orgs` (`tasks.py:43`) — unchanged, and the schedule that was
+  missing when this ADR was written now exists; see [ADR 0004](0004-scheduled-purge.md).
+- `lexloom.embed_org_corpus` (`tasks.py:114`) — backfills embeddings for one
+  organisation's chunks and returns how many. Added by M2, for chunks that arrive without
+  a vector.
+- `lexloom.ingest_source` (`tasks.py:200`) — ingests one catalogue source into a tenant's
+  corpus. Its body lives in `app.ingest.jobs.run_ingest`; the task is the Celery wrapper.
+
+Two of the four therefore postdate this decision, and the newest one is where its cost is
+clearest. `ingest_source` sets `acks_late=False` and `max_retries=0`, both against the
+app-wide defaults, because the way it fails is by exhausting the worker's 650 MB memory
+limit while embedding — and a task redelivered after killing its own worker re-runs the
+job whose size did the killing, on a box shared with someone else's production. The
+reasoning is written out at the decorator. Nothing about the choice recorded in this ADR
+is changed by that; it is the kind of per-task override the choice made necessary.

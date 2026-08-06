@@ -10,16 +10,28 @@ not a slide: the documents in `docs/` paste real output rather than describing i
 **every number below names the file it lives in or can be recomputed from one** — with one
 exception, which says so where it stands.
 
-This repository is private and stays private. There is no public demo URL and no CI badge
-to point at. What there is instead is a stack that comes up with `docker compose`, a test
-suite that talks to a real Postgres and a real socket, and a retrieval measurement that
-fails the build when it regresses.
+[![CI](https://github.com/sigmalionhub/LexLoom/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/sigmalionhub/LexLoom/actions/workflows/ci.yml)
+
+The repository is public and the demo is live at
+**[lexloom.sigmalion.io](https://lexloom.sigmalion.io)**. The badge is
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), which runs on every push to
+`master`; what it covers is written out rather than left to a colour — the test suite, the
+retrieval floors, the frontend build and a Compose smoke test, and deliberately **not** the
+second document, [which says so itself](#what-this-did-not-fix). Underneath is a stack that
+comes up with `docker compose`, a test suite that talks to a real Postgres and a real
+socket, and a retrieval measurement that fails the build when it regresses.
 
 **Start here:**
 [**API contract**](docs/api-contract.md) ·
 [**Error catalogue**](docs/errors.md) ·
 [**ADR 0003 — tenant isolation and what it does not cover**](docs/adr/0003-tenant-isolation.md) ·
-[**Deployment runbook**](deploy/README.md)
+[**Deployment runbook**](deploy/README.md) ·
+[**Security policy**](SECURITY.md)
+
+**On `M1`–`M4`.** Code comments and ADRs name development milestones by number — `M1` the
+API and tenant isolation, `M2` retrieval evaluation and the embeddings it needs (with
+sub-steps written `M2.2`, `M2.4`), `M3` the second document, `M4` the deployment. They are
+this project's own build order and mean nothing outside this repository.
 
 ---
 
@@ -103,10 +115,13 @@ All of it from [`backend/app/evals/results.json`](backend/app/evals/results.json
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) recomputes every cell from scratch
 on each push and fails the build against those floors.
 
-That job has **not run yet**: this milestone has not been pushed. What has been done is the
-run it performs, executed locally — a full reseed and re-embed reproducing all fifteen cells
-exactly, three times, on this machine. Saying "CI verifies it" of a job that has never
-executed would be the same defect this page spends a section on, one page earlier.
+That job runs on every push and has run on this one. What it performs was also executed
+locally first — a full reseed and re-embed, **eight times independently**, with
+`floors.json`'s own `note` recording that the `measured` value behind every floor came
+back identical across all eight. `results.json`'s fifteen cells are one such run, written
+out. The reproduction is the load-bearing part and the green tick is the cheap one: a
+metric that moves between two runs of the same code gates nothing, however many times a
+workflow reports success on it.
 
 Corpus: **1008 chunks** per evaluation tenant — 978 from the full GDPR PDF plus the
 30 seeded excerpts. Thirty questions, of which **six are unanswerable by design.**
@@ -335,9 +350,10 @@ is an `ORDER BY` change and permuting tied groups was measured to move MRR@10 by
 0.040, against floors that are frozen.
 
 The evals gate is also structurally blind to this document: `app/evals/corpus.py` pins
-`gdpr-full`. A green gate says nothing about NIST, and the README says so rather than
-letting the badge imply otherwise. What guards the second document is the extraction and
-chunking tests above, which take their expectations from the publisher's own HTML.
+`gdpr-full`. A green gate says nothing about NIST, and the README says so next to the
+badge at the top rather than letting a green tick imply otherwise. What guards the second
+document is the extraction and chunking tests above, which take their expectations from
+the publisher's own HTML.
 
 ## What it does
 
@@ -377,8 +393,15 @@ query. `vector` and `hybrid` must embed the question first, which is a CPU-bound
 inference on the request path (`backend/app/chat/embedding.py`), so they pay a cost per
 question that `fts` does not. Generation is a second, larger cost and it depends on
 which generator answered: the deterministic stub is instant, and Gemini measured
-~2.2–2.5 s (flash-lite) and ~9.5–12.0 s (flash) for a long answer **from a developer
-machine, not from the deploy box** (`frontend/components/panel/generator-selector.tsx`).
+**1.1–1.2 s** (flash-lite) and **~9.5–12.0 s** (flash) for a long answer. Those two figures
+were not taken the same way, and the difference is stated rather than averaged away
+(`frontend/components/panel/generator-selector.tsx`): flash-lite was re-measured against
+the deployment, end to end over the public internet, so it includes what a visitor
+actually waits; flash is still the developer-machine figure, because the deployment pass
+for it returned one 1.8 s run whose API log reads `provider_quota_exceeded` — that run was
+the fallback in `app/chat/stream.py`, not the model. A range built from a set containing a
+degraded run is precisely the plausible-looking number this page keeps refusing, so flash
+stays local until three clean runs are possible.
 The demo page measures the citations-to-first-token interval live with
 `performance.now()` on every turn; that is the number worth reading, and it is measured
 where you are rather than quoted from where I was.
@@ -401,9 +424,13 @@ where you are rather than quoted from where I was.
 ```
 
 One image, three processes. The API is async and never blocks; the worker is prefork and
-does the CPU-bound work — parsing an 88-page PDF, chunking it, and computing 978
-384-dimensional embeddings locally. Both connect as unprivileged roles and **refuse to
-start** if the role they get can bypass row-level security. `beat` exists because a
+does the CPU-bound work — parsing a document, chunking it, and computing 384-dimensional
+embeddings locally, 746 of them for the NIST `.docx` a tenant can ingest. The GDPR's 978
+are no longer part of that job: they are computed once at deployment time
+(`backend/app/ingest/preload.py`) and copied into each new tenant inside Postgres, because
+a minute of ONNX inference per visitor on a shared box is a minute the first page paint
+has to wait through. Both connect as unprivileged roles and **refuse to start** if the
+role they get can bypass row-level security. `beat` exists because a
 schedule that only lives in configuration is indistinguishable, in a diff and in review,
 from a schedule that works.
 
@@ -444,7 +471,7 @@ docker compose exec \
 docker compose exec \
   -e DATABASE_URL='postgresql+asyncpg://lexloom_migrator:migrator@postgres:5432/lexloom' \
   api python -m alembic current
-# 0011 (head)
+# 0012 (head)
 ```
 
 Running it with the container's own `DATABASE_URL` fails with
@@ -452,7 +479,24 @@ Running it with the container's own `DATABASE_URL` fails with
 application role owns nothing and cannot change the schema it is confined by. Nothing in
 Compose applies migrations for you.
 
-**3. Check readiness.**
+**3. Load the template corpus — before the first sign-in, not after.**
+
+```bash
+docker compose run --rm api python scripts/seed_corpus.py
+# Seeded 30 excerpt chunks into organisation 00000000-0000-0000-0000-000000000001.
+# Seeded 978 chunks of gdpr-full.
+```
+
+Minutes, not seconds: this is where the GDPR is parsed and its 978 embeddings are
+computed, once, into one template organisation that every demo tenant is then given a copy
+of. Skipping it does not leave you with a half-working demo — `POST /api/v1/auth/demo-login`
+raises `TemplateCorpusMissingError` inside its own transaction and commits no organisation,
+because a tenant born holding thirty excerpts and no document is a broken deployment
+wearing the face of a working one. It is idempotent: each loader replaces its own rows.
+`run --rm` rather than `exec` matters on an upgrade and [`deploy/README.md`](deploy/README.md)
+explains why.
+
+**4. Check readiness.**
 
 ```bash
 curl -fsS http://127.0.0.1:8100/health/ready
@@ -462,11 +506,11 @@ curl -fsS http://127.0.0.1:8100/health/ready
 Readiness answers exactly one question — *are Postgres and Redis reachable from this
 process* — and deliberately no more. It does **not** check that the schema exists: a
 completely unmigrated database still returns `{"status":"ready"}`, and the first real
-request then fails with a `500`. That is why step 2 comes first. Liveness is narrower
-still and touches no dependency at all, so a transient database blip cannot get a healthy
-process killed.
+request then fails with a `500`. That is why step 2 comes first, and it does not check the
+template corpus either, which is why step 3 does. Liveness is narrower still and touches
+no dependency at all, so a transient database blip cannot get a healthy process killed.
 
-**4. Use it.** Walk the calls in
+**5. Use it.** Walk the calls in
 [docs/api-contract.md §3](docs/api-contract.md#3-the-chat-flow-end-to-end), or start with
 one line:
 
@@ -496,33 +540,38 @@ npm run dev          # http://127.0.0.1:3000, API proxied to :8100 from the same
 npm run preview      # the same page, served from the static build that gets deployed
 ```
 
-Chat on the left; on the right, a panel that reads the backend off the wire — the named
-SSE events in arrival order, the measured interval between `citations` and the first
-token, the caller's `org_id`, a cross-tenant probe made with a second tenant's real token,
-the search-mode and generator selectors, live ingestion progress, the process's own
-request and latency counters, and the evaluation table. Every figure on it is measured in
-the browser; none of it is scripted.
+Chat on the left, with the tenant's document list and its live ingestion progress above
+the composer; on the right, a panel that reads the backend off the wire — the named SSE
+events in arrival order, the measured interval between `citations` and the first token,
+the caller's `org_id`, a cross-tenant probe made with a second tenant's real token, the
+search-mode and generator selectors, the process's own request and latency counters, and
+the evaluation table. Every figure on it is measured in the browser; none of it is
+scripted.
 
 `npm run build` produces `frontend/out/`, a directory of files. There is no Node process
 in production: the same nginx that fronts the API serves them, which is also why the API
 has no CORS middleware.
 
-`npm audit` reports four moderate PostCSS advisories, all reached through build-time
-tooling (`next@15.5.21`, `tailwindcss`, `vite`). They are stated here rather than left for
-your tooling to find: in a static export PostCSS runs at build time and ships zero bytes
-to the browser, so the runtime exposure of this page is nil. The finding is real; the risk
-it describes is not present in what gets deployed.
+What `npm audit` finds here reaches the tree through build-time tooling (`next@15.5.21`,
+`tailwindcss`, `vite`) and the PostCSS they pull in. That dependency was upgraded rather
+than argued away: `frontend/package.json` pins `postcss` at **8.5.23** as a direct dev
+dependency *and* in `overrides`, which is what lifts the copies those three resolve for
+themselves — a top-level bump alone leaves them exactly where they were. Run the audit
+yourself for the state of the day. What does not change with the day is that in a static
+export PostCSS runs at build time and ships zero bytes to the browser, so a finding there
+describes this machine's build and not what a visitor loads. That is a statement about
+blast radius and not a reason to sit on a version, which is why the pin is there too.
 
 ### Tests
 
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-.venv/bin/pytest -q          # 412 passed, 2 skipped
+.venv/bin/pytest -q          # 424 passed, 2 skipped
 ```
 
 ```bash
-cd frontend && npm test      # 28 passed, 7 files
+cd frontend && npm test      # 43 passed, 8 files
 ```
 
 The backend suite needs the Compose Postgres and Redis running. It is not a mock suite: it
@@ -573,9 +622,14 @@ rather than only that the API answers.
 
 ## Honest limits
 
-- **No live demo URL.** Everything above runs locally. The deployment is written down
-  rather than performed — a shared host, nginx, TLS and the memory budget it has to fit
-  inside are in [`deploy/README.md`](deploy/README.md).
+- **The demo is live, and it is one shared box.**
+  [lexloom.sigmalion.io](https://lexloom.sigmalion.io) is not a sandbox that scales; it is a
+  host with ~2.2 GB free and 2 vCPUs, shared with other applications, so the admission
+  control below is load-bearing rather than decorative — a busy moment answers `429`/`503`
+  with a `Retry-After` instead of degrading for everybody.
+  [`deploy/README.md`](deploy/README.md) is the runbook that put it there, executed rather
+  than described: it pins the A record, the nginx vhost, the memory budget and the
+  migration head the box reports back.
 - **The default generator is not a language model.** `model: "deterministic"` is a canned
   generator behind the provider interface. Retrieval, streaming, cancellation, grounded
   prompt assembly and citations are all real; the *words* are not an answer to your
@@ -585,16 +639,23 @@ rather than only that the API answers.
   that errors. With a Gemini choice and no key configured the request fails outright with
   `422 generator_unavailable`, never a generic `500` and never a silent fallback to the
   stub.
-- **The corpus is one document.** The catalogue is a literal dict with one entry, the
-  public GDPR text; there is no user file upload, so `source_key` can never become a path.
-  A tenant that ingests it holds 1008 chunks: the 978 parsed from the PDF plus the 30
-  seeded excerpts.
+- **The corpus is a fixed catalogue of two documents.** It is a literal dict with two
+  entries — the public GDPR text and NIST SP 800-63B
+  ([`backend/app/ingest/catalogue.py`](backend/app/ingest/catalogue.py)); there is no user
+  file upload, so `source_key` can never become a path. A tenant is born holding **1008
+  chunks** — the 978 parsed from the GDPR PDF plus the 30 seeded excerpts — and ingesting
+  the NIST `.docx` adds its 746. What this does not demonstrate is the system meeting a
+  document nobody here chose.
 - **The frontend is a demonstration page, not a product UI.** One conversation, no
-  history, no document management, no design system. The API is the deliverable.
-- **You cannot read a conversation back.** Four `GET` routes return data
-  (`/api/v1/status`, `/api/v1/generators`, `/api/v1/ingest/status`, `/api/v1/evals`), and
-  [§1 of the contract](docs/api-contract.md#1-the-whole-surface) works out why none of
-  them is an exception to that. There is no conversation list, no message list, no
+  history, no design system. Document handling is one card per catalogue entry with an
+  ingest button on the one that is not already there; there is no upload, no rename and no
+  delete, because there is nothing to upload. The API is the deliverable.
+- **You cannot read a conversation back.** Five `GET` routes return data
+  (`/api/v1/status`, `/api/v1/generators`, `/api/v1/catalogue`, `/api/v1/ingest/status`,
+  `/api/v1/evals`), and [§1 of the contract](docs/api-contract.md#1-the-whole-surface)
+  works out why none of them is an exception to that — each for a different reason, and
+  `/api/v1/catalogue` re-derives `/api/v1/generators`'s argument rather than borrowing it.
+  There is no conversation list, no message list, no
   `GET /conversations/{id}`: a page reload loses the conversation from the UI while the
   rows survive in the database until the tenant expires.
 - **The evals floors are provisional.** They gate the build today, and they were set
@@ -603,12 +664,18 @@ rather than only that the API answers.
 - **The retrieval numbers are low in absolute terms.** They are published anyway, with
   their ceilings, because a weak honest number is worth more than a strong indefensible
   one in a repository whose purpose is to be examined.
-- **`INGEST_ORG_CAP` is 8,** and an organisation holding a corpus consumes a slot until
-  its TTL lapses. One visitor filling all eight would have switched the headline feature
-  off for everyone for 24 hours; the TTL of a tenant that *starts* an ingest is now
-  shortened to 2 hours, which turns a one-shot outage into one that has to be continuously
-  re-mounted. **The residual is real and stated rather than papered over:** a sustained
-  attacker on one address can still hold the cap.
+- **`INGEST_ORG_CAP` is 16,** and an organisation holding an ingested corpus consumes a
+  slot. The number bounds *concurrency in a two-hour window*, not ingests per day, because
+  admission floors the tenant's expiry at 2 hours (migration `0011`) and the slot lapses
+  with it. At the previous value of 8 it bounded the wrong thing: this is sized for roughly
+  a hundred visitors a day, about eight an hour, so eight at once would have been reached in
+  ordinary use and the ninth visitor would have met a `503` on the one interactive thing
+  the demo offers. It could double for free because preloading halved the other multiplier —
+  the GDPR now arrives with the tenant and asking to ingest it answers `409`, so exactly one
+  document is ingestable and the worst-case backlog the hourly purge can queue behind is
+  unchanged at 16 × 1 × 360 s = 96 minutes. The arithmetic is written out beside the setting
+  in [`backend/app/config.py`](backend/app/config.py). **The residual is real and stated
+  rather than papered over:** a sustained attacker on one address can still hold the cap.
 - **The demo-login limit is per address, not global.** 30 tenants per address per hour,
   plus 16 concurrent streams for the process and 4 per tenant, refused with `429`/`503`
   and a `Retry-After`. What that does not bound is a caller spread across many addresses.
@@ -622,13 +689,18 @@ rather than only that the API answers.
 - **Two concurrent streams on one message both succeed** and leave two assistant rows.
   The `409` is a replay guard, not a lock.
 - **`(source_key, chunk_ordinal)` uniqueness is an application invariant, not a database
-  constraint.** One ingest per organisation is what holds it, and the total ordering the
-  eval gate's stability depends on rests on that. The durable fix is a partial unique
-  index; it is a schema change and it has not been made.
-- **This milestone has never been through CI.** Nothing in it has been pushed yet, so the
-  first run happens with a human watching — the things it can find that a local run cannot
-  (the model-cache key, whether the runner has what the extractor needs, the Compose
-  service literal) are worth watching live rather than fixing blind.
+  constraint.** One write per `(organisation, source_key)` is what holds it — the ingest
+  guard admits at most one job per pair (`backend/app/ingest/jobs.py`) and the preload
+  copies each source into a tenant once — and the total ordering the eval gate's stability
+  depends on rests on that. The durable fix is a partial unique index; it is a schema
+  change and it has not been made.
+- **CI does not deploy, and nothing checks the box from CI.** The workflow's four jobs run
+  on a runner and stop there; none of them touches the host that serves
+  [lexloom.sigmalion.io](https://lexloom.sigmalion.io). Deployment is a person working
+  through [`deploy/README.md`](deploy/README.md), which is why that file has the box read
+  its own migration head back (`0012`) rather than assuming it matches the repository. A
+  green tick says this code passed on a runner; it does not say the thing on the internet
+  is this code.
 
 ## Demo hardening
 
@@ -639,10 +711,14 @@ would not have.
   organisation. A project whose headline claim is per-tenant isolation cannot seat every
   visitor in the same tenant. Open two browsers and they get different `org_id`s and
   cannot see each other.
-- **The corpus is copied, not shared.** Each demo tenant owns its own 30 seeded chunks,
-  and its own 978 more if it ingests. The cheaper design — one corpus organisation with a
-  read-through policy exception — would punch a hole in the exact property the project
-  exists to demonstrate.
+- **The corpus is copied, not shared.** Each demo tenant owns its own 30 seeded chunks and
+  its own 978 GDPR chunks, both written at sign-in, plus 746 more of its own if it ingests
+  the NIST document. The cheaper design — one corpus organisation with a read-through policy
+  exception — would punch a hole in the exact property the project exists to demonstrate, so
+  the copy gets paid for instead: 1008 rows per visitor, copied inside Postgres from a
+  template organisation ([`backend/app/ingest/preload.py`](backend/app/ingest/preload.py))
+  rather than re-parsed and re-embedded per visitor, which would be a minute of CPU on the
+  path that has to paint first.
 - **No key material in the repository.** The RSA keypair is generated in memory at
   start-up. A restart rotates the `kid` and invalidates every outstanding token; that is
   the trade for having nothing to leak. The dev identity provider refuses to construct
@@ -665,19 +741,29 @@ would not have.
 - **Bounded containers.** Every service sets `mem_limit` equal to `memswap_limit`, because
   Docker reads `memswap_limit` as memory *plus* swap and the two being equal is what means
   "no swap for this container": 384 + 64 + 450 + 650 + 96 = **1644 MB** against a box with
-  ~2.2 GB free, 2 vCPUs and no swap of its own. An unbounded process there does not
-  degrade politely; it thrashes the host and then gets somebody killed, and the kernel
+  ~2.2 GB free and 2 vCPUs. The host does have swap — 2 GB of it, added by step 2 of the
+  runbook and named in [`backend/app/limits.py`](backend/app/limits.py) and
+  [`backend/app/config.py`](backend/app/config.py) as part of what these numbers are sized
+  against — and these containers are refused it deliberately. The swapfile's job is to stop
+  a spike from being an instant OOM kill on a *neighbouring* application; letting this
+  demo's own containers spend it would convert an attributable kill into a 2 vCPU box that
+  thrashes, which is the slower version of the same outcome and harder to attribute. An
+  unbounded process there does not degrade politely; it gets somebody killed, and the kernel
   picks who.
 
 ## Repository
 
 ```
 backend/app/        api/v1/  auth/  chat/  db/  evals/  ingest/  worker/    application
-backend/alembic/    0001…0008                             schema, roles, policies, functions
+backend/alembic/    0001…0012                             schema, roles, policies, functions
 backend/tests/      real Postgres, real uvicorn, real celery subprocesses
+backend/scripts/    build_docx_source.sh, which builds the NIST .docx; the seed loaders
 backend/seed/       30 GDPR excerpts, sourced from EUR-Lex with the reuse basis recorded
-backend/app/ingest/sources/   the 88-page GDPR PDF, with its sha256 and provenance
+backend/app/ingest/sources/   the 88-page GDPR PDF and the NIST .docx, each with its sha256
+                              and provenance, plus the preprocessed HTML that .docx is built
+                              from, so a test can quote the publisher and not this extractor
 frontend/           Next.js static export: the demo page, its backend panel, and vitest
+frontend/openapi.json         the generated schema the frontend's types are built against
 docs/               api-contract.md, errors.md, adr/0001…0004
 deploy/             README.md — the runbook; nginx vhost and proxy snippet; role bootstrap
 ```
@@ -685,3 +771,30 @@ deploy/             README.md — the runbook; nginx vhost and proxy snippet; ro
 Everything is English: prose, code, comments and commit history. The commit log is meant
 to be readable — each message says what changed and why, and several of them say what was
 wrong before.
+
+That history has one author, and the contributors graph derived from it will say so
+correctly. It is not the whole record: three colleagues at sigmalion.io did code review and
+architecture here, in conversations that left nothing behind in git.
+[**CONTRIBUTORS.md**](CONTRIBUTORS.md) names them and says outright that it is the one page
+in this repository you cannot check against the repository.
+
+## Licence
+
+The code in this repository is Apache-2.0 — full text in [`LICENSE`](LICENSE), copyright 2026
+sigmalion.io. That covers what was written here: the FastAPI backend, the frontend, and the
+ingest and chunking pipeline. It does not, and cannot, cover the documents that pipeline reads.
+
+Two publishers' material is redistributed here — the GDPR PDF from EUR-Lex unmodified, and NIST
+SP 800-63B-4 together with the `.docx` this repository built from it, because NIST publishes no
+such format. Each carries its own terms, not this project's. [`NOTICE`](NOTICE) names every one
+of those files by path, its source, and the exact terms it is under, including the credit line
+each publisher asks for. Read it before reusing anything under `backend/app/ingest/sources/` or
+`backend/seed/gdpr_excerpts.json`. This project is not affiliated with, or endorsed by, NIST or
+the European Union, and neither licence permits claiming otherwise.
+
+## Contact
+
+This is published to be read and then argued with — including the parts that say what went
+wrong, which are the parts worth arguing with. Questions, corrections and anything a number
+here does not survive: **sergey.korkishko@sigmalion.io**. Security reports go to
+[**SECURITY.md**](SECURITY.md) instead, which asks for them privately and explains why.

@@ -1,6 +1,6 @@
 # ADR 0003 — Tenant isolation in the database, and what it does not cover
 
-**Status:** accepted; the "Embeddings (M2)" row is amended (2026-08-05) — see [Amendments](#amendments)
+**Status:** accepted; amended twice on 2026-08-05 — the embeddings row of the coverage table, and what one `demo-login` call actually writes. See [Amendments](#amendments).
 **Date:** 2026-08-01
 
 ## Context
@@ -279,8 +279,10 @@ property of the policy.** `POST /api/v1/auth/demo-login` is unauthenticated and 
 call writes an organisation plus a 30-row corpus copy at about 22 ms per call, so the
 endpoint is where the ceiling has to live — and it does: `backend/app/limits.py` meters
 tenant creation per client address, 30 an hour by default, refusing with `429` and a
-`Retry-After`. Concurrent streams are capped in the same module. The numbers and their
-sizing are in [errors.md](../errors.md#admission-control).
+`Retry-After`. **That row count records the state on 2026-08-01; a call writes 1009 rows
+since the preload landed — see the amendment below.** Concurrent streams are capped in the
+same module. The numbers and their sizing are in
+[errors.md](../errors.md#admission-control).
 
 What that closes is one address exhausting the box. What it does not close, and what
 this policy therefore still leaves open:
@@ -582,3 +584,50 @@ response model.
 The `purge_expired_orgs()` row above is unaffected, but the schedule that was meant to
 call it is the subject of [ADR 0004](0004-scheduled-purge.md), which supersedes the
 matching section of [ADR 0001](0001-celery-over-arq.md).
+
+### 2026-08-05 — A `demo-login` call writes 1009 rows, not 31
+
+Section 3 above says each `POST /api/v1/auth/demo-login` "writes an organisation plus a
+30-row corpus copy at about 22 ms per call". That sentence is left as written — it records
+what the endpoint did on 2026-08-01 — and this is what it does now.
+
+`provision_demo_org` (`backend/app/auth/demo.py`) still copies the thirty seeded excerpts,
+and then calls `_copy_catalogue_corpus_into`, which gives the new tenant its own copy of
+the preloaded `gdpr-full` corpus: **978 further `document_chunks` rows, in the same
+transaction**. One call therefore writes one organisation row and 1008 chunk rows. The
+~22 ms figure is not re-stated here with a new number attached, because it has not been
+re-measured against the new write volume; treating the old one as still current would be
+the failure this document spends a section on.
+
+Two things about that copy belong in *this* ADR rather than in a performance note.
+
+**It could not be an `INSERT ... SELECT` from application code, and the reason is the
+property this ADR is about.** The session doing the provisioning is scoped to the new
+tenant, so under `FORCE ROW LEVEL SECURITY` the template organisation's rows are not
+visible to it: the obvious statement reads zero rows, inserts nothing, and raises nothing.
+An empty corpus that reports success is exactly the shape of failure section 3's
+`org_self_insert` discussion warns about, and `app/chat/corpus.py` had already declined the
+same statement for the same reason.
+
+**So it is a fourth `SECURITY DEFINER` function, and it carries its own containment.**
+`public.copy_catalogue_corpus_into(uuid)` (migration `0012`) runs with
+`search_path = pg_catalog, public` and `row_security = off`, like `purge_expired_orgs()`
+and `count_orgs_with_corpus()` before it, and `EXECUTE` is granted to `lexloom_app` because
+the API is the caller. `row_security = off` is what makes it able to write into *any*
+tenant, so the first thing in its body compares `app.current_org_id` against its argument
+and raises if they differ; the organisation it reads *from* is a literal in the function
+body rather than a second parameter. A caller can only ever fill its own context from one
+fixed template, which is no reach over any row it did not already have. That is the whole
+security argument, it is one `IF`, and it sits in the migration next to the statement it
+guards.
+
+Both halves are asserted rather than trusted:
+`test_preloaded_corpus.py::test_the_copy_function_refuses_to_fill_another_tenant` calls it
+with a stranger's id from inside a legitimate tenant session and requires the exception, and
+`test_demo_orgs.py`'s `EXPECTED_FUNCTIONS` inventory now carries a fourth privileged
+function, so one appearing without a decision behind it fails a test.
+
+The residual is the one the coverage table already names for every definer function here:
+the containment is a predicate written by hand inside the function, not a policy the
+database applies. It is tested, and it is still not the mechanism this ADR chose over
+remembering to write `WHERE org_id = …`.

@@ -1,10 +1,11 @@
 # Deploying LexLoom
 
-The target is a **shared production host**, not a sandbox. It already serves other
-applications behind the same nginx, has **2.2 GB of free RAM**, 2 vCPUs, and **arrives
-with no swap** — Step 2 adds 2 GB of it, and that is the single most valuable line in
-this file. Read the sizing below as the argument for why: it is written for the box as
-found, and it does not stop applying once the swapfile is on.
+The target is a **shared production host**, not a sandbox: assume other applications are
+already behind the same nginx and other people hold accounts on the box. It has **2.2 GB
+of free RAM**, 2 vCPUs, and **arrives with no swap** — Step 2 adds 2 GB of it, and that is
+the single most valuable line in this file. Read the sizing below as the argument for
+why: it is written for the box as found, and it does not stop applying once the swapfile
+is on.
 
 With no swap at all, a memory spike has exactly one outcome: the kernel OOM killer picks
 a victim by its own scoring, and the victim may be a *neighbouring* application rather
@@ -37,10 +38,11 @@ backend ships **no CORS headers at all**, so a frontend on a second origin could
 it.
 
 **"Bound to 127.0.0.1" is not a security property on this box, and reading it as one is how
-the Redis instance came to be unauthenticated.** This host is shared: every process running
-under any local account reaches host loopback, which is precisely why `TRUSTED_PROXY_SECRET`
-exists at all — the API is also on `127.0.0.1` and that is exactly not enough. Loopback
-keeps a service off the *internet*; it keeps it away from nobody on the machine.
+the Redis instance came to be unauthenticated.** Assume the host is shared: every process
+running under any local account reaches host loopback, which is precisely why
+`TRUSTED_PROXY_SECRET` exists at all — the API is also on `127.0.0.1` and that is exactly
+not enough. Loopback keeps a service off the *internet*; it keeps it away from nobody on
+the machine.
 
 So each published port needs its own answer to "what stops a neighbouring process?", and
 each has one:
@@ -139,7 +141,8 @@ Edit `.env` before starting anything:
   ```
 
   Not `base64`, and not a passphrase. Each of these values is interpolated into a URL
-  (`DATABASE_URL` in `docker-compose.yml`, and the `export MIG=` line further down),
+  (`DATABASE_URL` in `docker-compose.yml`, and the `export DATABASE_URL=` line further
+  down),
   where `@` and `/` are structural and silently cut the DSN in the wrong place — the
   failure is "password authentication failed" for a user you did not name. Hex has no
   character that means anything in a URL, in shell, or in SQL.
@@ -164,8 +167,8 @@ Edit `.env` before starting anything:
   openssl rand -hex 32     # keep this; it goes in two places
   ```
 
-  Without it, anything on this shared box that can reach `127.0.0.1:8100` — including a
-  server-side request forgery in a neighbouring application — can forge
+  Without it, anything else on this box that can reach `127.0.0.1:8100` — a server-side
+  request forgery in some other application on the host, say — can forge
   `X-Forwarded-For` and create demo tenants without limit. The container refuses to
   start without it under `ENV=demo`.
 - optionally set `GEMINI_API_KEY` to a Google AI Studio key if this deployment should
@@ -228,18 +231,48 @@ container not built through this runbook.
 
 Then apply migrations. **The API container cannot do this**, by design — it connects as an
 unprivileged role that owns nothing, which is what makes the tenant isolation claim
-enforceable. Migrations run as the migration role, so both commands below carry its DSN:
+enforceable. Migrations run as the migration role, so both commands below are given its
+DSN — through the environment, never on the command line:
 
 ```bash
-export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
+# The DSN goes into this shell's environment and never onto a command line.
+# `-e DATABASE_URL` with nothing after it names the variable and passes no
+# value: Compose v2 resolves a bare name against its own environment — the OS
+# environment it was started with, plus `.env` — and hands the result to the
+# container over the Docker API. Written the obvious way — the DSN built into
+# a variable and spelled out as `-e DATABASE_URL="$DSN"` — the password is an
+# element of `docker`'s argv, and `/proc/<pid>/cmdline` is readable by every
+# local account on this box, while `/proc/<pid>/environ` is readable only by
+# the uid that owns the process. That is the whole difference, and it is the
+# same argument as the `sed` in step 5.
+#
+# `export` is a shell builtin, so it forks nothing; `grep` sees only the
+# variable's name on its command line, never the value it prints.
+export DATABASE_URL="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
 
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic upgrade head
-docker compose exec -e DATABASE_URL="$MIG" api python -m alembic current   # must print: 0012 (head)
+docker compose exec -e DATABASE_URL api python -m alembic upgrade head
+docker compose exec -e DATABASE_URL api python -m alembic current   # must print: 0012 (head)
+
+unset DATABASE_URL
 ```
 
-Without that DSN, `alembic current` fails with `permission denied for table
-alembic_version` — the application role cannot read the version table, which is the
-isolation design working rather than a misconfiguration.
+The shell variable has to be called `DATABASE_URL` too — the flag carries the name and
+nothing else, so it can only pick up a variable of that name, and it has to be `export`ed
+rather than set for the shell alone. The other mechanism that keeps the DSN off argv is
+`--env-from-file` on `docker compose run`, and it is not used: it wants the DSN written
+into a second file, which then has to be created with the right mode and removed
+afterwards, for no gain over a variable that dies with the shell.
+
+Forgetting the `export` fails loudly rather than quietly. Compose then passes nothing, the
+container keeps the `DATABASE_URL` its own service definition sets — the *application*
+role — and `alembic` stops on `permission denied for table alembic_version`, because that
+role cannot read the version table. That error is the isolation design working rather than
+a misconfiguration; it is also what you would see with no DSN supplied at all.
+
+One exposure this does not close: the value is in the container's environment, so anyone
+in the `docker` group can read it back. That group is root-equivalent on this box and
+already holds every other secret in this stack; an ordinary local account, which is the
+party the ports section above is about, is not in it.
 
 Check `alembic current`, not the exit code. A container built before a migration existed
 will report success and apply nothing.
@@ -323,9 +356,9 @@ sudo cp /var/www/portfolio/lexloom/app/deploy/nginx/snippets/lexloom-headers.con
 # Permissions BEFORE the secret is written, not after. `cp` lands the file 0644,
 # and this file is about to hold a secret while every other file in /etc/nginx is
 # 0644. Left at the default it would be readable by every local account on the box
-# — including whatever runs the neighbouring applications, which is precisely the
-# party the secret exists to tell apart from nginx. nginx parses its config as root
-# before dropping to www-data, so it never needs the read bit for others.
+# — including whatever else runs here, which is precisely the party the secret
+# exists to tell apart from nginx. nginx parses its config as root before
+# dropping to www-data, so it never needs the read bit for others.
 # `sed -i` below preserves the mode and owner of the file it rewrites, so doing
 # this first leaves no window in which the secret sits in a world-readable file.
 sudo chown root:root /etc/nginx/snippets/lexloom-proxy.conf
@@ -530,8 +563,8 @@ by then the whole host is paying for it.
 
 ## Metrics — `GET /api/v1/status`
 
-No Prometheus and no `/metrics` on this box, and that is deliberate: the target is
-another operator's shared host, and a Prometheus exposition endpoint publishes queue
+No Prometheus and no `/metrics` on this box, and that is deliberate: the target is a
+shared host that is not ours alone, and a Prometheus exposition endpoint publishes queue
 depth, connection-pool internals and every other figure this deployment has decided not
 to hand a stranger. Instead there is one public, unauthenticated endpoint:
 
@@ -570,15 +603,19 @@ GIT_SHA=$(git rev-parse --short HEAD) docker compose build
 # duplicate — but the tenant pays for a full parse and embed to be told no.
 docker compose exec redis redis-cli --scan --pattern 'lexloom:ingest:*'
 
-export MIG="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
-docker compose run --rm -e DATABASE_URL="$MIG" api python -m alembic upgrade head
-docker compose run --rm -e DATABASE_URL="$MIG" api python -m alembic current   # expect 0011 (head)
+# Same mechanism as Step 3: exported here, named to Compose with `-e
+# DATABASE_URL` and no value, so the password never reaches anyone's argv.
+export DATABASE_URL="postgresql+asyncpg://lexloom_migrator:$(grep '^MIGRATOR_DB_PASSWORD=' .env | cut -d= -f2-)@postgres:5432/lexloom"
+docker compose run --rm -e DATABASE_URL api python -m alembic upgrade head
+docker compose run --rm -e DATABASE_URL api python -m alembic current   # expect 0012 (head)
+unset DATABASE_URL
 
-# Schema first, then producers, then consumers. Migrations 0009-0011 are
+# Schema first, then producers, then consumers. Migrations 0009-0012 are
 # additive and backward-compatible — the old code inserts pages and ignores
-# `locator` — so the running containers keep working while the schema is ahead
-# of them. The reverse (new code, old schema) is what breaks, which is why the
-# migration runs before anything restarts.
+# `locator`, and 0012 only adds a function and widens the predicate of an
+# existing one — so the running containers keep working while the schema is
+# ahead of them. The reverse (new code, old schema) is what breaks, which is
+# why the migration runs before anything restarts.
 docker compose up -d --no-deps worker beat
 docker compose up -d --no-deps api
 
@@ -594,9 +631,12 @@ docker stats --no-stream; free -h
 ```
 
 `docker compose run --rm` rather than `exec`, so the migration does not depend on a
-container already being up — and note this still puts the DSN on the process argv, where
-`/proc/<pid>/cmdline` is world-readable. That is a known defect carried from the previous
-milestone, not something this one introduced.
+container already being up. Both this block and Step 3 used to build the DSN into a
+variable and hand it over as `-e DATABASE_URL="$MIG"`, which put the migration role's
+password in `docker`'s argv for the length of the migration, and `/proc/<pid>/cmdline` is
+readable by every local account on this box. The value-less flag is the fix, and it is
+worth carrying to anything else that needs a secret in a container: `-e VAR=value` is the
+reflex, and it is the wrong one here.
 
 ## What is deliberately not installed here
 
@@ -625,9 +665,9 @@ cd /var/www/portfolio/lexloom/app && docker compose down          # keeps the da
 sudo rm /etc/nginx/sites-enabled/lexloom && sudo systemctl reload nginx
 ```
 
-**This box is not ours alone, and Docker on it is not ours alone.** A production
-`marzban` container has been running here since long before this project existed, on the
-same daemon. Every Docker command in this file is run from
+**This box is not ours alone, and neither is the Docker daemon on it.** Assume containers
+that predate this project — somebody else's production, on the same daemon, with their own
+images and volumes. Every Docker command in this file is run from
 `/var/www/portfolio/lexloom/app` for that reason — Compose then scopes itself to this
 project and cannot touch anything else.
 
@@ -636,7 +676,7 @@ Three commands break that scoping and must not be run on this host:
 | Command | What it actually does here |
 |---|---|
 | `docker compose down` outside the project directory | acts on whatever Compose project the current directory resolves to, or none |
-| `docker system prune -a` | deletes the neighbour's image; it is not "unused" merely because our containers do not use it |
+| `docker system prune -a` | deletes another project's image; it is not "unused" merely because our containers do not use it |
 | `docker volume prune` | deletes any volume no *running* container holds — including ours while the stack is stopped |
 
 Removing this project's data is `docker compose down -v`, from this project's directory,

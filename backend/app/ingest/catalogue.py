@@ -121,11 +121,22 @@ CATALOGUE: dict[str, Source] = {
         source_url="https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32016R0679",
         retrieved_at="2026-08-04",
         licence=(
-            "EUR-Lex, Commission Decision 2011/833/EU: reuse permitted with "
-            "acknowledgement of source. The text of EU legislation carries no "
-            "reuse restriction; only the EUR-Lex typesetting does, and "
-            "2011/833/EU covers it. Same terms `seed/gdpr_excerpts.json` was "
-            "taken under."
+            "EUR-Lex, Commission Decision 2011/833/EU on the reuse of "
+            "Commission documents — Article 6(2) allows conditions including "
+            "'(a) the obligation for the reuser to acknowledge the source of "
+            "the documents' and '(b) the obligation not to distort the "
+            "original meaning or message of the documents'. The Commission's "
+            "current legal notice implements that Decision as a licence: "
+            "content owned by the EU is under CC BY 4.0, and reuse is allowed "
+            "'provided appropriate credit is given and changes are indicated' "
+            "— two conditions, not one. Logos, names, trade marks, registered "
+            "designs and patents are carved out and are not licensed. The "
+            "text of EU legislation carries no reuse restriction of its own; "
+            "only the EUR-Lex typesetting does, and this covers it. Same "
+            "terms `seed/gdpr_excerpts.json` was taken under. Only the "
+            "electronic edition of the Official Journal is authentic — "
+            "Regulation (EU) No 216/2013, Article 1(2) — and this file is a "
+            "copy of it, not it."
         ),
         sha256="bd84e63f5b622b739a83389afc3b30d240f792bb88d8eb03a816c9a82b0c2499",
     ),
@@ -144,22 +155,42 @@ CATALOGUE: dict[str, Source] = {
         pages=None,
         source_url="https://pages.nist.gov/800-63-4/sp800-63b.html",
         retrieved_at="2026-08-05",
-        # Quoted verbatim from https://www.nist.gov/oism/copyrights, fetched on
-        # the date above. The document itself says nothing about rights — zero
-        # matches for "copyright", "public domain" or "17 U.S.C" anywhere in the
-        # published HTML, which is why the licence is cited from the publisher's
-        # own policy page rather than from the file.
+        # Quoted verbatim from NIST's policy for Technical Series publications,
+        # fetched on the date above: https://www.nist.gov/open/license (NIST's
+        # own short form; it redirects to the copyright-fair-use-and-licensing
+        # -statements-srd-data-software-and-technical-series-publications page).
+        #
+        # NOT https://www.nist.gov/oism/copyrights, which an earlier version of
+        # this field quoted. That page is the policy for NIST *web pages*, it
+        # now redirects to /copyrights-disclaimers, and its own "Research
+        # products" section sends the reader here for products of NIST
+        # research. The distinction is not pedantry: the web-pages policy
+        # reserves nothing outside the United States and grants no right to
+        # make derivative works, and the artefact committed here IS a
+        # derivative work — see `conversion`. The PDF rendition of this same
+        # publication links this page too, under "NIST Technical Series
+        # Policies".
+        #
+        # The document itself says nothing about rights — zero matches for
+        # "copyright", "public domain" or "17 U.S.C" anywhere in the published
+        # HTML — which is why the licence is cited from the publisher's policy
+        # rather than from the file.
         licence=(
-            'NIST, https://www.nist.gov/oism/copyrights: "NIST web pages are '
-            "provided as a public service by the National Institute of "
-            "Standards and Technology (NIST). With the exception of material "
-            "marked as copyrighted, information presented on NIST sites are "
-            "considered public information and may be distributed or copied. "
-            'Use of appropriate byline/photo/image credits is requested." '
-            "Nothing in this document is marked as copyrighted. Separately, and "
-            "as a conclusion rather than a quotation: a work of the United "
-            "States Government is not subject to copyright protection in the "
-            "United States (17 U.S.C. 105)."
+            "NIST Technical Series publication. NIST, "
+            'https://www.nist.gov/open/license: "Works authored by NIST '
+            "employees are not subject to Copyright protection within the "
+            "United States; foreign rights are reserved. To the extent NIST "
+            "may assert rights outside of the United States, the public is "
+            "granted the non-exclusive, perpetual, paid-up, royalty-free, "
+            "worldwide right to reprint works in all formats including print, "
+            "electronically, and online, and in all subsequent editions, and "
+            "derivative works. Please use the recommended citation format "
+            "below followed by 'Republished courtesy of the National Institute "
+            "of Standards and Technology.' Some works published by NIST may "
+            "have been written by third parties and may be subject to "
+            'copyright protection." The derivative-works grant is the clause '
+            "this entry depends on; the citation and the courtesy line are in "
+            "NOTICE at the repository root."
         ),
         # Both digests are of OUR artefact, and both are reproducible: two runs
         # of the script over the same fetched HTML produced byte-identical

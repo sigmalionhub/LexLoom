@@ -1,0 +1,105 @@
+LexLoom
+Copyright (c) 2026 sigmalion.io
+
+The Apache License, Version 2.0 (see LICENSE) covers the source code of this
+repository. It does NOT cover the third-party documents redistributed here,
+or the artefacts derived from them, which are listed below under their own
+terms. LexLoom is not affiliated with, endorsed by, or sponsored by the
+National Institute of Standards and Technology, the European Commission, the
+Publications Office of the European Union, or any other publisher named
+below.
+
+--------------------------------------------------------------------------------
+1. Regulation (EU) 2016/679 (General Data Protection Regulation)
+--------------------------------------------------------------------------------
+
+  (c) European Union, 1995-2026.
+
+  Source:    https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:32016R0679
+             Publications Office of the European Union, OJ L 119, 4.5.2016, p. 1-88.
+  Retrieved: 2026-08-04.
+
+  Reuse of European Commission documents is authorised under Commission
+  Decision 2011/833/EU of 12 December 2011 on the reuse of Commission
+  documents. The Commission implements that policy by licensing EU-owned
+  content under the Creative Commons Attribution 4.0 International licence
+  (CC BY 4.0): reuse is allowed provided appropriate credit is given and
+  changes are indicated. Logos, names, trade marks, registered designs and
+  patents are excluded from that policy and are not licensed.
+
+  Only the electronic edition of the Official Journal of the European Union is
+  authentic and produces legal effects (Regulation (EU) No 216/2013, Article
+  1(2), in force since 1 July 2013). The files below are copies of it and have
+  no legal effect. They are not a source of legal advice.
+
+  Files in this repository:
+
+    backend/app/ingest/sources/gdpr-full.pdf
+        The Publications Office's own PDF export, committed unchanged.
+        Changes indicated: none.
+
+    backend/seed/gdpr_excerpts.json
+        30 contiguous verbatim extracts of the above, each prefixed with the
+        provision it quotes. Changes indicated: extracts are cut at a
+        sentence or clause boundary and are not reworded; the file records
+        its own extraction method.
+
+    backend/tests/fixtures/gdpr-full.chunks.json
+        A derived work, listed here for completeness rather than because it
+        carries text: it holds only an ordinal, a SHA-256 digest and a page
+        range per chunk. It reproduces none of the Regulation's wording.
+
+--------------------------------------------------------------------------------
+2. NIST Special Publication 800-63B-4, Digital Identity Guidelines:
+   Authentication and Authenticator Management
+--------------------------------------------------------------------------------
+
+  Temoshok D, Fenton JL, Choong YY, Lefkovitz N, Regenscheid A, Galluzzo R,
+  Richer JP (2025) Digital Identity Guidelines: Authentication and
+  Authenticator Management. (National Institute of Standards and Technology,
+  Gaithersburg, MD), NIST Special Publication (SP) NIST SP 800-63B-4.
+  https://doi.org/10.6028/NIST.SP.800-63B-4 (accessed 2026-08-05)
+
+  Republished courtesy of the National Institute of Standards and Technology.
+
+  Source:    https://pages.nist.gov/800-63-4/sp800-63b.html
+  Retrieved: 2026-08-05.
+
+  NIST Technical Series publication. Works authored by NIST employees are not
+  subject to copyright protection within the United States; foreign rights
+  are reserved. To the extent NIST may assert rights outside of the United
+  States, the public is granted the non-exclusive, perpetual, paid-up,
+  royalty-free, worldwide right to reprint works in all formats including
+  print, electronically, and online, and in all subsequent editions, and
+  derivative works. See https://www.nist.gov/open/license. Some works
+  published by NIST may have been written by third parties and may be
+  subject to copyright protection.
+
+  Files in this repository:
+
+    backend/app/ingest/sources/nist-sp-800-63b.src.html
+        NIST's published HTML, preprocessed: one <nav>, one <footer>, the
+        page-switch div and the page build timestamp removed, 616 anchors
+        unwrapped, images and scripts removed. The body text is NIST's,
+        unaltered.
+
+    backend/app/ingest/sources/nist-sp-800-63b.docx
+        A DERIVATIVE WORK created by this project, not published by NIST.
+        NIST does not publish this document as .docx. Built by
+        backend/scripts/build_docx_source.sh from the file above with
+        LibreOffice 24.2.7.2 on 2026-08-05. The text is NIST's; the format,
+        the packaging and any conversion artefacts are this project's.
+
+    backend/tests/fixtures/nist_sp_800_63b_chunks.json
+        A derived work, listed here for completeness rather than because it
+        carries prose: each of its 746 records holds an ordinal, a heading
+        path (`locator`) and a character count. The only text it reproduces
+        is the publication's own 145 heading titles.
+
+  NIST does not endorse this project, its conversion of the publication, or
+  any product or service described here.
+
+--------------------------------------------------------------------------------
+
+This project is not affiliated with, or endorsed by, NIST or the European
+Union.

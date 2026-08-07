@@ -787,11 +787,12 @@ Everything is English: prose, code, comments and commit history. The commit log 
 to be readable — each message says what changed and why, and several of them say what was
 wrong before.
 
-That history has one author, and the contributors graph derived from it will say so
-correctly. It is not the whole record: three colleagues at sigmalion.io did code review and
-architecture here, in conversations that left nothing behind in git.
-[**CONTRIBUTORS.md**](CONTRIBUTORS.md) names them and says outright that it is the one page
-in this repository you cannot check against the repository.
+That history carries one name, and the contributors graph derived from it will show one
+name too. Neither is the record of who built this. Four of us at sigmalion.io designed it,
+argued out the decisions and read each other's commits, in conversations that left nothing
+behind in git; the code was committed here by one of us.
+[**CONTRIBUTORS.md**](CONTRIBUTORS.md) names all four and says outright that it is the one
+page in this repository you cannot check against the repository.
 
 ## Licence
 
